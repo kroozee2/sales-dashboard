@@ -7,6 +7,7 @@ import {
   type Platform, type Category,
 } from "@/lib/content-constants";
 import GraphicsStudio from "@/components/graphics-studio";
+import CompetitorResearch from "@/components/competitor-research";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ContentItem {
@@ -34,6 +35,7 @@ const TABS = [
   { key: "posted", label: "Posted", emoji: "📣" },
   { key: "ideas", label: "Ideas", emoji: "💡" },
   { key: "proof", label: "Proof", emoji: "🏆" },
+  { key: "research", label: "Research", emoji: "🔎" },
   { key: "graphics", label: "Graphics", emoji: "🎨" },
   { key: "create", label: "Create", emoji: "✨" },
   { key: "stories", label: "Stories", emoji: "📸" },
@@ -2259,6 +2261,7 @@ export default function ContentPage() {
         {tab === "ideas" && <IdeasTab ideas={ideas} onChanged={load} />}
         {tab === "remix" && <RemixTab onSaved={load} />}
         {tab === "proof" && <ProofTab proof={proof} onChanged={load} />}
+        {tab === "research" && <CompetitorResearch onIdeaSaved={load} />}
         {tab === "graphics" && <GraphicsStudio />}
         {tab === "posted" && <PostedTab posted={posted} onChanged={loadPosted} />}
         {tab === "events" && <EventsTab events={events} onChanged={load} onEditEvent={setEditEventId} onBumpEvent={bumpEvent} />}

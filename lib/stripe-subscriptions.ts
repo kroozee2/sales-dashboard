@@ -113,9 +113,11 @@ function isFinal(metadata: Record<string, string> | null | undefined, cancelAtPe
 export function mergeStripeBillingRows({
   subscriptions,
   schedules,
+  pricesById = {},
 }: {
   subscriptions: StripeSubscriptionLike[];
   schedules: StripeScheduleLike[];
+  pricesById?: Record<string, StripePriceLike>;
 }): BillingRow[] {
   const rows: BillingRow[] = subscriptions.map((sub) => {
     const items = Array.isArray(sub.items) ? sub.items : sub.items?.data ?? [];
@@ -155,7 +157,10 @@ export function mergeStripeBillingRows({
     if (schedule.status !== "not_started" || coveredScheduleIds.has(schedule.id)) continue;
     const phase = schedule.phases?.[0];
     const item = phase?.items?.[0];
-    const price = priceFromItem(item);
+    const inlinePrice = priceFromItem(item);
+    const price = inlinePrice.unit_amount == null && inlinePrice.id
+      ? { ...pricesById[inlinePrice.id], id: inlinePrice.id }
+      : inlinePrice;
     const customer = customerFields(schedule.customer);
     const amountCents = price.unit_amount ?? 0;
     const quantity = item?.quantity ?? 1;

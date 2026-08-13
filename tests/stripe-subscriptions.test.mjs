@@ -15,9 +15,12 @@ test("includes not-started subscription schedules as upcoming active payments", 
         start_date: 1_789_323_972,
         end_date: 1_791_915_972,
         currency: "usd",
-        items: [{ price: { id: "price_launch", unit_amount: 300_000, recurring: { interval: "month" }, product: "prod_launch" }, quantity: 1 }],
+        items: [{ price: "price_launch", quantity: 1 }],
       }],
     }],
+    pricesById: {
+      price_launch: { id: "price_launch", unit_amount: 300_000, currency: "usd", recurring: { interval: "month" }, product: "prod_launch" },
+    },
   });
 
   assert.equal(rows.length, 1);

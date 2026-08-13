@@ -21,9 +21,18 @@ export async function GET() {
       expand: ["data.customer"],
     });
 
+    const pricesById = Object.fromEntries(await Promise.all(
+      [...new Set(schedules.data.flatMap((schedule) =>
+        schedule.phases.flatMap((phase) => phase.items.map((item) =>
+          typeof item.price === "string" ? item.price : item.price.id,
+        )),
+      ))].map(async (priceId) => [priceId, await stripe.prices.retrieve(priceId)]),
+    ));
+
     const enriched = mergeStripeBillingRows({
       subscriptions: subs.data,
       schedules: schedules.data,
+      pricesById,
     });
 
     const activeOnly = enriched.filter((s) => s.status === "active");

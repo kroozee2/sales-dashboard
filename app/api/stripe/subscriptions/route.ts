@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
-
-const PRODUCT_CATEGORY: Record<string, string> = {
-  prod_THiqJJWf5fAFLn: "BOARDROOM",
-  prod_SUcGUmlKVAt0SW: "LAUNCH",
-  prod_TKHEckSOuH5s: "LAUNCH",
-  prod_UW2ll9z9DcUhuE: "AI Mastermind",
-  prod_TzqtjPwO1SsVfV: "30-Day Accelerator",
-  prod_UZ1e89xqXnhjcp: "Consulting",
-};
+import { mergeStripeBillingRows } from "@/lib/stripe-subscriptions";
 
 export async function GET() {
   const stripe = getStripe();
@@ -23,50 +15,15 @@ export async function GET() {
       expand: ["data.customer", "data.items"],
     });
 
-    const enriched = subs.data.map((sub) => {
-      const customer = sub.customer as import("stripe").Stripe.Customer;
-      const item = sub.items.data[0];
-      const price = item?.price;
-      const productId = typeof price?.product === "string" ? price.product : (price?.product as { id: string })?.id ?? "";
-      const amountCents = price?.unit_amount ?? 0;
-      const interval = price?.recurring?.interval ?? "month";
-      const monthlyAmount = interval === "year" ? amountCents / 12 : amountCents;
-      const isPaused = !!(sub as unknown as { pause_collection?: { behavior: string } }).pause_collection;
-      const periodEnd = (item as unknown as { current_period_end?: number }).current_period_end;
-      const nextBillTs = periodEnd ?? null;
-      const nextBill = periodEnd
-        ? new Date(periodEnd * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-        : "—";
-
-      const offer =
-        PRODUCT_CATEGORY[productId] ||
-        (amountCents >= 150000 ? "BOARDROOM" : amountCents >= 80000 ? "LAUNCH" : "Other");
-
-      return {
-        id: sub.id,
-        itemId: item?.id ?? null,
-        priceId: price?.id ?? null,
-        currency: price?.currency ?? "usd",
-        name: customer?.name || "Customer",
-        email: customer?.email || null,
-        offer,
-        amount: amountCents / 100,
-        monthlyAmount: monthlyAmount / 100,
-        interval,
-        status: isPaused ? "paused" : "active",
-        nextBill,
-        nextBillTs,
-        startDate: new Date(sub.start_date * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-        customerId: customer?.id ?? null,
-      };
+    const schedules = await stripe.subscriptionSchedules.list({
+      limit: 100,
+      scheduled: true,
+      expand: ["data.customer"],
     });
 
-    // Sort by next billing date ascending (nulls last)
-    enriched.sort((a, b) => {
-      if (!a.nextBillTs && !b.nextBillTs) return 0;
-      if (!a.nextBillTs) return 1;
-      if (!b.nextBillTs) return -1;
-      return a.nextBillTs - b.nextBillTs;
+    const enriched = mergeStripeBillingRows({
+      subscriptions: subs.data,
+      schedules: schedules.data,
     });
 
     const activeOnly = enriched.filter((s) => s.status === "active");

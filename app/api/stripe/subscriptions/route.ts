@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
 import { mergeStripeBillingRows } from "@/lib/stripe-subscriptions";
+import { summarizeRecurringRevenue } from "@/lib/revenue-metrics";
 
 export async function GET() {
   const stripe = getStripe();
@@ -35,14 +36,11 @@ export async function GET() {
       pricesById,
     });
 
-    const activeOnly = enriched.filter((s) => s.status === "active");
-    const mrr = Math.round(activeOnly.reduce((s, sub) => s + sub.monthlyAmount, 0));
+    const summary = summarizeRecurringRevenue(enriched);
 
     return NextResponse.json({
       subscriptions: enriched,
-      mrr,
-      totalActive: activeOnly.length,
-      totalPaused: enriched.filter((s) => s.status === "paused").length,
+      ...summary,
       isDemo: false,
     });
   } catch (err) {

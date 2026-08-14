@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
 import { DEMO_REVENUE_DATA, DEMO_TRANSACTIONS } from "@/lib/mock-data";
+import { netSucceededChargeCents } from "@/lib/revenue-metrics";
 
 function categorizeByAmount(cents: number): string {
   if (cents >= 1400000) return "BOARDROOM";
@@ -142,13 +143,14 @@ export async function GET(req: NextRequest) {
     const range = getPeriodRange(period);
 
     const allCharges = await fetchAllCharges(stripe, range.gte);
-    const succeeded = allCharges.filter((c) => c.status === "succeeded");
+    const succeeded = allCharges.filter((charge) => netSucceededChargeCents(charge) > 0);
 
     const bucketMap: Record<string, number> = {};
     range.buckets.forEach((b) => (bucketMap[b] = 0));
 
     const enriched = await Promise.all(
       succeeded.map(async (c) => {
+        const netAmountCents = netSucceededChargeCents(c);
         const customer = c.customer as Stripe.Customer | null;
         let name =
           c.billing_details?.name ||
@@ -170,7 +172,7 @@ export async function GET(req: NextRequest) {
         }
 
         const bucket = range.getBucket(c.created);
-        if (bucket in bucketMap) bucketMap[bucket] += c.amount / 100;
+        if (bucket in bucketMap) bucketMap[bucket] += netAmountCents / 100;
 
         // Subscription charges have an invoice attached; one-time purchases don't
         const isSubscriptionCharge = !!(c as unknown as { invoice?: string | null }).invoice;
@@ -180,8 +182,8 @@ export async function GET(req: NextRequest) {
           name: name || "Customer",
           email: email || null,
           phone: null as string | null,
-          offer: categorizeByAmount(c.amount),
-          amount: c.amount / 100,
+          offer: categorizeByAmount(netAmountCents),
+          amount: netAmountCents / 100,
           date: new Date(c.created * 1000).toISOString().split("T")[0],
           status: c.status,
           customerId: typeof c.customer === "string" ? c.customer : (c.customer as { id?: string })?.id ?? null,

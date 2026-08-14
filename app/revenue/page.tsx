@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { formatExact } from "@/lib/utils";
+import { collectedManualPayments } from "@/lib/revenue-metrics";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1895,13 +1896,10 @@ export default function RevenuePage() {
   }, [period]);
 
   // Manual one-off collected payments that belong in high/low strips (period-filtered)
-  const manualCollected = manualPayments.filter((p) => {
-    if (p.payment_type !== "one_off") return false;
-    if (p.status !== "collected") return false;
-    if (p.amount <= 0) return false;
-    if (periodStart && p.payment_date && p.payment_date < periodStart) return false;
-    return true;
-  });
+  const manualCollected = useMemo(
+    () => collectedManualPayments(manualPayments, periodStart),
+    [manualPayments, periodStart],
+  );
   const manualHighTx = manualCollected.filter((p) => p.amount >= 1000);
   const manualLowTx = manualCollected.filter((p) => p.amount < 1000);
   const manualHighTotal = manualHighTx.reduce((s, p) => s + p.amount, 0);

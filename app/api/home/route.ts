@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { saleRevenueAmount } from "@/lib/revenue-metrics";
 
 const db = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_CALLS_URL!,
@@ -92,17 +93,14 @@ export async function GET(req: NextRequest) {
   // Revenue events: closed sales + collected payments.
   //
   // A sale's value can live in any of three columns depending on how it was
-  // logged: deal_amount (older rows), new_revenue (what the call panel writes
-  // now), or cc_upfront when only the cash collected was entered. Reading just
-  // deal_amount silently dropped real sales from the month, so fall through the
-  // three in the same order the Calls page does.
-  const saleAmount = (s: { deal_amount?: unknown; new_revenue?: unknown; cc_upfront?: unknown }) =>
-    Number(s.deal_amount ?? 0) || Number(s.new_revenue ?? 0) || Number(s.cc_upfront ?? 0);
+  // logged: new_revenue (the explicit booked-revenue field), deal_amount on
+  // older rows, or cc_upfront when only cash collected was entered. Prefer the
+  // explicit revenue value so a stale contract amount cannot overstate results.
 
   type Ev = { name: string; amount: number; date: Date; kind: "Sale" | "Payment"; offer: string | null };
   const events: Ev[] = [];
   for (const s of salesRes.data ?? []) {
-    const amount = saleAmount(s);
+    const amount = saleRevenueAmount(s);
     if (s.result === "✅ Sale" && amount > 0 && s.call_date) {
       events.push({ name: s.name, amount, date: new Date(s.call_date), kind: "Sale", offer: offerName(s.offer) });
     }
@@ -158,7 +156,7 @@ export async function GET(req: NextRequest) {
     .filter((c) => !c.call_date || true)
     .map((c) => ({ id: c.id, name: c.name, call_date: c.call_date, call_type: c.call_type }));
   const recentCalls = (recentCallsRes.data ?? [])
-    .map((c) => ({ id: c.id, name: c.name, call_date: (c.call_date ?? "").split("T")[0], result: c.result, deal_amount: saleAmount(c) || null }));
+    .map((c) => ({ id: c.id, name: c.name, call_date: (c.call_date ?? "").split("T")[0], result: c.result, deal_amount: saleRevenueAmount(c) || null }));
 
   return NextResponse.json({
     period,

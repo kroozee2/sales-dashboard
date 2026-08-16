@@ -11,7 +11,10 @@ import {
   statusMeta,
 } from "@/lib/content-constants";
 import {
+  CONTENT_CADENCE,
+  CONTENT_FOCUS_AREAS,
   CONTENT_SCHEDULE_GROUPS,
+  contentCadenceProgress,
   groupContentBySchedule,
   moveContentToScheduleGroup,
   type ContentScheduleGroup,
@@ -124,6 +127,7 @@ export default function ContentSpreadsheet({
   }, [items, query, category, platform, status]);
 
   const groups = useMemo(() => groupContentBySchedule(filtered, today), [filtered, today]);
+  const cadenceProgress = useMemo(() => contentCadenceProgress(items, today), [items, today]);
   const total = CONTENT_SCHEDULE_GROUPS.reduce((sum, group) => sum + groups[group].length, 0);
 
   async function patch(id: string, value: ItemPatch) {
@@ -166,6 +170,41 @@ export default function ContentSpreadsheet({
 
   return (
     <div className="space-y-4">
+      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 sm:p-5">
+        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-sm font-bold text-white">🎯 Weekly publishing rhythm</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">Plan the week around the cadence that grows the audience and supports each launch.</p>
+          </div>
+          <span className="text-[11px] font-medium text-zinc-600">Monday–Sunday</span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {CONTENT_CADENCE.map((cadence) => {
+            const progress = cadenceProgress[cadence.key];
+            const percent = Math.min(100, Math.round((progress.count / progress.target) * 100));
+            return (
+              <div key={cadence.key} className={`rounded-xl border p-3 ${progress.met ? "border-emerald-500/25 bg-emerald-500/[0.05]" : "border-zinc-800 bg-zinc-950/60"}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-zinc-200">{cadence.icon} {cadence.label}</p>
+                    <p className="mt-0.5 text-[10px] text-zinc-600">{cadence.helper}</p>
+                  </div>
+                  <span className={`text-sm font-bold tabular-nums ${progress.met ? "text-emerald-400" : "text-white"}`}>{progress.count}/{progress.target}</span>
+                </div>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+                  <div className={`h-full rounded-full ${progress.met ? "bg-emerald-500" : "bg-gradient-to-r from-blue-500 to-violet-500"}`} style={{ width: `${percent}%` }} />
+                </div>
+                <p className="mt-1.5 text-[10px] text-zinc-600">{cadence.key === "instagram" ? `${progress.count} of 7 days covered` : `${progress.count} of ${progress.target} planned`}</p>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-zinc-800 pt-3">
+          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Align content with</span>
+          {CONTENT_FOCUS_AREAS.map((focus) => <span key={focus.key} className="rounded-full border border-zinc-800 bg-zinc-950 px-2.5 py-1 text-[10px] font-medium text-zinc-400">{focus.label}</span>)}
+        </div>
+      </section>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         {CONTENT_SCHEDULE_GROUPS.map((group) => {
           const meta = GROUP_META[group];
@@ -246,6 +285,7 @@ export default function ContentSpreadsheet({
                       const ready = readiness(item);
                       const cat = categoryMeta(item.category);
                       const itemStatus = statusMeta(item.status);
+                      const contentFocus = typeof item.meta?.content_focus === "string" ? item.meta.content_focus : "";
                       return (
                         <tr key={item.id} draggable
                           onDragStart={(event) => { event.dataTransfer.setData("text/plain", item.id); event.dataTransfer.effectAllowed = "move"; setDragId(item.id); }}
@@ -255,6 +295,12 @@ export default function ContentSpreadsheet({
                           <td className="px-2 py-2">
                             <input defaultValue={item.title} key={`${item.id}-${item.title}`} onBlur={(event) => { const value = event.target.value.trim(); if (value && value !== item.title) void patch(item.id, { title: value }); }}
                               aria-label={`Content title: ${item.title}`} className="w-full rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-sm font-medium text-zinc-100 hover:border-zinc-800 focus:border-blue-500 focus:bg-zinc-950 focus:outline-none" />
+                            <select value={contentFocus} onChange={(event) => void patch(item.id, { meta: { ...item.meta, content_focus: event.target.value || null } })}
+                              aria-label={`Strategic focus for ${item.title}`}
+                              className="mt-1 w-full rounded-lg border border-transparent bg-transparent px-2 py-1 text-[10px] text-zinc-500 hover:border-zinc-800 focus:border-blue-500 focus:bg-zinc-950 focus:outline-none">
+                              <option value="">Choose strategic focus…</option>
+                              {CONTENT_FOCUS_AREAS.map((focus) => <option key={focus.key} value={focus.key}>{focus.label}</option>)}
+                            </select>
                           </td>
                           <td className="px-2 py-2">
                             <input type="date" value={item.scheduled_date ?? ""} onChange={(event) => void patch(item.id, { scheduled_date: event.target.value || null })}

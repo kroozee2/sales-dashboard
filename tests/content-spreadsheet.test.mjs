@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  CONTENT_CADENCE,
+  CONTENT_FOCUS_AREAS,
+  contentCadenceProgress,
   groupContentBySchedule,
   moveContentToScheduleGroup,
   scheduleGroupOf,
@@ -79,6 +82,36 @@ test("dragging a row to a schedule section maps to a useful editable date", () =
   assert.equal(moveContentToScheduleGroup("upcoming", today), "2026-08-17");
   assert.equal(moveContentToScheduleGroup("overdue", today), "2026-08-15");
   assert.equal(moveContentToScheduleGroup("unscheduled", today), null);
+});
+
+test("tracks Andrew's weekly publishing rhythm and daily Instagram coverage", () => {
+  const progress = contentCadenceProgress([
+    item({ id: "ig-mon-reel", platforms: ["instagram"], scheduled_date: "2026-08-10" }),
+    item({ id: "ig-mon-carousel", platforms: ["carousel"], scheduled_date: "2026-08-10" }),
+    item({ id: "ig-tue-carousel", platforms: ["carousel"], scheduled_date: "2026-08-11" }),
+    item({ id: "ig-static-post", platforms: ["instagram_post"], scheduled_date: "2026-08-12" }),
+    item({ id: "youtube", platforms: ["youtube"], scheduled_date: "2026-08-12" }),
+    item({ id: "email-1", platforms: ["email"], scheduled_date: "2026-08-10" }),
+    item({ id: "email-2", platforms: ["email"], scheduled_date: "2026-08-12" }),
+    item({ id: "email-3", platforms: ["email"], scheduled_date: "2026-08-14" }),
+    item({ id: "facebook", platforms: ["facebook"], meta: { content_focus: "methodology" }, scheduled_date: "2026-08-15" }),
+    item({ id: "facebook-announcement", platforms: ["facebook"], meta: { content_focus: "offer_launch" }, scheduled_date: "2026-08-15" }),
+    item({ id: "next-week", platforms: ["youtube"], scheduled_date: "2026-08-17" }),
+  ], today);
+
+  assert.deepEqual(CONTENT_CADENCE.map((entry) => [entry.key, entry.weeklyTarget]), [
+    ["youtube", 1], ["instagram", 7], ["email", 3], ["facebook", 1],
+  ]);
+  assert.deepEqual(Object.fromEntries(Object.entries(progress).map(([key, value]) => [key, value.count])), {
+    youtube: 1,
+    instagram: 2,
+    email: 3,
+    facebook: 1,
+  });
+  assert.deepEqual(CONTENT_FOCUS_AREAS.map((focus) => focus.label), ["Upcoming events", "AI + Claude updates", "Offer launches + CTA", "Core methodologies"]);
+  const spreadsheet = readFileSync(new URL("../components/content-spreadsheet.tsx", import.meta.url), "utf8");
+  assert.match(spreadsheet, /Weekly publishing rhythm/);
+  assert.match(spreadsheet, /contentCadenceProgress\(items, today\)/);
 });
 
 test("content patch validation allows spreadsheet fields and strips mass-assignment fields", () => {

@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { contentDb } from "@/lib/supabase-content";
+import { sanitizeContentPatch } from "@/lib/content-item-validation";
+import { CATEGORIES, CONTENT_STATUSES, PLATFORMS } from "@/lib/content-constants";
 
 export const runtime = "nodejs";
+
+const contentPatchAllowedValues = {
+  categories: CATEGORIES.map((entry) => entry.key),
+  statuses: CONTENT_STATUSES.map((entry) => entry.key),
+  platforms: PLATFORMS.map((entry) => entry.key),
+};
 
 // GET — all content items (+ events for the calendar)
 export async function GET() {
@@ -26,9 +34,18 @@ export async function POST(req: NextRequest) {
 
 // PATCH — update item
 export async function PATCH(req: NextRequest) {
-  const { id, ...fields } = await req.json();
-  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  fields.updated_at = new Date().toISOString();
+  const body = await req.json().catch(() => null) as Record<string, unknown> | null;
+  if (!body || typeof body.id !== "string" || !body.id.trim()) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const { id, ...requested } = body;
+  let fields: Record<string, unknown>;
+  try {
+    const sanitized = sanitizeContentPatch(requested, contentPatchAllowedValues);
+    if (sanitized.rejected.length) return NextResponse.json({ error: `unsupported fields: ${sanitized.rejected.join(", ")}` }, { status: 400 });
+    if (!Object.keys(sanitized.fields).length) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
+    fields = { ...sanitized.fields, updated_at: new Date().toISOString() };
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "invalid update" }, { status: 400 });
+  }
   const { data, error } = await contentDb().from("content_items").update(fields).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ item: data });

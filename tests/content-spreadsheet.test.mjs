@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -28,6 +29,12 @@ const item = (overrides = {}) => ({
 });
 
 const today = "2026-08-16";
+
+test("renders the spreadsheet underneath Calendar instead of as a separate tab", () => {
+  const page = readFileSync(new URL("../app/content/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(page, /key:\s*"spreadsheet"/);
+  assert.match(page, /tab === "calendar"[\s\S]{0,1600}<CalendarTab[\s\S]{0,1600}<ContentSpreadsheet/);
+});
 
 test("classifies active content into overdue, today, upcoming, and unscheduled", () => {
   assert.equal(scheduleGroupOf(item({ scheduled_date: "2026-08-15" }), today), "overdue");

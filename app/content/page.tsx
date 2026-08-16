@@ -31,7 +31,6 @@ interface CEvent {
 
 const TABS = [
   { key: "calendar", label: "Calendar", emoji: "🗓️" },
-  { key: "spreadsheet", label: "Spreadsheet", emoji: "▦" },
   { key: "events", label: "Events", emoji: "🎟️" },
   { key: "dashboard", label: "Dashboard", emoji: "📊" },
   { key: "posted", label: "Posted", emoji: "📣" },
@@ -2257,8 +2256,14 @@ export default function ContentPage() {
       {/* Main content */}
       <div className="min-w-0">
         {tab === "dashboard" && <DashboardTab items={items} ideas={ideas} proof={proof} stories={stories} events={events} posted={posted} onGo={setTab} />}
-        {tab === "calendar" && <CalendarTab items={items} events={events} onOpen={(i) => setOpenId(i.id)} onQuickAdd={quickAdd} onCreateOn={createOn} onReschedule={(id, date) => void patchItem(id, { scheduled_date: date })} />}
-        {tab === "spreadsheet" && <ContentSpreadsheet items={items} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} />}
+        {tab === "calendar" && (
+          <div className="space-y-8">
+            <CalendarTab items={items} events={events} onOpen={(i) => setOpenId(i.id)} onQuickAdd={quickAdd} onCreateOn={createOn} onReschedule={(id, date) => void patchItem(id, { scheduled_date: date })} />
+            <div className="border-t border-zinc-800 pt-8">
+              <ContentSpreadsheet items={items} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} />
+            </div>
+          </div>
+        )}
         {tab === "create" && <CreateTab events={events} onSaved={load} />}
         {tab === "stories" && <StoriesTab stories={stories} onChanged={load} />}
         {tab === "ideas" && <IdeasTab ideas={ideas} onChanged={load} />}

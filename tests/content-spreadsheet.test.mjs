@@ -36,6 +36,15 @@ test("renders the spreadsheet underneath Calendar instead of as a separate tab",
   assert.match(page, /tab === "calendar"[\s\S]{0,1600}<CalendarTab[\s\S]{0,1600}<ContentSpreadsheet/);
 });
 
+test("spreadsheet deletion requires an explicit confirmation", () => {
+  const page = readFileSync(new URL("../app/content/page.tsx", import.meta.url), "utf8");
+  const spreadsheet = readFileSync(new URL("../components/content-spreadsheet.tsx", import.meta.url), "utf8");
+  assert.match(page, /<ContentSpreadsheet[\s\S]{0,800}onDelete=\{delItem\}/);
+  assert.match(spreadsheet, /Delete this content\?/);
+  assert.match(spreadsheet, /Yes, delete it/);
+  assert.match(spreadsheet, /const deleted = await onDelete\(confirmItem\.id\)/);
+});
+
 test("classifies active content into overdue, today, upcoming, and unscheduled", () => {
   assert.equal(scheduleGroupOf(item({ scheduled_date: "2026-08-15" }), today), "overdue");
   assert.equal(scheduleGroupOf(item({ scheduled_date: today }), today), "today");

@@ -91,10 +91,12 @@ export default function ContentSpreadsheet({
   items,
   onOpen,
   onPatch,
+  onDelete,
 }: {
   items: ContentSpreadsheetItem[];
   onOpen: (item: ContentSpreadsheetItem) => void;
   onPatch: (id: string, patch: ItemPatch) => Promise<ContentSpreadsheetItem | null>;
+  onDelete: (id: string) => Promise<boolean>;
 }) {
   const today = todayLocal();
   const [query, setQuery] = useState("");
@@ -105,6 +107,9 @@ export default function ContentSpreadsheet({
   const [dropGroup, setDropGroup] = useState<ContentScheduleGroup | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [saveErrorId, setSaveErrorId] = useState<string | null>(null);
+  const [confirmItem, setConfirmItem] = useState<ContentSpreadsheetItem | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState(false);
 
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -139,6 +144,24 @@ export default function ContentSpreadsheet({
     void patch(dragId, { scheduled_date: moveContentToScheduleGroup(group, today) });
     setDragId(null);
     setDropGroup(null);
+  }
+
+  async function confirmDelete() {
+    if (!confirmItem || deletingId) return;
+    setDeletingId(confirmItem.id);
+    setDeleteError(false);
+    try {
+      const deleted = await onDelete(confirmItem.id);
+      if (!deleted) {
+        setDeleteError(true);
+        return;
+      }
+      setConfirmItem(null);
+    } catch {
+      setDeleteError(true);
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -215,7 +238,7 @@ export default function ContentSpreadsheet({
                       <th className="w-[180px] px-2 py-2 font-semibold">Type / channel</th>
                       <th className="w-[135px] px-2 py-2 font-semibold">Status</th>
                       <th className="w-[110px] px-2 py-2 font-semibold">Readiness</th>
-                      <th className="w-[65px] px-2 py-2" aria-label="Open" />
+                      <th className="w-[105px] px-2 py-2" aria-label="Actions" />
                     </tr>
                   </thead>
                   <tbody>
@@ -259,7 +282,12 @@ export default function ContentSpreadsheet({
                           </td>
                           <td className="px-2 py-2"><span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-semibold whitespace-nowrap ${ready.className}`}>{ready.label}</span></td>
                           <td className="px-2 py-2 text-right">
-                            <button onClick={() => onOpen(item)} className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-500 hover:bg-zinc-800 hover:text-white">Edit →</button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button onClick={() => onOpen(item)} className="rounded-lg px-2 py-1.5 text-xs font-semibold text-zinc-500 hover:bg-zinc-800 hover:text-white">Edit →</button>
+                              <button onClick={() => { setDeleteError(false); setConfirmItem(item); }}
+                                aria-label={`Delete ${item.title}`} title="Delete"
+                                className="rounded-lg px-2 py-1.5 text-xs text-zinc-600 hover:bg-rose-500/10 hover:text-rose-400">🗑</button>
+                            </div>
                             {savingId === item.id && <span className="block text-[9px] text-blue-400 mt-0.5">Saving…</span>}
                             {saveErrorId === item.id && <span className="block text-[9px] text-rose-400 mt-0.5">Save failed</span>}
                           </td>
@@ -273,6 +301,29 @@ export default function ContentSpreadsheet({
           </section>
         );
       })}
+
+      {confirmItem && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="delete-content-title">
+          <button className="absolute inset-0 bg-black/70 backdrop-blur-sm" aria-label="Cancel deletion"
+            onClick={() => { if (!deletingId) setConfirmItem(null); }} />
+          <div className="relative w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-950 p-5 shadow-2xl">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-full bg-rose-500/10 text-lg">🗑</div>
+            <h2 id="delete-content-title" className="text-lg font-bold text-white">Delete this content?</h2>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+              Are you sure you want to delete <span className="font-semibold text-zinc-200">“{confirmItem.title}”</span>? This cannot be undone.
+            </p>
+            {deleteError && <p className="mt-3 text-sm text-rose-400">Couldn&apos;t delete it. Please try again.</p>}
+            <div className="mt-5 flex gap-2">
+              <button onClick={() => setConfirmItem(null)} disabled={Boolean(deletingId)}
+                className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-50">Cancel</button>
+              <button onClick={() => void confirmDelete()} disabled={Boolean(deletingId)}
+                className="flex-1 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-500 disabled:opacity-60">
+                {deletingId ? "Deleting…" : "Yes, delete it"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

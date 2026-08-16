@@ -2205,7 +2205,17 @@ export default function ContentPage() {
     if (j.item) { setItems((prev) => prev.map((x) => (x.id === id ? j.item : x))); return j.item as ContentItem; }
     return null;
   }, []);
-  const delItem = useCallback(async (id: string) => { setItems((p) => p.filter((x) => x.id !== id)); setOpenId(null); await fetch("/api/content", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); }, []);
+  const delItem = useCallback(async (id: string) => {
+    try {
+      const response = await fetch("/api/content", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+      if (!response.ok) return false;
+      setItems((current) => current.filter((item) => item.id !== id));
+      setOpenId(null);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   // Simplest add: a title → new item, opened straight into the drawer to flesh out
   const quickAdd = useCallback(async (title: string) => {
@@ -2260,7 +2270,7 @@ export default function ContentPage() {
           <div className="space-y-8">
             <CalendarTab items={items} events={events} onOpen={(i) => setOpenId(i.id)} onQuickAdd={quickAdd} onCreateOn={createOn} onReschedule={(id, date) => void patchItem(id, { scheduled_date: date })} />
             <div className="border-t border-zinc-800 pt-8">
-              <ContentSpreadsheet items={items} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} />
+              <ContentSpreadsheet items={items} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} onDelete={delItem} />
             </div>
           </div>
         )}

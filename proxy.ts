@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { bearerAuthorizedForRequest } from "@/lib/proxy-auth";
 
 /**
  * Access gate for the whole app.
@@ -45,6 +46,7 @@ export function proxy(req: NextRequest) {
 
   const sessionToken = process.env.SALESOS_SESSION_TOKEN;
   const agentKey = process.env.SALESOS_AGENT_KEY;
+  const workerKey = process.env.INSTAGRAM_HOT_LEADS_WORKER_KEY;
 
   // Fail closed. A missing secret must not silently reopen the door.
   if (!sessionToken) {
@@ -59,11 +61,8 @@ export function proxy(req: NextRequest) {
   if (cookie && safeEqual(cookie, sessionToken)) return NextResponse.next();
 
   // 2. Agent bearer token — API routes only. Never grants page access.
-  if (pathname.startsWith("/api/") && agentKey) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (auth.startsWith("Bearer ") && safeEqual(auth.slice(7).trim(), agentKey)) {
-      return NextResponse.next();
-    }
+  if (bearerAuthorizedForRequest(req.method, pathname, req.headers.get("authorization") ?? "", { agentKey, workerKey })) {
+    return NextResponse.next();
   }
 
   // 3. Denied.

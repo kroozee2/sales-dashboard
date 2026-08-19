@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import OfferPagesLibrary from '@/components/OfferPagesLibrary';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1270,7 +1271,7 @@ export default function OffersPage() {
   const [selected, setSelected] = useState<Offer | null>(null);
   const [showBrainDump, setShowBrainDump] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
-  const [view, setView] = useState<'grid' | 'current' | 'data'>('grid');
+  const [view, setView] = useState<'pages' | 'grid' | 'current' | 'data'>('grid');
   const [typeTab, setTypeTab] = useState<string>('all');
 
   const [liveStats, setLiveStats] = useState<Record<string, { revenue: number; count: number }>>({});
@@ -1372,14 +1373,14 @@ export default function OffersPage() {
           <div className="flex items-center gap-2 flex-wrap">
             {/* View switch */}
             <div className="flex bg-zinc-800 border border-zinc-700 rounded-lg p-0.5 gap-0.5">
-              {([['grid', '🔲 Grid'], ['current', '📋 Current'], ['data', '📊 Data']] as const).map(([k, lbl]) => (
+              {([['pages', '🌐 Pages'], ['grid', '🔲 Grid'], ['current', '📋 Current'], ['data', '📊 Data']] as const).map(([k, lbl]) => (
                 <button key={k} onClick={() => setView(k)}
                   className={`px-3 py-1.5 text-xs rounded font-medium transition-colors ${view === k ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
                   {lbl}
                 </button>
               ))}
             </div>
-            {view !== 'data' && (
+            {(view === 'grid' || view === 'current') && (
               <div className="flex bg-zinc-800 border border-zinc-700 rounded-lg p-0.5 gap-0.5">
                 <button onClick={() => setFilter('active')}
                   className={`px-3 py-1.5 text-xs rounded font-medium transition-colors ${filter === 'active' ? 'bg-zinc-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
@@ -1391,18 +1392,22 @@ export default function OffersPage() {
                 </button>
               </div>
             )}
-            <button onClick={() => setShowBrainDump(true)}
-              className="px-3 py-2 text-sm bg-white text-zinc-900 font-bold rounded-lg hover:bg-zinc-100 transition-colors flex items-center gap-1.5">
-              <span>✨</span>
-              <span className="hidden sm:inline text-xs">New Offer</span>
-            </button>
-            <button onClick={handleSync} disabled={syncing}
-              className="px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 rounded-lg hover:bg-zinc-700 transition-colors disabled:opacity-50 flex items-center gap-1.5">
-              {syncing
-                ? <span className="w-3 h-3 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
-                : <span>🔄</span>}
-              <span className="hidden sm:inline text-xs">Sync</span>
-            </button>
+            {view !== 'pages' && (
+              <>
+                <button onClick={() => setShowBrainDump(true)}
+                  className="px-3 py-2 text-sm bg-white text-zinc-900 font-bold rounded-lg hover:bg-zinc-100 transition-colors flex items-center gap-1.5">
+                  <span>✨</span>
+                  <span className="hidden sm:inline text-xs">New Offer</span>
+                </button>
+                <button onClick={handleSync} disabled={syncing}
+                  className="px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 rounded-lg hover:bg-zinc-700 transition-colors disabled:opacity-50 flex items-center gap-1.5">
+                  {syncing
+                    ? <span className="w-3 h-3 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                    : <span>🔄</span>}
+                  <span className="hidden sm:inline text-xs">Sync</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
         {syncMsg && <p className="text-xs text-emerald-400 mt-1">{syncMsg}</p>}
@@ -1410,7 +1415,7 @@ export default function OffersPage() {
 
       <div className="p-4 md:p-6 space-y-6">
         {/* KPIs */}
-        {view !== 'data' && (
+        {(view === 'grid' || view === 'current') && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-center">
             <div className="text-2xl mb-1">🎯</div>
@@ -1436,7 +1441,7 @@ export default function OffersPage() {
         )}
 
         {/* Type tabs (grid + current views) */}
-        {view !== 'data' && !loading && grouped.length > 0 && (
+        {(view === 'grid' || view === 'current') && !loading && grouped.length > 0 && (
           <div className="flex gap-1.5 flex-wrap">
             <button onClick={() => setTypeTab('all')}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${typeTab === 'all' ? 'bg-violet-600 text-white border-violet-500' : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'}`}>
@@ -1452,7 +1457,9 @@ export default function OffersPage() {
         )}
 
         {/* Content */}
-        {loading ? (
+        {view === 'pages' ? (
+          <OfferPagesLibrary />
+        ) : loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 animate-pulse h-44" />

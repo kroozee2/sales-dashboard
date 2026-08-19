@@ -11,14 +11,15 @@ type NavItem = { href: string; label: string; emoji: string; match?: string[] };
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Home", emoji: "🏠" },
+  { href: "/jarvis", label: "Jarvis", emoji: "🤖" },
   { href: "/content", label: "Content", emoji: "✍️" },
-  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/signups", "/applications"] },
+  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications"] },
   { href: "/calls", label: "Calls", emoji: "📞" },
   { href: "/revenue", label: "Revenue", emoji: "💰" },
   { href: "/offer-lab", label: "Offers", emoji: "📦" },
   { href: "/goals", label: "Goals", emoji: "🏁" },
   { href: "/tasks", label: "Execution", emoji: "⚡", match: ["/projects", "/winning-formula"] },
-  { href: "/resources", label: "Resources", emoji: "🎁", match: ["/two-step", "/scripts"] },
+  { href: "/resources", label: "Resources", emoji: "🎁", match: ["/two-step"] },
   { href: "/playbook", label: "Playbook", emoji: "📋" },
   { href: "/team", label: "Team", emoji: "👥" },
   { href: "/install", label: "Install App", emoji: "📲" },

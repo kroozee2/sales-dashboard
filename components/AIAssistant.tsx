@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 
 type Phase = 'closed' | 'open' | 'recording' | 'processing' | 'result' | 'error';
 
@@ -29,6 +30,7 @@ const HINTS = [
 ];
 
 export function AIAssistant() {
+  const pathname = usePathname();
   const [phase, setPhase] = useState<Phase>('closed');
   const [text, setText] = useState('');
   const [result, setResult] = useState<AssistantResult | null>(null);
@@ -159,6 +161,8 @@ export function AIAssistant() {
   };
 
   const isOpen = phase !== 'closed';
+
+  if (pathname.startsWith('/jarvis')) return null;
 
   // Status banner styling
   const statusMeta = (() => {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createLeadsAdminClient } from '@/lib/supabase-leads';
 import { callsDb } from '@/lib/supabase-calls';
+import { parseJarvisRequest } from '@/lib/jarvis';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const GHL_BASE = 'https://services.leadconnectorhq.com';
@@ -320,10 +321,15 @@ Write ONLY the message text, nothing else.`,
 }
 
 export async function POST(req: NextRequest) {
-  const { transcript } = await req.json() as { transcript: string };
-  if (!transcript?.trim()) return NextResponse.json({ error: 'No transcript' }, { status: 400 });
+  let parsedRequest;
+  try {
+    parsedRequest = parseJarvisRequest(await req.json());
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid command.' }, { status: 400 });
+  }
+  const { transcript, history } = parsedRequest;
 
-  const systemPrompt = `You are the AI assistant inside Andrew Kroeze's 7-Figure CEO sales dashboard. Andrew runs a coaching business — programs: BOARDROOM ($15K) and LAUNCH ($9K). His CRM is GoHighLevel, leads are tracked in a Supabase database, sales calls are recorded on Fathom.
+  const systemPrompt = `You are Jarvis, the AI operator inside Andrew Kroeze's 7-Figure CEO Sales OS. Andrew runs a coaching business — programs: BOARDROOM ($15K) and LAUNCH ($9K). His CRM is GoHighLevel, leads are tracked in a Supabase database, sales calls are recorded on Fathom.
 
 Your job: listen to Andrew's command, figure out exactly what he wants, and ACTUALLY DO IT using the tools. This is non-negotiable:
 - If the command implies a change (update, create, add note, set stage, log something, sync), you MUST call the tool that performs it. Never just describe what you would do. Never claim something is done without calling the tool that does it.
@@ -346,6 +352,7 @@ After completing all actions, respond with ONLY a JSON object (no markdown, no p
 Only include generatedContent when you generated a message or other copyable text. The summary must describe what the tools actually did, not intentions.`;
 
   const messages: Anthropic.MessageParam[] = [
+    ...history.map((message) => ({ role: message.role, content: message.content }) as Anthropic.MessageParam),
     { role: 'user', content: transcript },
   ];
 
@@ -406,13 +413,14 @@ Only include generatedContent when you generated a message or other copyable tex
       break;
     }
   } catch (err) {
+    console.error('[ai-assistant] Agent request failed', err);
     return NextResponse.json({
       status: 'error',
       actionLog,
-      summary: `Something broke while working on that: ${err instanceof Error ? err.message : String(err)}`,
+      summary: 'I could not reach the AI engine. Check the Anthropic configuration and try again.',
       generatedContent,
       changed: actionLog.filter((l) => l.ok && WRITE_TOOLS.has(l.tool)).length,
-      failed: actionLog.filter((l) => l.ok === false).length,
+      failed: Math.max(1, actionLog.filter((l) => l.ok === false).length),
     });
   }
 

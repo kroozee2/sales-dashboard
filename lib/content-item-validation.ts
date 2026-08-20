@@ -90,3 +90,13 @@ export function sanitizeContentPatch(body: Record<string, unknown>, allowed: Con
 
   return { fields, rejected };
 }
+
+export function sanitizeContentCreate(body: Record<string, unknown>, allowed: ContentPatchAllowedValues) {
+  const { fields, rejected } = sanitizeContentPatch(body, allowed);
+  if (rejected.length) throw new Error(`unsupported fields: ${rejected.join(", ")}`);
+  if (typeof fields.title !== "string") throw new Error("title is required");
+  if (typeof fields.category !== "string") throw new Error("category is required");
+  if (typeof fields.status !== "string") throw new Error("status is required");
+  if (!Array.isArray(fields.platforms)) throw new Error("platforms are required");
+  return fields;
+}

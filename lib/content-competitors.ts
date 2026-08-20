@@ -1,5 +1,32 @@
 export type CompetitorWatchStatus = "watching" | "active" | "paused";
 
+const MAX_EVIDENCE_POSTS = 8;
+const MAX_SAMPLE_POSTS = 20;
+
+function safeInstagramProfileUrl(value: string): string | undefined {
+  const raw = value.trim();
+  const handle = raw.startsWith("@") ? raw.slice(1) : raw;
+  if (/^[A-Za-z0-9._]{1,30}$/.test(handle)) return `https://www.instagram.com/${handle}/`;
+  try {
+    const url = new URL(raw);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (url.protocol !== "https:" || !["instagram.com", "www.instagram.com"].includes(url.hostname.toLowerCase()) || parts.length !== 1) return undefined;
+    return /^[A-Za-z0-9._]{1,30}$/.test(parts[0]) ? `https://www.instagram.com/${parts[0]}/` : undefined;
+  } catch { return undefined; }
+}
+
+export interface CompetitorEvidence {
+  url: string;
+  postedAt: string | null;
+  type: string;
+  captionExcerpt: string;
+  likes: number;
+  comments: number;
+  plays: number;
+  views: number;
+  score: number;
+}
+
 export interface ContentCompetitor {
   id: string;
   name: string;
@@ -11,6 +38,11 @@ export interface ContentCompetitor {
   notes: string;
   watchStatus: CompetitorWatchStatus;
   websiteUrl?: string;
+  instagramUrl?: string;
+  researchedAt?: string;
+  sampledPostsCount?: number;
+  evidence?: CompetitorEvidence[];
+  revision?: string;
 }
 
 export interface CompetitorResearchLinks {
@@ -128,21 +160,71 @@ function safeWebsiteUrl(value: unknown): string | undefined {
   }
 }
 
+function safeEvidence(value: unknown): CompetitorEvidence[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const rows = value.slice(0, MAX_EVIDENCE_POSTS).flatMap((item) => {
+    if (!isRecord(item) || typeof item.url !== "string" || !item.url.startsWith("https://www.instagram.com/")) return [];
+    return [{
+      url: item.url,
+      postedAt: typeof item.postedAt === "string" ? item.postedAt : null,
+      type: typeof item.type === "string" ? item.type.slice(0, 24) : "post",
+      captionExcerpt: typeof item.captionExcerpt === "string" ? item.captionExcerpt.slice(0, 500) : "",
+      likes: Number(item.likes || 0) || 0,
+      comments: Number(item.comments || 0) || 0,
+      plays: Number(item.plays || 0) || 0,
+      views: Number(item.views || 0) || 0,
+      score: Number(item.score || 0) || 0,
+    }];
+  });
+  return rows.length ? rows : undefined;
+}
+
 function sanitizeSaved(value: unknown): ContentCompetitor | null {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.name !== "string") return null;
+  const id = value.id.trim();
+  const name = value.name.trim();
+  if (!/^[a-z0-9-]{1,80}$/i.test(id) || !name || name.length > 100) return null;
   const status = value.watchStatus;
   return {
-    id: value.id,
-    name: value.name,
-    focus: typeof value.focus === "string" ? value.focus : "",
-    whyFit: typeof value.whyFit === "string" ? value.whyFit : "",
-    pillars: Array.isArray(value.pillars) ? value.pillars.filter((x): x is string => typeof x === "string") : [],
-    signaturePattern: typeof value.signaturePattern === "string" ? value.signaturePattern : "",
-    andrewAdaptation: typeof value.andrewAdaptation === "string" ? value.andrewAdaptation : "",
-    notes: typeof value.notes === "string" ? value.notes : "",
+    id,
+    name,
+    focus: typeof value.focus === "string" ? value.focus.slice(0, 500) : "",
+    whyFit: typeof value.whyFit === "string" ? value.whyFit.slice(0, 1200) : "",
+    pillars: Array.isArray(value.pillars) ? value.pillars.filter((x): x is string => typeof x === "string").slice(0, 10).map((x) => x.slice(0, 100)) : [],
+    signaturePattern: typeof value.signaturePattern === "string" ? value.signaturePattern.slice(0, 1200) : "",
+    andrewAdaptation: typeof value.andrewAdaptation === "string" ? value.andrewAdaptation.slice(0, 1200) : "",
+    notes: typeof value.notes === "string" ? value.notes.slice(0, 5000) : "",
     watchStatus: status === "active" || status === "paused" || status === "watching" ? status : "watching",
     websiteUrl: safeWebsiteUrl(value.websiteUrl),
+    instagramUrl: typeof value.instagramUrl === "string" ? safeInstagramProfileUrl(value.instagramUrl) : undefined,
+    researchedAt: typeof value.researchedAt === "string" && Number.isFinite(Date.parse(value.researchedAt)) ? value.researchedAt : undefined,
+    sampledPostsCount: Math.min(MAX_SAMPLE_POSTS, Math.max(0, Number(value.sampledPostsCount || 0) || 0)) || undefined,
+    evidence: safeEvidence(value.evidence),
+    revision: typeof value.revision === "string" && Number.isFinite(Date.parse(value.revision)) ? value.revision : undefined,
   };
+}
+
+export function sanitizeEditableCompetitor(value: unknown): ContentCompetitor | null {
+  if (!isRecord(value)) return null;
+  const editable = sanitizeSaved({
+    id: value.id,
+    name: value.name,
+    focus: value.focus,
+    whyFit: value.whyFit,
+    pillars: value.pillars,
+    signaturePattern: value.signaturePattern,
+    andrewAdaptation: value.andrewAdaptation,
+    notes: value.notes,
+    watchStatus: value.watchStatus,
+    websiteUrl: value.websiteUrl,
+    instagramUrl: value.instagramUrl,
+  });
+  if (!editable) return null;
+  delete editable.researchedAt;
+  delete editable.sampledPostsCount;
+  delete editable.evidence;
+  delete editable.revision;
+  return editable;
 }
 
 export function normalizeCompetitorResearch(value: unknown): ContentCompetitor | null {

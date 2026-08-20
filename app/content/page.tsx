@@ -1191,11 +1191,11 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
     setSyncing(platform); setMsg(`Pulling ${label}… this can take a couple minutes.`);
     try {
       const started = await (await fetch("/api/content/posted/sync-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform }) })).json();
-      if (started.error || !started.runs) { setMsg(started.error || "Could not start sync."); return; }
+      if (started.error || !started.started) { setMsg(started.error || "Could not start sync."); return; }
       const deadline = Date.now() + 8 * 60 * 1000; // give it up to 8 minutes
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, 5000));
-        const poll = await (await fetch("/api/content/posted/sync-poll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform, runs: started.runs }) })).json();
+        const poll = await (await fetch("/api/content/posted/sync-poll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform }) })).json();
         if (poll.error) { setMsg(poll.error); return; }
         if (poll.done) { setMsg(`${label}: pulled ${poll.synced} posts ✓`); onChanged(); return; }
       }

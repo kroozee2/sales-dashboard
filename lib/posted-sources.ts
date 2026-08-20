@@ -1,4 +1,7 @@
 import { contentDb } from "@/lib/supabase-content";
+import { datasetItems, runActorSync, runStatus, startRun } from "@/lib/apify-http";
+
+export { runActorSync, runStatus, startRun };
 
 // ── Shared config + mappers for the Posted tab's social sources ──────────────
 export const FB_PROFILE = "https://www.facebook.com/andrew.kroeze.50";
@@ -26,7 +29,7 @@ const yearStart = () => `${new Date().getUTCFullYear()}-01-01`;
 // One Apify actor "job" — an actor + input. YouTube expands to two (videos + shorts).
 function jobsFor(platform: Platform): { actor: string; input: unknown }[] {
   if (platform === "facebook") return [{ actor: FB_ACTOR, input: { startUrls: [{ url: FB_PROFILE }], resultsLimit: 200, captionText: true, onlyPostsNewerThan: since90() } }];
-  if (platform === "instagram") return [{ actor: IG_ACTOR, input: { directUrls: [IG_PROFILE], resultsType: "posts", resultsLimit: 200, onlyPostsNewerThan: since90() } }];
+  if (platform === "instagram") return [{ actor: IG_ACTOR, input: { directUrls: [IG_PROFILE], resultsType: "posts", resultsLimit: 20, onlyPostsNewerThan: since90() } }];
   return (["videos", "shorts"] as const).map((ct) => ({ actor: YT_ACTOR, input: { channels: [YT_HANDLE], maxVideosPerChannel: 0, contentType: ct, sortBy: "newest", publishedAfter: yearStart(), includeVideoStats: true } }));
 }
 
@@ -42,48 +45,20 @@ export function withinWindow(rows: Row[]): Row[] {
 }
 
 // ── Apify REST helpers ───────────────────────────────────────────────────────
-// Start an actor run (returns fast) — used by the async per-platform sync.
-export async function startRun(actor: string, input: unknown, token: string): Promise<{ runId: string; datasetId: string }> {
-  const res = await fetch(`https://api.apify.com/v2/acts/${actor}/runs?token=${token}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
-  });
-  if (!res.ok) throw new Error(`Apify start ${actor} failed (${res.status})`);
-  const j = await res.json();
-  return { runId: j.data.id, datasetId: j.data.defaultDatasetId };
-}
-
 export async function startPlatform(platform: Platform, token: string) {
-  return Promise.all(jobsFor(platform).map((j) => startRun(j.actor, j.input, token)));
+  return Promise.all(jobsFor(platform).map((job) => startRun(job.actor, job.input, token)));
 }
 
-// Poll a run's status.
-export async function runStatus(runId: string, token: string): Promise<string> {
-  const res = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${token}`);
-  if (!res.ok) throw new Error(`Apify status ${runId} failed (${res.status})`);
-  return (await res.json()).data.status as string;
-}
-
-// Read a finished run's dataset, map to rows, date-guard, and upsert.
+// Read a finished run's bounded dataset, map to rows, date-guard, and upsert.
 export async function ingestDataset(platform: Platform, datasetId: string, token: string): Promise<number> {
-  const res = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&format=json&token=${token}`);
-  if (!res.ok) throw new Error(`Apify dataset ${datasetId} failed (${res.status})`);
-  const items = (await res.json()) as Record<string, unknown>[];
-  const rows = withinWindow(mapper(platform)(Array.isArray(items) ? items : []));
+  const maxItems = platform === "instagram" ? 20 : platform === "facebook" ? 200 : 250;
+  const items = await datasetItems(datasetId, token, 4_000_000, maxItems);
+  const rows = withinWindow(mapper(platform)(items));
   if (rows.length) {
     const { error } = await contentDb().from("posted_content").upsert(rows, { onConflict: "external_id" });
     if (error) throw new Error(error.message);
   }
   return rows.length;
-}
-
-// Synchronous run-and-ingest (used by the /route.ts POST for curl/backfill).
-export async function runActorSync(actor: string, input: unknown, token: string): Promise<Record<string, unknown>[]> {
-  const res = await fetch(`https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${token}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
-  });
-  if (!res.ok) throw new Error(`Apify ${actor} failed (${res.status})`);
-  const j = await res.json();
-  return Array.isArray(j) ? j : [];
 }
 
 export function mapFacebook(items: Record<string, unknown>[]): Row[] {

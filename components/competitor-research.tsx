@@ -22,6 +22,7 @@ interface AddForm {
   signaturePattern: string;
   andrewAdaptation: string;
   websiteUrl: string;
+  instagramUrl: string;
 }
 
 const EMPTY_ADD: AddForm = {
@@ -32,9 +33,10 @@ const EMPTY_ADD: AddForm = {
   signaturePattern: "",
   andrewAdaptation: "",
   websiteUrl: "",
+  instagramUrl: "",
 };
 
-export default function CompetitorResearch({ onIdeaSaved }: { onIdeaSaved?: () => void }) {
+export default function CompetitorResearch({ onIdeaSaved, onModel }: { onIdeaSaved?: () => void; onModel?: (creator: ContentCompetitor, type: "reel" | "carousel") => void }) {
   const [creators, setCreators] = useState<ContentCompetitor[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [query, setQuery] = useState("");
@@ -70,7 +72,7 @@ export default function CompetitorResearch({ onIdeaSaved }: { onIdeaSaved?: () =
     });
   }, [creators, query, statusFilter]);
 
-  async function persistCreator(creator: ContentCompetitor, successMessage: string): Promise<boolean> {
+  async function persistCreator(creator: ContentCompetitor, successMessage: string): Promise<ContentCompetitor | null> {
     setSaving(true);
     setMessage("");
     setErrorMessage("");
@@ -80,19 +82,22 @@ export default function CompetitorResearch({ onIdeaSaved }: { onIdeaSaved?: () =
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ creator }),
       });
-      const data = await response.json() as { creators?: ContentCompetitor[]; error?: string };
+      const data = await response.json() as { creator?: ContentCompetitor; creators?: ContentCompetitor[]; error?: string };
       if (!response.ok) throw new Error(data.error || "Could not save research");
-      const next = data.creators ?? creators;
+      const saved = data.creator ?? creator;
+      const next = data.creators ?? (creators.some((item) => item.id === saved.id)
+        ? creators.map((item) => item.id === saved.id ? saved : item)
+        : [...creators, saved]);
       setCreators(next);
-      setSelectedId(creator.id);
+      setSelectedId(saved.id);
       if (successMessage) {
         setMessage(successMessage);
         window.setTimeout(() => setMessage(""), 2500);
       }
-      return true;
+      return saved;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Could not save research");
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
@@ -111,6 +116,29 @@ export default function CompetitorResearch({ onIdeaSaved }: { onIdeaSaved?: () =
   async function saveNotes() {
     if (!selected) return;
     await persistCreator(selected, "Research notes saved");
+  }
+
+  async function refreshInstagram() {
+    if (!selected?.instagramUrl) { setErrorMessage("Add the creator's Instagram profile URL first"); return; }
+    const persistedCreator = await persistCreator(selected, "");
+    if (!persistedCreator) return;
+    setSaving(true); setMessage(""); setErrorMessage("");
+    try {
+      const response = await fetch("/api/instagram/competitors/refresh", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creatorId: persistedCreator.id, profileUrl: persistedCreator.instagramUrl }),
+      });
+      const data = await response.json();
+      if (response.status === 409 && data.code === "COMPETITOR_COOLDOWN") {
+        setErrorMessage(`Cached research is still fresh. Next eligible ${new Date(data.nextEligibleAt).toLocaleString()}.`);
+        return;
+      }
+      if (!response.ok) throw new Error(data.error || "Refresh failed");
+      const updated = data.creator as ContentCompetitor;
+      setCreators((current) => current.map((creator) => creator.id === updated.id ? updated : creator));
+      setMessage(`Sampled ${data.sampledPostsCount} posts and kept ${data.persistedEvidenceCount} strongest.`);
+    } catch (error) { setErrorMessage(error instanceof Error ? error.message : "Refresh failed"); }
+    finally { setSaving(false); }
   }
 
   async function saveToIdeas() {
@@ -162,6 +190,7 @@ export default function CompetitorResearch({ onIdeaSaved }: { onIdeaSaved?: () =
       notes: "",
       watchStatus: "watching",
       websiteUrl: add.websiteUrl.trim() || undefined,
+      instagramUrl: add.instagramUrl.trim() || undefined,
     };
     const saved = await persistCreator(creator, `${creator.name} added to the watchlist`);
     if (!saved) return;
@@ -221,6 +250,7 @@ export default function CompetitorResearch({ onIdeaSaved }: { onIdeaSaved?: () =
             <textarea value={add.whyFit} onChange={(event) => setAdd({ ...add, whyFit: event.target.value })} rows={2} placeholder="Why this creator fits Andrew's market" className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
             <textarea value={add.signaturePattern} onChange={(event) => setAdd({ ...add, signaturePattern: event.target.value })} rows={2} placeholder="Signature content pattern" className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
             <textarea value={add.andrewAdaptation} onChange={(event) => setAdd({ ...add, andrewAdaptation: event.target.value })} rows={2} placeholder="How Andrew should adapt it" className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
+            <input value={add.instagramUrl} onChange={(event) => setAdd({ ...add, instagramUrl: event.target.value })} placeholder="Instagram profile URL or @handle" className="rounded-xl border border-pink-500/30 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-pink-500 focus:outline-none" />
             <input value={add.websiteUrl} onChange={(event) => setAdd({ ...add, websiteUrl: event.target.value })} placeholder="Official website, optional" className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
           </div>
           <button onClick={() => void addCreator()} disabled={saving} className="mt-3 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-50">Add to watchlist</button>
@@ -297,8 +327,32 @@ export default function CompetitorResearch({ onIdeaSaved }: { onIdeaSaved?: () =
                 </div>
               </div>
 
+              <div className="rounded-xl border border-pink-500/20 bg-pink-500/[0.04] p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <label className="min-w-0 flex-1 text-[10px] font-bold uppercase tracking-[0.16em] text-pink-300">Instagram profile
+                    <input value={selected.instagramUrl || ""} onChange={(event) => updateSelected({ instagramUrl: event.target.value })} placeholder="@handle or profile URL" className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-normal normal-case tracking-normal text-white placeholder-zinc-700 focus:border-pink-500 focus:outline-none" />
+                  </label>
+                  <button onClick={() => void refreshInstagram()} disabled={saving || !selected.instagramUrl} className="rounded-xl bg-pink-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-pink-500 disabled:opacity-40">{saving ? "Researching…" : "Refresh 20 posts"}</button>
+                </div>
+                <p className="mt-2 text-[10px] text-zinc-500">Explicit only. Cached for 7 days. Samples at most 20 posts and keeps 8 evidence cards.</p>
+                {selected.researchedAt && <p className="mt-1 text-[10px] text-zinc-500">Last researched {new Date(selected.researchedAt).toLocaleString()} · {selected.sampledPostsCount || 0} sampled</p>}
+              </div>
+
+              {!!selected.evidence?.length && (
+                <div>
+                  <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-600">Ranked evidence</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {selected.evidence.map((post) => (
+                      <a key={post.url} href={post.url} target="_blank" rel="noreferrer" className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 hover:border-pink-500/40">
+                        <div className="flex items-center justify-between text-[10px] text-zinc-500"><span>{post.type}</span><span>{post.views || post.plays} views/plays · {post.comments} comments</span></div>
+                        <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-zinc-300">{post.captionExcerpt || "Open source post"}</p>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
-                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-600">Research now</p>
                 <div className="flex flex-wrap gap-2">
                   {(() => {
                     const links = buildResearchLinks(selected.name);
@@ -326,6 +380,10 @@ export default function CompetitorResearch({ onIdeaSaved }: { onIdeaSaved?: () =
               <div className="flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-4">
                 <button onClick={() => void saveNotes()} disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50">{saving ? "Saving…" : "Save research"}</button>
                 <button onClick={() => void saveToIdeas()} disabled={saving} className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-2.5 text-xs font-bold text-violet-200 hover:bg-violet-500/20 disabled:opacity-50">Send model to Ideas</button>
+                {onModel && <>
+                  <button onClick={() => onModel(selected, "reel")} className="rounded-xl border border-pink-500/30 bg-pink-500/10 px-4 py-2.5 text-xs font-bold text-pink-200 hover:bg-pink-500/20">Create Reel from this</button>
+                  <button onClick={() => onModel(selected, "carousel")} className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs font-bold text-amber-200 hover:bg-amber-500/20">Create carousel from this</button>
+                </>}
                 {message && <span className="text-xs font-medium text-emerald-400">{message}</span>}
                 {errorMessage && <span className="text-xs font-medium text-rose-400">{errorMessage}</span>}
               </div>

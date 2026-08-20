@@ -11,7 +11,7 @@ import {
   scheduleGroupOf,
   sortContentSpreadsheetItems,
 } from "../lib/content-spreadsheet.ts";
-import { sanitizeContentPatch } from "../lib/content-item-validation.ts";
+import { sanitizeContentCreate, sanitizeContentPatch } from "../lib/content-item-validation.ts";
 import { CATEGORIES, CONTENT_STATUSES, PLATFORMS } from "../lib/content-constants.ts";
 
 const allowedPatchValues = {
@@ -137,4 +137,19 @@ test("content patch validation rejects invalid enum and date values", () => {
   assert.throws(() => sanitizeContentPatch({ category: "anything" }, allowedPatchValues), /category/i);
   assert.throws(() => sanitizeContentPatch({ status: "deleted" }, allowedPatchValues), /status/i);
   assert.throws(() => sanitizeContentPatch({ scheduled_date: "tomorrow" }, allowedPatchValues), /scheduled_date/i);
+});
+
+test("content create validation requires core fields and rejects mass assignment", () => {
+  const created = sanitizeContentCreate({
+    title: "AI carousel",
+    category: "value",
+    status: "drafted",
+    platforms: ["instagram"],
+    creative_type: "carousel",
+    drafts: { instagram: "Caption" },
+  }, allowedPatchValues);
+  assert.equal(created.title, "AI carousel");
+  assert.equal(created.status, "drafted");
+  assert.throws(() => sanitizeContentCreate({ title: "Unsafe", category: "value", status: "drafted", platforms: ["instagram"], owner_id: "admin" }, allowedPatchValues), /unsupported fields/i);
+  assert.throws(() => sanitizeContentCreate({ category: "value", status: "drafted", platforms: ["instagram"] }, allowedPatchValues), /title/i);
 });

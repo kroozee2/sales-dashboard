@@ -7,8 +7,23 @@ import {
   isCompetitorPayloadWithinLimits,
   mergeCompetitorResearch,
   normalizeCompetitorResearch,
+  sanitizeEditableCompetitor,
   upsertCompetitorResearch,
 } from "../lib/content-competitors.ts";
+
+test("editable competitor input strips server-owned research and revision fields", () => {
+  const creator = sanitizeEditableCompetitor({
+    id: "custom-safe", name: "Safe Creator", focus: "Focus", whyFit: "Fit", pillars: ["One"],
+    signaturePattern: "Pattern", andrewAdaptation: "Adapt", notes: "Notes", watchStatus: "active",
+    researchedAt: "2026-08-20T12:00:00Z", sampledPostsCount: 20,
+    evidence: [{ url: "https://www.instagram.com/p/fake/", likes: 999999 }], revision: "2026-08-20T12:00:00Z",
+  });
+  assert.ok(creator);
+  assert.equal(creator.researchedAt, undefined);
+  assert.equal(creator.sampledPostsCount, undefined);
+  assert.equal(creator.evidence, undefined);
+  assert.equal(creator.revision, undefined);
+});
 
 test("seeds Andrew's three requested creators plus four strategically matched models", () => {
   assert.deepEqual(

@@ -7,21 +7,24 @@ import { cn } from "@/lib/utils";
 
 // `match` lists extra route prefixes that keep this item highlighted — used
 // where one sidebar entry fronts a group of sub-tabbed pages.
-type NavItem = { href: string; label: string; emoji: string; match?: string[] };
+type NavItem = { href: string; label: string; emoji: string; match?: string[]; section?: string };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/home", label: "Home", emoji: "🏠" },
-  { href: "/jarvis", label: "Jarvis", emoji: "🤖" },
-  { href: "/content", label: "Content", emoji: "✍️" },
-  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications"] },
-  { href: "/calls", label: "Calls", emoji: "📞" },
-  { href: "/revenue", label: "Revenue", emoji: "💰" },
-  { href: "/offer-lab", label: "Offers", emoji: "📦" },
-  { href: "/goals", label: "Goals", emoji: "🏁" },
-  { href: "/tasks", label: "Execution", emoji: "⚡", match: ["/projects", "/winning-formula"] },
-  { href: "/resources", label: "Resources", emoji: "🎁", match: ["/two-step"] },
-  { href: "/playbook", label: "Playbook", emoji: "📋" },
-  { href: "/team", label: "Team", emoji: "👥" },
+  { href: "/home", label: "Dashboard", emoji: "🏠", section: "Command" },
+  { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Command" },
+  { href: "/goals", label: "Goals", emoji: "🏁", section: "Command" },
+
+  { href: "/content", label: "Content", emoji: "✍️", section: "Growth" },
+  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications", "/instagram-hot-leads"], section: "Growth" },
+  { href: "/calls", label: "Calls", emoji: "📞", section: "Growth" },
+  { href: "/revenue", label: "Revenue", emoji: "💰", section: "Growth" },
+
+  { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
+  { href: "/tasks", label: "Execution", emoji: "⚡", match: ["/projects", "/winning-formula"], section: "Backend" },
+  { href: "/team", label: "Team", emoji: "👥", section: "Backend" },
+
+  { href: "/playbook", label: "Playbook", emoji: "📋", section: "Vault" },
+  { href: "/resources", label: "Resources", emoji: "🎁", match: ["/two-step"], section: "Vault" },
   { href: "/install", label: "Install App", emoji: "📲" },
 ];
 
@@ -86,26 +89,87 @@ function Brand() {
 }
 
 function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  const sections = ["Command", "Growth", "Backend", "Vault"];
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    Command: true,
+    Growth: true,
+    Backend: true,
+    Vault: true,
+  });
+
+  const toggleSection = (section: string) => {
+    setExpanded((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
   return (
-    <nav className="flex-1 overflow-y-auto px-3 space-y-0.5 pb-4">
-      {NAV_ITEMS.map((n) => {
-        const active = isActive(n, pathname);
+    <nav className="flex-1 overflow-y-auto px-3 space-y-2 pb-4 no-scrollbar">
+      {sections.map((section) => {
+        const items = NAV_ITEMS.filter((n) => n.section === section);
+        if (items.length === 0) return null;
+        const isExpanded = expanded[section];
+        const hasActiveChild = items.some((n) => isActive(n, pathname));
+
         return (
-          <Link
-            key={n.href}
-            href={n.href}
-            onClick={onNavigate}
-            className={cn(
-              "relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150",
-              active ? "bg-blue-600/20 text-blue-200" : "text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100"
+          <div key={section} className="space-y-0.5">
+            <button
+              onClick={() => toggleSection(section)}
+              className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-600 hover:text-zinc-400 transition-colors"
+            >
+              <span>{section}</span>
+              <span className={cn("transition-transform duration-200", isExpanded ? "rotate-180" : "")}>
+                ▼
+              </span>
+            </button>
+            
+            <div className={cn("space-y-0.5 overflow-hidden transition-all duration-200", isExpanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0")}>
+              {items.map((n) => {
+                const active = isActive(n, pathname);
+                return (
+                  <Link
+                    key={n.href}
+                    href={n.href}
+                    onClick={onNavigate}
+                    className={cn(
+                      "relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150",
+                      active ? "bg-blue-600/20 text-blue-200" : "text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100"
+                    )}
+                  >
+                    {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-blue-400" />}
+                    <span className="text-lg leading-none">{n.emoji}</span>
+                    {n.label}
+                  </Link>
+                );
+              })}
+            </div>
+            
+            {!isExpanded && hasActiveChild && (
+              <div className="mx-3 h-0.5 rounded-full bg-blue-500/40 animate-pulse" />
             )}
-          >
-            {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-blue-400" />}
-            <span className="text-lg leading-none">{n.emoji}</span>
-            {n.label}
-          </Link>
+          </div>
         );
       })}
+      
+      {/* Unsectioned items */}
+      <div className="space-y-0.5 pt-2">
+        {NAV_ITEMS.filter((n) => !n.section).map((n) => {
+          const active = isActive(n, pathname);
+          return (
+            <Link
+              key={n.href}
+              href={n.href}
+              onClick={onNavigate}
+              className={cn(
+                "relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150",
+                active ? "bg-blue-600/20 text-blue-200" : "text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100"
+              )}
+            >
+              {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-blue-400" />}
+              <span className="text-lg leading-none">{n.emoji}</span>
+              {n.label}
+            </Link>
+          );
+        })}
+      </div>
     </nav>
   );
 }

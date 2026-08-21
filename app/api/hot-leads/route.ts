@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     const db = createLeadsAdminClient();
     const [{ data, error, count }, instagram] = await Promise.all([
       db.from("leads")
-        .select("id, full_name, email, phone, prospect_stage, quality, source, notes, ongoing_message_feed, ghl_contact_id, instagram_url, social_url, last_update, hot", { count: "exact" })
+        .select("id, full_name, email, phone, prospect_stage, quality, source, notes, ongoing_message_feed, ghl_contact_id, instagram_url, linkedin_url, facebook_url, social_url, ghl_url, last_update, hot", { count: "exact" })
         .or("hot.eq.true,prospect_stage.eq.🔥 Hot Prospect")
         .order("last_update", { ascending: false, nullsFirst: false })
         .limit(50),

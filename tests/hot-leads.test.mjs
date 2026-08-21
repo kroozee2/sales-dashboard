@@ -115,3 +115,22 @@ test("removal revokes queued Instagram approval before compare-and-set stage dem
   assert.match(route, /contexts\.filter\(\(row\) => row\.lead_id !== id\)/);
   assert.match(route, /update\.is\(["']prospect_stage["'], null\)|update\.eq\(["']prospect_stage["']/);
 });
+
+test("Hot cards explain why each lead is Hot and make verified channels one tap away", () => {
+  const page = readFileSync(new URL("../app/hot-leads/page.tsx", import.meta.url), "utf8");
+  const collection = readFileSync(new URL("../app/api/hot-leads/route.ts", import.meta.url), "utf8");
+  assert.match(collection, /linkedin_url/);
+  assert.match(collection, /facebook_url/);
+  assert.match(collection, /ghl_url/);
+  assert.match(page, /Why they(?:'|’|&#39;)re Hot/);
+  assert.match(page, /ongoing_message_feed/);
+  assert.match(page, />Call</);
+  assert.match(page, />Text</);
+  assert.match(page, />Email</);
+  assert.match(page, /LinkedIn/);
+  assert.match(page, /Facebook/);
+  assert.match(page, /Open in GHL/);
+  assert.match(page, /Send through GoHighLevel/);
+  assert.match(page, /\/api\/messages\/send/);
+  assert.match(page, /Send via \$\{channel\}/);
+});

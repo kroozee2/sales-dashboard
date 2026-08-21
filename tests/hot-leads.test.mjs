@@ -82,7 +82,8 @@ test("dedicated worker key is scoped to one exact Hot Instagram context PATCH", 
   const id = "11111111-1111-4111-8111-111111111111";
   assert.equal(bearerAuthorizedForRequest("PATCH", `/api/hot-leads/current/${id}`, "Bearer worker-secret", keys), true);
   assert.equal(bearerAuthorizedForRequest("GET", `/api/hot-leads/current/${id}`, "Bearer worker-secret", keys), false);
-  assert.equal(bearerAuthorizedForRequest("PATCH", "/api/hot-leads/current/not-a-uuid", "Bearer worker-secret", keys), false);
+  assert.equal(bearerAuthorizedForRequest("PATCH", "/api/hot-leads/current/manual-lead_123", "Bearer worker-secret", keys), true);
+  assert.equal(bearerAuthorizedForRequest("PATCH", "/api/hot-leads/current/bad%2Fid", "Bearer worker-secret", keys), false);
   assert.equal(bearerAuthorizedForRequest("PATCH", `/api/leads/${id}/hot`, "Bearer worker-secret", keys), false);
 });
 

@@ -3,7 +3,7 @@ type ApiKeys = {
   workerKey?: string;
 };
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LEAD_ID_RE = /^[A-Za-z0-9][A-Za-z0-9:._@+\-]{0,199}$/;
 
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -20,7 +20,7 @@ function exactWorkerMemberPatch(method: string, pathname: string): boolean {
   const hotLead = pathname.match(/^\/api\/hot-leads\/current\/([^/]+)$/);
   try {
     if (legacy) return /^[A-Za-z0-9._]{1,30}$/.test(decodeURIComponent(legacy[1]));
-    if (hotLead) return UUID_RE.test(decodeURIComponent(hotLead[1]));
+    if (hotLead) return LEAD_ID_RE.test(decodeURIComponent(hotLead[1]));
     return false;
   } catch {
     return false;

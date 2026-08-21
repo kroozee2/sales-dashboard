@@ -38,7 +38,7 @@ type Patch = {
 };
 
 const STATUS = new Set<HotInstagramStatus>(["draft", "approved", "sending", "sent", "failed"]);
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LEAD_ID = /^[A-Za-z0-9][A-Za-z0-9:._@+\-]{0,199}$/;
 const REVISION = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const HANDLE = /^[A-Za-z0-9._]{1,30}$/;
 const DOCUMENT_KEYS = new Set(["version", "synced_at", "contexts"]);
@@ -82,8 +82,8 @@ function parseContext(value: unknown, index: number): HotInstagramContext {
   const input = object(value, `contexts[${index}]`);
   exactKeys(input, CONTEXT_KEYS, `contexts[${index}]`);
   for (const key of CONTEXT_KEYS) if (!(key in input)) throw new Error(`contexts[${index}].${key} is required`);
-  const leadId = string(input.lead_id, `contexts[${index}].lead_id`, 36, false);
-  if (!UUID.test(leadId)) throw new Error(`contexts[${index}].lead_id is invalid`);
+  const leadId = string(input.lead_id, `contexts[${index}].lead_id`, 200, false);
+  if (!LEAD_ID.test(leadId)) throw new Error(`contexts[${index}].lead_id is invalid`);
   const handle = string(input.instagram_handle, `contexts[${index}].instagram_handle`, 30, false);
   if (!HANDLE.test(handle)) throw new Error(`contexts[${index}].instagram_handle is invalid`);
   if (!Array.isArray(input.messages) || input.messages.length > HOT_INSTAGRAM_MAX_MESSAGES) throw new Error(`contexts[${index}].messages must contain at most ${HOT_INSTAGRAM_MAX_MESSAGES} messages`);

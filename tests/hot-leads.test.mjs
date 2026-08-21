@@ -117,6 +117,11 @@ test("builds a grounded personalized brief and recommended next move from the le
   const optedOut = buildHotLeadBrief({ ...brief, name: "Jordan Lee", source: "Instagram", stage: "Hot", quality: "Qualified", notes: null, messages: [{ text: "No thanks, I am not interested. Please do not call me.", is_sender: false, timestamp: "2026-08-21T13:06:00.000Z" }] });
   assert.match(optedOut.recommendation, /do not send|opted out|remove/i);
   assert.doesNotMatch(optedOut.recommendation, /interest is active|short call/i);
+  for (const text of ["I am not looking for help right now.", "Not ready, please send details later.", "I cannot afford help right now."]) {
+    const cautious = buildHotLeadBrief({ name: "Jordan Lee", source: "Instagram", stage: "Hot", quality: null, notes: null, messages: [{ text, is_sender: false, timestamp: "2026-08-21T13:06:00.000Z" }] });
+    assert.match(cautious.recommendation, /hesitation|constraint|do not treat/i);
+    assert.doesNotMatch(cautious.recommendation, /interest is active|short call/i);
+  }
 
   const mediaLatest = buildHotLeadBrief({ name: "Jordan Lee", source: "Instagram", stage: "Hot", quality: null, notes: null, messages: [
     { text: "Can you share it?", is_sender: false, timestamp: "2026-08-21T13:00:00.000Z" },

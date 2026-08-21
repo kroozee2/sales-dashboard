@@ -50,6 +50,8 @@ export function buildHotLeadBrief(input: HotLeadBriefInput): HotLeadBrief {
     const inbound = latest.text.toLowerCase();
     if (/\b(no thanks|not interested|do not|don['’]?t|stop|unsubscribe|remove me|wrong person|no longer|leave me alone)\b/.test(inbound)) {
       recommendation = `Do not send another sales message. ${name} has opted out or declined; remove them from Hot unless the surrounding context clearly requires an administrative reply.`;
+    } else if (/\b(no|not|never|cannot|can['’]?t|won['’]?t|unable|without)\b/.test(inbound)) {
+      recommendation = `${name} expressed hesitation, a constraint, or negative intent. Do not treat this as active buying interest; address the exact concern without pushing for a call.`;
     } else if (!clean(latest.text, 220)) {
       recommendation = `${name} sent a media message. Review the media in the full history before deciding what to say next.`;
     } else if (/\b(yes|please|interested|help|send|talk|call|book|ready)\b/.test(inbound)) {

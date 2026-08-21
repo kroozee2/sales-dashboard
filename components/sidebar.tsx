@@ -11,6 +11,7 @@ type NavItem = { href: string; label: string; emoji: string; match?: string[]; s
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Dashboard", emoji: "🏠", section: "Command" },
+  { href: "/morning-brief", label: "Morning Brief", emoji: "☀️", section: "Command" },
   { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Command" },
   { href: "/goals", label: "Goals", emoji: "🏁", section: "Command" },
 

@@ -33,7 +33,7 @@ export function buildHotLeadBrief(input: HotLeadBriefInput): HotLeadBrief {
   const context = clean(input.notes, 360);
   const who = `${name}${descriptors.length ? ` is ${descriptors.join(", ")}` : " is on your Hot list"}.${context ? ` ${context}` : ""}`;
 
-  const messages = input.messages.filter((message) => clean(message.text, 220)).slice(-3);
+  const messages = input.messages.slice(-3);
   let conversation = "There is no synced Instagram conversation yet.";
   if (messages.length) {
     conversation = messages.map((message, index) => {
@@ -48,7 +48,11 @@ export function buildHotLeadBrief(input: HotLeadBriefInput): HotLeadBrief {
     recommendation = `You sent the latest message. If ${name} has not responded, follow up with one short, specific question that makes the next step easy.`;
   } else if (latest) {
     const inbound = latest.text.toLowerCase();
-    if (/\b(yes|please|interested|help|send|talk|call|book|ready)\b/.test(inbound)) {
+    if (/\b(no thanks|not interested|do not|don['’]?t|stop|unsubscribe|remove me|wrong person|no longer|leave me alone)\b/.test(inbound)) {
+      recommendation = `Do not send another sales message. ${name} has opted out or declined; remove them from Hot unless the surrounding context clearly requires an administrative reply.`;
+    } else if (!clean(latest.text, 220)) {
+      recommendation = `${name} sent a media message. Review the media in the full history before deciding what to say next.`;
+    } else if (/\b(yes|please|interested|help|send|talk|call|book|ready)\b/.test(inbound)) {
       recommendation = `Reply now while the interest is active and move ${name} toward one clear next step, ideally a short call or the most relevant offer overview.`;
     } else if (inbound.includes("?")) {
       recommendation = `Answer ${name}’s latest question directly, then end with one clear next step so the conversation keeps moving.`;

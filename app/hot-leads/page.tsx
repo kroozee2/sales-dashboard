@@ -16,11 +16,11 @@ type HotLeadRow = {
   notes: string | null;
   ongoing_message_feed: string | null;
   ghl_connected: boolean;
+  ghl_open_available: boolean;
   instagram_url: string | null;
   linkedin_url: string | null;
   facebook_url: string | null;
   social_url: string | null;
-  ghl_url: string | null;
   last_update: string | null;
   hot: boolean | null;
   instagram: PublicHotInstagramContext | null;
@@ -132,12 +132,13 @@ export default function HotLeadsPage() {
       const response = await fetch(`/api/hot-leads/current/${row.id}/ghl`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ channel, message }),
+        body: JSON.stringify({ channel, message, expected_destination: destination }),
       });
       const body: unknown = await response.json();
       if (!response.ok) throw new Error(errorMessage(body));
-      setGhlDrafts((current) => ({ ...current, [row.id]: "" }));
-      setNotices((current) => ({ ...current, [row.id]: `Sent via ${channel}.` }));
+      const warning = typeof body === "object" && body !== null && "warning" in body && typeof body.warning === "string" ? body.warning : null;
+      if (!warning) setGhlDrafts((current) => ({ ...current, [row.id]: "" }));
+      setNotices((current) => ({ ...current, [row.id]: warning || `Sent via ${channel}.` }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to send through GoHighLevel."); }
     finally { setBusy(null); }
   }
@@ -166,7 +167,7 @@ export default function HotLeadsPage() {
             const facebookUrl = safeHttpUrl(row.facebook_url);
             const linkedinUrl = safeHttpUrl(row.linkedin_url);
             const socialUrl = safeHttpUrl(row.social_url);
-            const ghlUrl = safeHttpUrl(row.ghl_url);
+            const ghlUrl = row.ghl_open_available ? `/api/hot-leads/current/${row.id}/ghl` : null;
             const callHref = phoneHref(row.phone, "tel");
             const textHref = phoneHref(row.phone, "sms");
             const ghlChannel = ghlChannels[row.id] ?? (row.phone ? "SMS" : "Email");

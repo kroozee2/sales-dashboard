@@ -48,8 +48,8 @@ export async function GET(req: NextRequest) {
     if (error) throw new Error("Unable to load Hot leads");
     const contextByLead = new Map(instagram.contexts.map((row) => [row.lead_id, agent ? row : publicHotInstagramContext(row)]));
     const leads = (data ?? []).map((row) => {
-      const { ghl_contact_id, ...publicLead } = row;
-      return { ...publicLead, ghl_connected: Boolean(ghl_contact_id), instagram: contextByLead.get(row.id) ?? null };
+      const { ghl_contact_id, ghl_url, ...publicLead } = row;
+      return { ...publicLead, ghl_connected: Boolean(ghl_contact_id), ghl_open_available: Boolean(ghl_url), instagram: contextByLead.get(row.id) ?? null };
     });
     return NextResponse.json({ leads, total: count ?? leads.length, limit: 50, instagram_synced_at: instagram.synced_at });
   } catch (error) { return errorResponse(error); }

@@ -113,6 +113,17 @@ test("builds a grounded personalized brief and recommended next move from the le
   assert.match(brief.who, /Jordan Lee[\s\S]*coaching business/i);
   assert.match(brief.conversation, /Yes please, can we talk this week/);
   assert.match(brief.recommendation, /reply now|next step|call/i);
+
+  const optedOut = buildHotLeadBrief({ ...brief, name: "Jordan Lee", source: "Instagram", stage: "Hot", quality: "Qualified", notes: null, messages: [{ text: "No thanks, I am not interested. Please do not call me.", is_sender: false, timestamp: "2026-08-21T13:06:00.000Z" }] });
+  assert.match(optedOut.recommendation, /do not send|opted out|remove/i);
+  assert.doesNotMatch(optedOut.recommendation, /interest is active|short call/i);
+
+  const mediaLatest = buildHotLeadBrief({ name: "Jordan Lee", source: "Instagram", stage: "Hot", quality: null, notes: null, messages: [
+    { text: "Can you share it?", is_sender: false, timestamp: "2026-08-21T13:00:00.000Z" },
+    { text: "", is_sender: true, timestamp: "2026-08-21T13:01:00.000Z" },
+  ] });
+  assert.match(mediaLatest.conversation, /media/i);
+  assert.match(mediaLatest.recommendation, /You sent the latest message/i);
 });
 
 test("Hot page shows a personalized conversation brief and previews exact copy before approval", () => {
@@ -158,8 +169,14 @@ test("Hot cards explain why each lead is Hot and make verified channels one tap 
   assert.match(page, /\/api\/hot-leads\/current\/\$\{row\.id\}\/ghl/);
   assert.match(ghlRoute, /isHotLeadsOwner/);
   assert.match(ghlRoute, /Lead is no longer Hot/);
-  assert.match(collection, /ghl_connected/);
-  assert.match(collection, /const \{ ghl_contact_id, \.\.\.publicLead \}/);
-  assert.doesNotMatch(page, /ghl_contact_id/);
+  assert.match(collection, /ghl_open_available/);
+  assert.match(collection, /const \{ ghl_contact_id, ghl_url, \.\.\.publicLead \}/);
+  assert.doesNotMatch(page, /ghl_contact_id|row\.ghl_url/);
+  assert.match(page, /expected_destination/);
+  assert.match(ghlRoute, /expectedDestination/);
+  assert.match(ghlRoute, /ghlContactIdentity/);
+  assert.match(ghlRoute, /getReader\(\)/);
+  assert.match(ghlRoute, /Pending GHL/);
+  assert.match(ghlRoute, /export async function GET/);
   assert.match(page, /Send via \$\{channel\}/);
 });

@@ -14,7 +14,7 @@ type HotLeadRow = {
   source: string | null;
   notes: string | null;
   ongoing_message_feed: string | null;
-  ghl_contact_id: string | null;
+  ghl_connected: boolean;
   instagram_url: string | null;
   linkedin_url: string | null;
   facebook_url: string | null;
@@ -121,17 +121,17 @@ export default function HotLeadsPage() {
   async function sendGhl(row: HotLeadRow) {
     const message = (ghlDrafts[row.id] ?? "").trim();
     const channel = ghlChannels[row.id] ?? (row.phone ? "SMS" : "Email");
-    if (!row.ghl_contact_id || !message || (channel === "Email" ? !row.email : !row.phone)) return;
+    if (!row.ghl_connected || !message || (channel === "Email" ? !row.email : !row.phone)) return;
     const destination = channel === "Email" ? row.email : row.phone;
     const confirmed = window.confirm(`Send via ${channel} to ${row.full_name || "this lead"} (${destination})?\n\n${message}`);
     if (!confirmed) return;
     setBusy(row.id);
     setError(null);
     try {
-      const response = await fetch("/api/messages/send", {
+      const response = await fetch(`/api/hot-leads/current/${row.id}/ghl`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ contactId: row.ghl_contact_id, channel, message }),
+        body: JSON.stringify({ channel, message }),
       });
       const body: unknown = await response.json();
       if (!response.ok) throw new Error(errorMessage(body));
@@ -214,7 +214,7 @@ export default function HotLeadsPage() {
 
                     <div className="my-5 border-t border-zinc-800" />
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Send through GoHighLevel</h3>
-                    {row.ghl_contact_id && (row.phone || row.email) ? <>
+                    {row.ghl_connected && (row.phone || row.email) ? <>
                       <div className="mt-2 flex gap-2">
                         <select value={ghlChannel} onChange={(event) => setGhlChannels((current) => ({ ...current, [row.id]: event.target.value as GhlChannel }))} className="min-h-11 rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm outline-none focus:border-violet-500">
                           <option value="SMS" disabled={!row.phone}>SMS</option>

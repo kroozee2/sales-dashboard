@@ -131,6 +131,12 @@ test("Hot cards explain why each lead is Hot and make verified channels one tap 
   assert.match(page, /Facebook/);
   assert.match(page, /Open in GHL/);
   assert.match(page, /Send through GoHighLevel/);
-  assert.match(page, /\/api\/messages\/send/);
+  const ghlRoute = readFileSync(new URL("../app/api/hot-leads/[date]/[id]/ghl/route.ts", import.meta.url), "utf8");
+  assert.match(page, /\/api\/hot-leads\/current\/\$\{row\.id\}\/ghl/);
+  assert.match(ghlRoute, /isHotLeadsOwner/);
+  assert.match(ghlRoute, /Lead is no longer Hot/);
+  assert.match(collection, /ghl_connected/);
+  assert.match(collection, /const \{ ghl_contact_id, \.\.\.publicLead \}/);
+  assert.doesNotMatch(page, /ghl_contact_id/);
   assert.match(page, /Send via \$\{channel\}/);
 });

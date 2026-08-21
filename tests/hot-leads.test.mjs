@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { applyHotInstagramPatch, mergeHotInstagramSync, parseHotInstagramDocument } from "../lib/hot-leads.ts";
+import { buildHotLeadBrief } from "../lib/hot-lead-brief.ts";
 
 const context = (overrides = {}) => ({
   lead_id: "11111111-1111-4111-8111-111111111111",
@@ -96,11 +97,33 @@ test("regular Leads already exposes add/remove Hot controls", () => {
   assert.match(route, /prospect_stage/);
 });
 
-test("Hot page shows pulled Instagram history and previews exact copy before approval", () => {
+test("builds a grounded personalized brief and recommended next move from the lead and thread", () => {
+  const brief = buildHotLeadBrief({
+    name: "Jordan Lee",
+    source: "Instagram",
+    stage: "🔥 Hot Prospect",
+    quality: "Qualified",
+    notes: "Runs a coaching business and wants implementation support.",
+    messages: context({ messages: [
+      { id: "m1", text: "We need help setting this up.", is_sender: false, timestamp: "2026-08-21T13:00:00.000Z" },
+      { id: "m2", text: "I can send the overview.", is_sender: true, timestamp: "2026-08-21T13:02:00.000Z" },
+      { id: "m3", text: "Yes please, can we talk this week?", is_sender: false, timestamp: "2026-08-21T13:05:00.000Z" },
+    ] }).messages,
+  });
+  assert.match(brief.who, /Jordan Lee[\s\S]*coaching business/i);
+  assert.match(brief.conversation, /Yes please, can we talk this week/);
+  assert.match(brief.recommendation, /reply now|next step|call/i);
+});
+
+test("Hot page shows a personalized conversation brief and previews exact copy before approval", () => {
   const page = readFileSync(new URL("../app/hot-leads/page.tsx", import.meta.url), "utf8");
   const collection = readFileSync(new URL("../app/api/hot-leads/route.ts", import.meta.url), "utf8");
   const member = readFileSync(new URL("../app/api/hot-leads/[date]/[id]/route.ts", import.meta.url), "utf8");
-  assert.match(page, /Instagram conversation/);
+  assert.match(page, /Who they are/);
+  assert.match(page, /What happened/);
+  assert.match(page, /Recommended next move/);
+  assert.match(page, /Full Instagram history/);
+  assert.doesNotMatch(page, />Instagram conversation</);
   assert.match(page, /window\.confirm\([\s\S]{0,400}draft_reply/);
   assert.match(page, /Send on Instagram/);
   assert.match(collection, /isHotLeadsOwner/);

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SubTabs } from "@/components/sub-tabs";
+import { buildHotLeadBrief } from "@/lib/hot-lead-brief";
 import type { PublicHotInstagramContext } from "@/lib/hot-leads";
 
 type HotLeadRow = {
@@ -171,6 +172,14 @@ export default function HotLeadsPage() {
             const ghlChannel = ghlChannels[row.id] ?? (row.phone ? "SMS" : "Email");
             const ghlDraft = ghlDrafts[row.id] ?? "";
             const whyHot = row.notes?.trim() || row.ongoing_message_feed?.trim() || (row.prospect_stage === "🔥 Hot Prospect" ? "This lead is currently in the Hot Prospect pipeline stage." : "This lead was manually marked Hot in SalesOS.");
+            const brief = buildHotLeadBrief({
+              name: row.full_name,
+              source: row.source,
+              stage: row.prospect_stage,
+              quality: row.quality,
+              notes: row.notes?.trim() || row.ongoing_message_feed?.trim() || null,
+              messages: instagram?.messages ?? [],
+            });
             return (
               <article key={row.id} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
                 <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(200px,0.75fr)_minmax(300px,1.2fr)_minmax(330px,1.25fr)]">
@@ -197,8 +206,24 @@ export default function HotLeadsPage() {
                   </section>
 
                   <section>
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Instagram conversation</h3>
-                    {instagram ? <div className="mt-2 max-h-64 space-y-2 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950 p-3">{instagram.messages.length ? instagram.messages.map((message) => <div key={message.id} className={`flex ${message.is_sender ? "justify-end" : "justify-start"}`}><div className={`max-w-[86%] rounded-2xl px-3 py-2 text-sm ${message.is_sender ? "bg-pink-600 text-white" : "bg-zinc-800 text-zinc-200"}`}><p className="whitespace-pre-wrap break-words">{message.text || "(media message)"}</p><p className={`mt-1 text-[10px] ${message.is_sender ? "text-white/70" : "text-zinc-500"}`}>{formatTime(message.timestamp)}</p></div></div>) : <p className="py-4 text-center text-xs text-zinc-600">No recent text messages.</p>}</div> : <div className="mt-2 rounded-xl border border-dashed border-zinc-700 bg-zinc-950 p-5 text-center text-sm text-zinc-500">{row.instagram_url ? "Instagram is linked. The automatic Unipile sync is matching this conversation." : "Add their Instagram URL in Leads so Unipile can match the conversation."}</div>}
+                    <div className="space-y-3">
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+                        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Who they are</h3>
+                        <p className="mt-1 text-sm leading-6 text-zinc-300">{brief.who}</p>
+                      </div>
+                      <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+                        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">What happened</h3>
+                        <p className="mt-1 text-sm leading-6 text-zinc-300">{brief.conversation}</p>
+                      </div>
+                      <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/20 p-3">
+                        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-emerald-300">Recommended next move</h3>
+                        <p className="mt-1 text-sm leading-6 text-zinc-200">{brief.recommendation}</p>
+                      </div>
+                    </div>
+                    {instagram ? <details className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950">
+                      <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-pink-300">Full Instagram history · @{instagram.instagram_handle}</summary>
+                      <div className="max-h-64 space-y-2 overflow-y-auto border-t border-zinc-800 p-3">{instagram.messages.length ? instagram.messages.map((message) => <div key={message.id} className={`flex ${message.is_sender ? "justify-end" : "justify-start"}`}><div className={`max-w-[86%] rounded-2xl px-3 py-2 text-sm ${message.is_sender ? "bg-pink-600 text-white" : "bg-zinc-800 text-zinc-200"}`}><p className="whitespace-pre-wrap break-words">{message.text || "(media message)"}</p><p className={`mt-1 text-[10px] ${message.is_sender ? "text-white/70" : "text-zinc-500"}`}>{formatTime(message.timestamp)}</p></div></div>) : <p className="py-4 text-center text-xs text-zinc-600">No recent text messages.</p>}</div>
+                    </details> : <div className="mt-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-950 p-4 text-center text-xs text-zinc-500">{row.instagram_url ? "Instagram is linked. Unipile is still matching the exact conversation." : "Add their Instagram URL in Leads to bring the conversation into this brief."}</div>}
                     {instagram && <a href={`https://www.instagram.com/${encodeURIComponent(instagram.instagram_handle)}/`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs font-semibold text-pink-300">Open @{instagram.instagram_handle} ↗</a>}
                   </section>
 

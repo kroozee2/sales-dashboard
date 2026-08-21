@@ -153,18 +153,12 @@ test("saving a changed draft resets failed or approved work to draft and rejects
   }, "2026-08-18T11:00:00.000Z"), /sending/i);
 });
 
-test("adds IG Hot Leads to the Leads sub-tabs and renders a queue-only approval page", () => {
+test("replaces the legacy IG Hot Leads tab with Hot Leads and redirects the old page", () => {
   const tabs = readFileSync(new URL("../components/sub-tabs.tsx", import.meta.url), "utf8");
   const page = readFileSync(new URL("../app/instagram-hot-leads/page.tsx", import.meta.url), "utf8");
-  assert.match(tabs, /href:\s*["']\/instagram-hot-leads["'],\s*label:\s*["']IG Hot Leads["']/);
-  assert.match(page, /<SubTabs group=["']leads["']/);
-  assert.match(page, /Send on Instagram/);
-  assert.match(page, /window\.confirm\([\s\S]{0,300}username[\s\S]{0,300}draft_reply/);
-  assert.match(page, /status:\s*["']approved["'][\s\S]{0,200}expected_draft_reply:\s*row\.draft_reply[\s\S]{0,200}expected_revision:\s*row\.revision/);
-  assert.match(page, /within about a minute/i);
-  assert.match(page, /\/api\/instagram-hot-leads/);
-  assert.doesNotMatch(page, /api\/messages\/send|composio/i);
-  assert.doesNotMatch(page, /conversation_id|recipient_id|provider_account_id/);
+  assert.match(tabs, /href:\s*["']\/hot-leads["'],\s*label:\s*["']Hot["']/);
+  assert.doesNotMatch(tabs, /label:\s*["']IG Hot Leads["']/);
+  assert.match(page, /redirect\(["']\/hot-leads["']\)/);
 });
 
 test("same-timestamp identity replacements change revision and reject stale approval", () => {

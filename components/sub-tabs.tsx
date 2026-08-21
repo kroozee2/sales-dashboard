@@ -12,7 +12,7 @@ type Tab = { href: string; label: string; emoji: string };
 export const SUB_TAB_GROUPS: Record<string, Tab[]> = {
   leads: [
     { href: "/leads", label: "Leads", emoji: "🎯" },
-    { href: "/instagram-hot-leads", label: "IG Hot Leads", emoji: "🔥" },
+    { href: "/hot-leads", label: "Hot", emoji: "🔥" },
     { href: "/messages", label: "Messages", emoji: "💬" },
     { href: "/scripts", label: "Scripts", emoji: "💬" },
     { href: "/signups", label: "Signups", emoji: "🆕" },

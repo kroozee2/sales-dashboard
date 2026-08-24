@@ -7,6 +7,7 @@ export type BriefChecklistItem = {
   id: string;
   title: string;
   section: string;
+  task_id: string | null;
   done: boolean;
   completed_at: string | null;
 };
@@ -28,7 +29,7 @@ export type MorningBriefDocument = { version: 1; briefs: MorningBrief[] };
 
 const INPUT_KEYS = new Set(["date", "title", "summary", "content", "checklist", "source"]);
 const BRIEF_KEYS = new Set(["id", "date", "title", "summary", "content", "checklist", "source", "created_at", "updated_at", "revision"]);
-const ITEM_KEYS = new Set(["id", "title", "section", "done", "completed_at"]);
+const ITEM_KEYS = new Set(["id", "title", "section", "task_id", "done", "completed_at"]);
 
 function object(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -61,6 +62,15 @@ function dateOnly(value: unknown): string {
   return text;
 }
 
+function optionalUuid(value: unknown, label: string): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  const text = boundedString(value, label, 36);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)) {
+    throw new Error(`${label} must be a UUID`);
+  }
+  return text;
+}
+
 function normalizedTitle(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
 }
@@ -87,6 +97,7 @@ export function createBriefFromInput(
       id: idFactory(),
       title,
       section: boundedString(item.section ?? "Action Items", `checklist[${index}].section`, 80),
+      task_id: null,
       done: false,
       completed_at: null,
     };
@@ -116,6 +127,7 @@ function parseChecklistItem(raw: unknown, index: number): BriefChecklistItem {
     id: boundedString(item.id, `checklist[${index}].id`, 100),
     title: boundedString(item.title, `checklist[${index}].title`, 300),
     section: boundedString(item.section, `checklist[${index}].section`, 80),
+    task_id: optionalUuid(item.task_id, `checklist[${index}].task_id`),
     done: item.done,
     completed_at: iso(item.completed_at, `checklist[${index}].completed_at`, true),
   };
@@ -164,7 +176,13 @@ export function mergeBrief(previous: MorningBrief | undefined, incoming: Morning
     created_at: previous.created_at,
     checklist: incoming.checklist.map((item) => {
       const prior = completed.get(normalizedTitle(item.title));
-      return prior?.done ? { ...item, id: prior.id, done: true, completed_at: prior.completed_at } : item;
+      return prior ? {
+        ...item,
+        id: prior.id,
+        task_id: prior.task_id,
+        done: prior.done,
+        completed_at: prior.completed_at,
+      } : item;
     }),
   };
 }
@@ -193,6 +211,25 @@ export function toggleChecklistItem(
   return {
     ...brief,
     checklist: brief.checklist.map((item) => item.id === itemId ? { ...item, done, completed_at: done ? now : null } : item),
+    updated_at: now,
+    revision: idFactory(),
+  };
+}
+
+export function linkChecklistTask(
+  brief: MorningBrief,
+  itemId: string,
+  taskId: string,
+  expectedRevision: string,
+  now = new Date().toISOString(),
+  idFactory: () => string = () => globalThis.crypto.randomUUID(),
+): MorningBrief {
+  if (brief.revision !== expectedRevision) throw new Error("stale brief revision");
+  if (!brief.checklist.some((item) => item.id === itemId)) throw new Error("checklist item not found");
+  const validatedTaskId = optionalUuid(taskId, "task_id");
+  return {
+    ...brief,
+    checklist: brief.checklist.map((item) => item.id === itemId ? { ...item, task_id: validatedTaskId } : item),
     updated_at: now,
     revision: idFactory(),
   };

@@ -2,13 +2,32 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { MorningBrief } from "@/lib/morning-brief";
-import { formatSalesCallDate, organizeMorningBrief } from "@/lib/morning-brief-view";
+import {
+  findMentionedLeads,
+  formatSalesCallDate,
+  organizeMorningBrief,
+} from "@/lib/morning-brief-view";
 
 type BriefDocument = { version: 1; briefs: MorningBrief[] };
 type SalesCall = { id: string; name: string; call_date: string; call_type?: string | null; result?: string | null; deal_amount?: number | null };
 type SalesSnapshot = { upcomingCalls: SalesCall[]; recentCalls: SalesCall[] };
+type LeadRef = { id: string; full_name: string; prospect_stage?: string | null; email?: string | null; phone?: string | null };
+type TaskRef = { id: string; name: string; done: boolean; status: string; due_date?: string | null; owner?: string | null; urgency?: string | null };
 
 const EMPTY_SALES: SalesSnapshot = { upcomingCalls: [], recentCalls: [] };
+
+async function loadLeadSummaries(): Promise<LeadRef[]> {
+  const leads: LeadRef[] = [];
+  for (let page = 1; page <= 5; page += 1) {
+    const response = await fetch(`/api/leads?summary=true&limit=1000&page=${page}`);
+    if (!response.ok) throw new Error("Lead links are unavailable right now.");
+    const data = await response.json() as { leads?: LeadRef[]; hasMore?: boolean };
+    leads.push(...(Array.isArray(data.leads) ? data.leads : []));
+    if (page === 5 && data.hasMore) throw new Error("Lead index is too large to resolve identities safely.");
+    if (!data.hasMore) break;
+  }
+  return leads;
+}
 
 function formatDate(date: string, options?: Intl.DateTimeFormatOptions) {
   const [year, month, day] = date.split("-").map(Number);
@@ -90,8 +109,13 @@ export default function MorningBriefPage() {
   const [document, setDocument] = useState<BriefDocument | null>(null);
   const [sales, setSales] = useState<SalesSnapshot>(EMPTY_SALES);
   const [salesError, setSalesError] = useState("");
+  const [leads, setLeads] = useState<LeadRef[]>([]);
+  const [tasks, setTasks] = useState<TaskRef[]>([]);
+  const [leadError, setLeadError] = useState("");
+  const [taskError, setTaskError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [savingItem, setSavingItem] = useState<string | null>(null);
+  const [creatingTask, setCreatingTask] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -107,12 +131,24 @@ export default function MorningBriefPage() {
           return { snapshot: await response.json() as SalesSnapshot, error: "" };
         })
         .catch(() => ({ snapshot: EMPTY_SALES, error: "Sales call data is unavailable right now." })),
+      loadLeadSummaries()
+        .then((rows) => ({ rows, error: "" }))
+        .catch(() => ({ rows: [] as LeadRef[], error: "Lead links are unavailable right now." })),
+      fetch("/api/tasks")
+        .then(async (response) => response.ok
+          ? { rows: await response.json() as TaskRef[], error: "" }
+          : { rows: [] as TaskRef[], error: "Task syncing is unavailable right now." })
+        .catch(() => ({ rows: [] as TaskRef[], error: "Task syncing is unavailable right now." })),
     ])
-      .then(([briefs, salesResult]) => {
+      .then(([briefs, salesResult, leadResult, taskResult]) => {
         setDocument(briefs);
         setSelectedId(briefs.briefs[0]?.id ?? null);
         setSales({ upcomingCalls: salesResult.snapshot.upcomingCalls ?? [], recentCalls: salesResult.snapshot.recentCalls ?? [] });
         setSalesError(salesResult.error);
+        setLeads(Array.isArray(leadResult.rows) ? leadResult.rows : []);
+        setTasks(Array.isArray(taskResult.rows) ? taskResult.rows : []);
+        setLeadError(leadResult.error);
+        setTaskError(taskResult.error);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Could not load morning brief"));
   }, []);
@@ -120,27 +156,72 @@ export default function MorningBriefPage() {
   const selected = useMemo(() => document?.briefs.find((brief) => brief.id === selectedId) ?? document?.briefs[0] ?? null, [document, selectedId]);
   const workspace = useMemo(() => selected ? organizeMorningBrief(selected.content) : [], [selected]);
   const workspaceById = useMemo(() => new Map(workspace.map((section) => [section.id, section.content])), [workspace]);
-  const doneCount = selected?.checklist.filter((item) => item.done).length ?? 0;
+  const mentionedLeads = useMemo(
+    () => findMentionedLeads(workspaceById.get("morning-setter") ?? "", leads).slice(0, 12),
+    [workspaceById, leads],
+  );
+  const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
+  const doneCount = selected?.checklist.filter((item) => item.task_id ? taskById.get(item.task_id)?.done === true : item.done).length ?? 0;
   const totalCount = selected?.checklist.length ?? 0;
   const progress = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
 
   async function toggle(itemId: string, done: boolean) {
     if (!selected || savingItem) return;
+    const item = selected.checklist.find((candidate) => candidate.id === itemId);
+    if (!item) return;
     setSavingItem(itemId);
     setError("");
     try {
-      const response = await fetch("/api/morning-briefs", {
+      const linked = Boolean(item.task_id);
+      const response = await fetch(linked ? "/api/morning-briefs/tasks" : "/api/morning-briefs", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ brief_id: selected.id, item_id: itemId, done, expected_revision: selected.revision }),
+        body: JSON.stringify(linked
+          ? { brief_id: selected.id, item_id: itemId, done }
+          : { brief_id: selected.id, item_id: itemId, done, expected_revision: selected.revision }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not save checklist");
-      setDocument((current) => current ? { ...current, briefs: current.briefs.map((brief) => brief.id === data.brief.id ? data.brief : brief) } : current);
+      if (linked && data.task?.id) {
+        setTasks((current) => current.some((task) => task.id === data.task.id)
+          ? current.map((task) => task.id === data.task.id ? data.task : task)
+          : [data.task, ...current]);
+      } else if (data.brief?.id) {
+        setDocument((current) => current ? { ...current, briefs: current.briefs.map((brief) => brief.id === data.brief.id ? data.brief : brief) } : current);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not save checklist");
     } finally {
       setSavingItem(null);
+    }
+  }
+
+  async function addToTasks(itemId: string) {
+    if (!selected || creatingTask) return;
+    const item = selected.checklist.find((candidate) => candidate.id === itemId);
+    if (!item) return;
+    setCreatingTask(itemId);
+    setError("");
+    try {
+      const response = await fetch("/api/morning-briefs/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ brief_id: selected.id, item_id: item.id, expected_revision: selected.revision }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.task?.id || !data.brief?.id) {
+        if (response.status === 409) {
+          const refreshed = await fetch("/api/morning-briefs").then((result) => result.json());
+          if (Array.isArray(refreshed.briefs)) setDocument(refreshed as BriefDocument);
+        }
+        throw new Error(data.error ?? "Could not add this win to Tasks");
+      }
+      setTasks((current) => current.some((task) => task.id === data.task.id) ? current : [data.task, ...current]);
+      setDocument((current) => current ? { ...current, briefs: current.briefs.map((brief) => brief.id === data.brief.id ? data.brief : brief) } : current);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not add this win to Tasks");
+    } finally {
+      setCreatingTask(null);
     }
   }
 
@@ -181,7 +262,7 @@ export default function MorningBriefPage() {
             <p className="mb-2 px-1 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">Brief History</p>
             <div className="flex gap-2 overflow-x-auto pb-2 xl:block xl:space-y-2 xl:overflow-visible">
               {document?.briefs.map((brief) => {
-                const done = brief.checklist.filter((item) => item.done).length;
+                const done = brief.checklist.filter((item) => item.task_id ? taskById.get(item.task_id)?.done === true : item.done).length;
                 return <button key={brief.id} aria-pressed={brief.id === selected.id} onClick={() => setSelectedId(brief.id)} className={`min-w-40 rounded-xl border p-3 text-left transition-colors xl:w-full ${brief.id === selected.id ? "border-sky-500/50 bg-sky-500/10" : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"}`}>
                   <p className={`text-sm font-bold ${brief.id === selected.id ? "text-sky-200" : "text-zinc-200"}`}>{formatDate(brief.date, { weekday: "short", month: "short", day: "numeric" })}</p>
                   <p className="mt-1 text-[11px] text-zinc-500">{done}/{brief.checklist.length} wins</p>
@@ -198,6 +279,15 @@ export default function MorningBriefPage() {
             </section>
 
             <SectionCard number="1" eyebrow="Relationships + Revenue" title="1. Morning Setter" description="Who needs a reply, who deserves proactive outreach, and the draft Jarvis recommends sending.">
+              <div className="mb-5 flex flex-wrap items-center gap-2">
+                {mentionedLeads.map((lead) => <a key={lead.id} href={`/leads?lead=${encodeURIComponent(lead.id)}`} className="group inline-flex items-center gap-2 rounded-full border border-sky-500/25 bg-sky-500/[0.07] px-3 py-2 text-xs font-bold text-sky-200 transition hover:border-sky-400/60 hover:bg-sky-500/15">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-400/15 text-[10px]">👤</span>
+                  <span>{lead.full_name}</span>
+                  <span className="text-sky-500 group-hover:text-sky-300">Open in Leads →</span>
+                </a>)}
+                <a href="/leads" className="inline-flex items-center rounded-full border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-400 transition hover:border-zinc-600 hover:text-white">All Leads →</a>
+              </div>
+              {leadError && <p role="status" className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-300">{leadError} Open Leads to work from the full list.</p>}
               {workspaceById.get("morning-setter") ? <BriefContent content={workspaceById.get("morning-setter")!} /> : <EmptyState>No priority replies or reach-outs were flagged in this brief.</EmptyState>}
             </SectionCard>
 
@@ -243,13 +333,25 @@ export default function MorningBriefPage() {
                 </div>
               </div>
               <div className="space-y-2 p-5 sm:p-6">
-                {selected.checklist.length === 0 ? <EmptyState>No wins were included in this brief.</EmptyState> : selected.checklist.map((item) => <label key={item.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors ${item.done ? "border-emerald-500/20 bg-emerald-500/[0.06]" : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700"}`}>
-                  <input type="checkbox" checked={item.done} disabled={savingItem === item.id} onChange={(event) => toggle(item.id, event.target.checked)} className="mt-0.5 h-5 w-5 rounded border-zinc-700 accent-emerald-500" />
-                  <span className="min-w-0 flex-1">
-                    <span className={`block text-sm font-medium ${item.done ? "text-zinc-500 line-through" : "text-zinc-200"}`}>{item.title}</span>
-                    <span className="mt-0.5 block text-[11px] text-zinc-600">{item.section}{item.completed_at ? ` · Checked ${new Date(item.completed_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""}</span>
-                  </span>
-                </label>)}
+                {taskError && <div role="status" className="rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-xs text-amber-300">{taskError} Linked task checkboxes are paused until statuses reload. Safe new-task creation remains available.</div>}
+                {selected.checklist.length === 0 ? <EmptyState>No wins were included in this brief.</EmptyState> : selected.checklist.map((item) => {
+                  const linkedTask = item.task_id ? taskById.get(item.task_id) ?? null : null;
+                  const effectiveDone = item.task_id ? linkedTask?.done === true : item.done;
+                  return <div key={item.id} className={`flex items-start gap-3 rounded-xl border p-3.5 transition-colors ${effectiveDone ? "border-emerald-500/20 bg-emerald-500/[0.06]" : "border-zinc-800 bg-zinc-950/40 hover:border-zinc-700"}`}>
+                    <input aria-label={`Mark ${item.title} ${effectiveDone ? "not done" : "done"}`} type="checkbox" checked={effectiveDone} disabled={savingItem === item.id || creatingTask === item.id || Boolean(item.task_id && (!linkedTask || taskError))} onChange={(event) => toggle(item.id, event.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-zinc-700 accent-emerald-500" />
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-sm font-medium ${effectiveDone ? "text-zinc-500 line-through" : "text-zinc-200"}`}>{item.title}</p>
+                      <p className="mt-0.5 text-[11px] text-zinc-600">{item.section}{!item.task_id && item.completed_at ? ` · Checked ${new Date(item.completed_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {item.task_id ? <>
+                          <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${linkedTask ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300"}`}>{linkedTask ? "✓ Task is source of truth" : "Linked task unavailable"}</span>
+                          <a href={`/tasks?task=${encodeURIComponent(item.task_id)}`} className="text-[11px] font-bold text-sky-400 hover:text-sky-300">Open in Tasks →</a>
+                          {!linkedTask && <button type="button" disabled={creatingTask === item.id} onClick={() => addToTasks(item.id)} className="rounded-lg border border-amber-500/30 px-2.5 py-1.5 text-[11px] font-bold text-amber-300 disabled:opacity-50">{creatingTask === item.id ? "Retrying…" : "Retry task connection"}</button>}
+                        </> : <button type="button" disabled={creatingTask === item.id} onClick={() => addToTasks(item.id)} className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-bold text-zinc-300 transition hover:border-zinc-600 hover:text-white disabled:cursor-wait disabled:opacity-50">{creatingTask === item.id ? "Adding…" : "+ Add to Tasks"}</button>}
+                      </div>
+                    </div>
+                  </div>;
+                })}
               </div>
             </section>
 

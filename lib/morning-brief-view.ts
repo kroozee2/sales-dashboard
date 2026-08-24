@@ -48,6 +48,27 @@ function parseSections(content: string): ParsedSection[] {
   return sections.filter((section) => section.heading && (section.body.some((line) => line.trim()) || normalizeHeading(section.heading) !== "morning brief"));
 }
 
+export function findMentionedLeads<T extends { id: string; full_name: string }>(content: string, leads: T[]): T[] {
+  const normalizedContent = content.normalize("NFKC");
+  const groups = new Map<string, T[]>();
+  for (const lead of leads) {
+    const name = typeof lead.full_name === "string" ? lead.full_name.trim() : "";
+    if (name.length < 5 || name.split(/\s+/).length < 2) continue;
+    const identity = name.toLocaleLowerCase("en-US");
+    groups.set(identity, [...(groups.get(identity) ?? []), lead]);
+  }
+  const matches: T[] = [];
+  for (const candidates of groups.values()) {
+    if (candidates.length !== 1) continue;
+    const name = candidates[0].full_name.trim();
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, "iu").test(normalizedContent)) {
+      matches.push(candidates[0]);
+    }
+  }
+  return matches;
+}
+
 export function formatSalesCallDate(value: string): string {
   const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (dateOnly) {

@@ -7,11 +7,17 @@ import {
   parseBriefDocument,
   toggleChecklistItem,
 } from "../lib/morning-brief.ts";
-import { formatSalesCallDate, organizeMorningBrief } from "../lib/morning-brief-view.ts";
+import {
+  findMentionedLeads,
+  formatSalesCallDate,
+  organizeMorningBrief,
+} from "../lib/morning-brief-view.ts";
 
 const sidebar = readFileSync(new URL("../components/sidebar.tsx", import.meta.url), "utf8");
 const page = readFileSync(new URL("../app/morning-brief/page.tsx", import.meta.url), "utf8");
+const tasksPage = readFileSync(new URL("../app/tasks/page.tsx", import.meta.url), "utf8");
 const route = readFileSync(new URL("../app/api/morning-briefs/route.ts", import.meta.url), "utf8");
+const taskRoute = readFileSync(new URL("../app/api/morning-briefs/tasks/route.ts", import.meta.url), "utf8");
 
 const input = {
   date: "2026-08-21",
@@ -50,6 +56,13 @@ test("checklist updates reject stale revisions and unknown item ids", () => {
   const brief = createBriefFromInput(input, "2026-08-21T13:30:00.000Z", (() => { let i = 0; return () => `id-${++i}`; })());
   assert.throws(() => toggleChecklistItem(brief, brief.checklist[0].id, true, "stale"), /stale/i);
   assert.throws(() => toggleChecklistItem(brief, "missing", true, brief.revision), /not found/i);
+});
+
+test("stored briefs created before task links remain backward compatible", () => {
+  const brief = createBriefFromInput(input, "2026-08-21T13:30:00.000Z", (() => { let i = 0; return () => `legacy-${++i}`; })());
+  const legacy = JSON.parse(JSON.stringify({ version: 1, briefs: [brief] }));
+  delete legacy.briefs[0].checklist[0].task_id;
+  assert.equal(parseBriefDocument(JSON.stringify(legacy)).briefs[0].checklist[0].task_id, null);
 });
 
 test("Morning Brief is a first-class Command tab with a saved checklist UI", () => {
@@ -123,4 +136,50 @@ test("sales pipeline outages render an unavailable state and selected brief hist
   assert.match(page, /Sales call data is unavailable/);
   assert.doesNotMatch(page, /response\.ok \? response\.json\(\).*: EMPTY_SALES/);
   assert.match(page, /aria-pressed=/);
+});
+
+test("Morning Setter deep-links only real SalesOS leads mentioned in the saved brief", () => {
+  const leads = [
+    { id: "lead-robert", full_name: "Robert Locascio" },
+    { id: "lead-robert-duplicate", full_name: "Robert Locascio" },
+    { id: "lead-sam", full_name: "Sam Smith" },
+    { id: "lead-ann", full_name: "Ann" },
+  ];
+  assert.deepEqual(
+    findMentionedLeads("Reply to Robert Locascio today. Samantha is not a lead.", leads),
+    [],
+  );
+  assert.match(page, /\/api\/leads\?summary=true&limit=1000&page=/);
+  assert.match(page, /page === 5 && data\.hasMore/);
+  assert.match(page, /\/leads\?lead=/);
+  assert.match(page, /Open in Leads/);
+});
+
+test("Morning Brief tasks use server-controlled durable task IDs and an idempotent server route", () => {
+  assert.throws(() => createBriefFromInput({
+    ...input,
+    checklist: [{ title: "Send Robert the proposal", section: "Your 3 Wins Today", task_id: "11111111-1111-4111-8111-111111111111" }],
+  }), /unknown field: task_id/);
+  const linked = createBriefFromInput({
+    ...input,
+    checklist: [{ title: "Send Robert the proposal", section: "Your 3 Wins Today" }],
+  }, "2026-08-21T13:30:00.000Z", () => "brief-item-id");
+  linked.checklist[0].task_id = "11111111-1111-4111-8111-111111111111";
+  const refreshed = createBriefFromInput({ ...input, checklist: [{ title: "Send Robert the proposal", section: "Your 3 Wins Today" }] }, "2026-08-21T14:00:00.000Z", () => "new-id");
+  refreshed.checklist[0].task_id = "22222222-2222-4222-8222-222222222222";
+  assert.equal(mergeBrief(linked, refreshed).checklist[0].task_id, "11111111-1111-4111-8111-111111111111");
+  assert.match(page, /item\.task_id/);
+  assert.doesNotMatch(page, /findTaskForChecklistItem/);
+  assert.match(page, /\/api\/morning-briefs\/tasks/);
+  assert.match(page, /Boolean\(item\.task_id && \(!linkedTask \|\| taskError\)\)/);
+  assert.match(page, /Retry task connection/);
+  assert.match(page, /Add to Tasks/);
+  assert.match(page, /\/tasks\?task=/);
+  assert.match(taskRoute, /deterministicTaskId/);
+  assert.match(taskRoute, /onConflict: "id"/);
+  assert.ok(taskRoute.indexOf("await compareAndSwap") < taskRoute.indexOf("db.from(\"tasks\").upsert"));
+  assert.match(taskRoute, /export async function PUT/);
+  assert.match(taskRoute, /task\.name !== item\.title/);
+  assert.match(taskRoute, /\.eq\("archived", false\)/);
+  assert.match(tasksPage, /new URLSearchParams\(window\.location\.search\)\.get\("task"\)/);
 });

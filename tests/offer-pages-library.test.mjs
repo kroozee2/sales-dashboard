@@ -80,6 +80,8 @@ test("Offer Lab has one dedicated tab containing the three offer one-sheets", ()
   );
   const launch = OFFER_ONE_SHEETS.find((item) => item.id === "7fc-ai-mastermind-start");
   assert.match(launch?.purpose ?? "", /done-for-you/i);
+  assert.match(launch?.purpose ?? "", /four-engine/i);
+  assert.match(launch?.purpose ?? "", /monthly profit/i);
 
   const offers = readFileSync(join(root, "app", "offers", "page.tsx"), "utf8");
   assert.match(offers, /\['one-sheets', '📄 One-Sheets'\]/);

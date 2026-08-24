@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   OFFER_PAGE_ASSETS,
   OFFER_PAGE_CATEGORIES,
+  OFFER_ONE_SHEETS,
   filterOfferPageAssets,
 } from "../lib/offer-page-assets.ts";
 
@@ -40,7 +41,7 @@ test("catalog covers funnels, lead magnets, client assets, member assets, and ev
 test("filter searches title, purpose, audience, and tags within a category", () => {
   assert.deepEqual(
     filterOfferPageAssets(OFFER_PAGE_ASSETS, "funnel", "mastermind").map((asset) => asset.id),
-    ["7fc-ai-mastermind", "miami-ai-mastermind"],
+    ["7fc-ai-mastermind", "7fc-ai-mastermind-start", "miami-ai-mastermind"],
   );
   assert.deepEqual(
     filterOfferPageAssets(OFFER_PAGE_ASSETS, "client-asset", "listings lab").map((asset) => asset.id),
@@ -52,9 +53,38 @@ test("filter searches title, purpose, audience, and tags within a category", () 
   );
 });
 
-test("Offers page exposes Pages as the first top view and renders the portfolio", () => {
+test("Offers page exposes the Pages portfolio before the offer-management views", () => {
   const offers = readFileSync(join(root, "app", "offers", "page.tsx"), "utf8");
   assert.match(offers, /\['pages', '\ud83c\udf10 Pages'\]/);
   assert.ok(offers.indexOf("['pages', '🌐 Pages']") < offers.indexOf("['grid', '🔲 Grid']"));
   assert.match(offers, /<OfferPagesLibrary\s*\/>/);
+});
+
+test("Offer Lab has one dedicated tab containing the three offer one-sheets", () => {
+  assert.deepEqual(
+    OFFER_ONE_SHEETS.map(({ title, url }) => ({ title, url })),
+    [
+      {
+        title: "7-Figure CEO AI Mastermind",
+        url: "https://7fc-ai-mastermind-doc.vercel.app/",
+      },
+      {
+        title: "7-Figure CEO AI Mastermind Start",
+        url: "https://7fc-ai-mastermind-start.vercel.app/",
+      },
+      {
+        title: "7-Figure Skool Launch System",
+        url: "https://skool-launch.vercel.app/",
+      },
+    ],
+  );
+
+  const offers = readFileSync(join(root, "app", "offers", "page.tsx"), "utf8");
+  assert.match(offers, /\['one-sheets', '📄 One-Sheets'\]/);
+  assert.match(offers, /useState<'one-sheets' \| 'pages' \| 'grid' \| 'current' \| 'data'>\('one-sheets'\)/);
+  assert.match(offers, /view !== 'pages' && view !== 'one-sheets'/);
+  assert.match(offers, /<OfferOneSheets\s*\/>/);
+
+  const oneSheets = readFileSync(join(root, "components", "OfferOneSheets.tsx"), "utf8");
+  assert.match(oneSheets, /OFFER_ONE_SHEETS\.map/);
 });

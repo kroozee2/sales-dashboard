@@ -32,6 +32,16 @@ export const OFFER_PAGE_ASSETS: OfferPageAsset[] = [
     featured: true,
   },
   {
+    id: "7fc-ai-mastermind-start",
+    title: "7-Figure CEO AI Mastermind Start",
+    url: "https://7fc-ai-mastermind-start.vercel.app/",
+    category: "funnel",
+    purpose: "Private invitation and application page for the earlier-stage AI Mastermind pathway.",
+    audience: "Coaches building toward a repeatable $30K/month business with AI-supported systems.",
+    tags: ["7-Figure CEO", "mastermind", "Start", "application"],
+    featured: true,
+  },
+  {
     id: "miami-ai-mastermind",
     title: "Miami AI Mastermind Event",
     url: "https://miami-event-five.vercel.app/",
@@ -207,6 +217,18 @@ export const OFFER_PAGE_ASSETS: OfferPageAsset[] = [
     tags: ["Miami", "speakers", "event", "assets"],
   },
 ];
+
+const OFFER_ONE_SHEET_IDS = [
+  "7fc-ai-mastermind",
+  "7fc-ai-mastermind-start",
+  "skool-launch-offer",
+] as const;
+
+export const OFFER_ONE_SHEETS: OfferPageAsset[] = OFFER_ONE_SHEET_IDS.map((id) => {
+  const asset = OFFER_PAGE_ASSETS.find((candidate) => candidate.id === id);
+  if (!asset) throw new Error(`Missing offer one-sheet asset: ${id}`);
+  return asset;
+});
 
 export function filterOfferPageAssets(
   assets: OfferPageAsset[],

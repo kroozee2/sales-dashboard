@@ -7,6 +7,7 @@ import {
   parseBriefDocument,
   toggleChecklistItem,
 } from "../lib/morning-brief.ts";
+import { organizeMorningBrief } from "../lib/morning-brief-view.ts";
 
 const sidebar = readFileSync(new URL("../components/sidebar.tsx", import.meta.url), "utf8");
 const page = readFileSync(new URL("../app/morning-brief/page.tsx", import.meta.url), "utf8");
@@ -59,4 +60,48 @@ test("Morning Brief is a first-class Command tab with a saved checklist UI", () 
   assert.match(page, /completed_at/);
   assert.match(route, /MORNING_BRIEFS_KEY/);
   assert.doesNotMatch(page, /dangerouslySetInnerHTML/);
+});
+
+test("the assistant workspace keeps outreach first and calendar calls second", () => {
+  const sections = organizeMorningBrief(`## Your 3 Wins Today
+1. Finish the offer.
+
+## Schedule + Preparation
+**9:00 AM, Client call:** Review the plan.
+
+## Important Inbox
+- Alex needs a reply.
+
+## Replies Ready for Approval
+**Alex, WhatsApp**
+Draft: “Checking in.”
+
+## 3. Sales Calls
+### Future Sales Calls
+- Call Jordan tomorrow.
+
+## Clients + Client Actions
+- Send Maria the implementation plan.
+
+## Suggested Game Plan
+- Protect the first focus block.`);
+
+  assert.deepEqual(sections.map((section) => section.id), ["morning-setter", "calls-today", "sales", "clients", "priorities", "details"]);
+  assert.match(sections[0].content, /Alex needs a reply/);
+  assert.match(sections[0].content, /Checking in/);
+  assert.match(sections[1].content, /9:00 AM, Client call/);
+  assert.match(sections[2].content, /Jordan/);
+  assert.match(sections[3].content, /Maria/);
+  assert.match(sections[4].content, /Finish the offer/);
+  assert.match(sections[5].content, /Protect the first focus block/);
+});
+
+test("the redesigned page exposes past and future sales calls as a dedicated workspace", () => {
+  assert.match(page, /Morning Setter/);
+  assert.match(page, /2\. Calls Today/);
+  assert.match(page, /3\. Sales Calls/);
+  assert.match(page, /Past Sales Calls/);
+  assert.match(page, /Future Sales Calls/);
+  assert.match(page, /4\. Client Success/);
+  assert.match(page, /\/api\/home\?period=month/);
 });

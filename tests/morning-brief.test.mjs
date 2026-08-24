@@ -7,7 +7,7 @@ import {
   parseBriefDocument,
   toggleChecklistItem,
 } from "../lib/morning-brief.ts";
-import { organizeMorningBrief } from "../lib/morning-brief-view.ts";
+import { formatSalesCallDate, organizeMorningBrief } from "../lib/morning-brief-view.ts";
 
 const sidebar = readFileSync(new URL("../components/sidebar.tsx", import.meta.url), "utf8");
 const page = readFileSync(new URL("../app/morning-brief/page.tsx", import.meta.url), "utf8");
@@ -104,4 +104,23 @@ test("the redesigned page exposes past and future sales calls as a dedicated wor
   assert.match(page, /Future Sales Calls/);
   assert.match(page, /4\. Client Success/);
   assert.match(page, /\/api\/home\?period=month/);
+});
+
+test("reach-out headings and common Markdown line endings stay in Morning Setter", () => {
+  const sections = organizeMorningBrief("  ## People to Reach Out To\r\n- Call Alex today.\r\n\r\n## Calls Today\r\n- 9 AM with Maria.\r\n");
+  assert.deepEqual(sections.map((section) => section.id), ["morning-setter", "calls-today"]);
+  assert.match(sections[0].content, /Alex/);
+  assert.match(sections[1].content, /Maria/);
+});
+
+test("date-only past sales calls remain on their recorded local date without an invented time", () => {
+  assert.equal(formatSalesCallDate("2026-08-24"), "Mon, Aug 24");
+  assert.match(formatSalesCallDate("2026-08-24T16:30:00-07:00"), /Mon, Aug 24.*4:30 PM/);
+});
+
+test("sales pipeline outages render an unavailable state and selected brief history is accessible", () => {
+  assert.match(page, /salesError/);
+  assert.match(page, /Sales call data is unavailable/);
+  assert.doesNotMatch(page, /response\.ok \? response\.json\(\).*: EMPTY_SALES/);
+  assert.match(page, /aria-pressed=/);
 });

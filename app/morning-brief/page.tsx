@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { MorningBrief } from "@/lib/morning-brief";
-import { organizeMorningBrief } from "@/lib/morning-brief-view";
+import { formatSalesCallDate, organizeMorningBrief } from "@/lib/morning-brief-view";
 
 type BriefDocument = { version: 1; briefs: MorningBrief[] };
 type SalesCall = { id: string; name: string; call_date: string; call_type?: string | null; result?: string | null; deal_amount?: number | null };
@@ -13,12 +13,6 @@ const EMPTY_SALES: SalesSnapshot = { upcomingCalls: [], recentCalls: [] };
 function formatDate(date: string, options?: Intl.DateTimeFormatOptions) {
   const [year, month, day] = date.split("-").map(Number);
   return new Date(year, month - 1, day).toLocaleDateString("en-US", options ?? { weekday: "long", month: "long", day: "numeric" });
-}
-
-function formatCallTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function InlineText({ text }: { text: string }) {
@@ -85,7 +79,7 @@ function CallList({ calls, empty, future }: { calls: SalesCall[]; empty: string;
     <a key={call.id} href="/calls" className="group flex items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/50 p-3.5 transition hover:border-zinc-700 hover:bg-zinc-950">
       <span className="min-w-0">
         <span className="block truncate text-sm font-bold text-zinc-100 group-hover:text-white">{call.name}</span>
-        <span className="mt-1 block text-xs text-zinc-500">{formatCallTime(call.call_date)}{future && call.call_type ? ` · ${call.call_type.replace(/^\S+\s*/, "")}` : ""}</span>
+        <span className="mt-1 block text-xs text-zinc-500">{formatSalesCallDate(call.call_date)}{future && call.call_type ? ` · ${call.call_type.replace(/^\S+\s*/, "")}` : ""}</span>
       </span>
       <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${future ? "bg-violet-500/10 text-violet-300" : call.result === "✅ Sale" ? "bg-emerald-500/10 text-emerald-300" : "bg-zinc-800 text-zinc-400"}`}>{future ? "Upcoming" : call.result?.replace(/^\S+\s*/, "") || "Complete"}</span>
     </a>
@@ -95,6 +89,7 @@ function CallList({ calls, empty, future }: { calls: SalesCall[]; empty: string;
 export default function MorningBriefPage() {
   const [document, setDocument] = useState<BriefDocument | null>(null);
   const [sales, setSales] = useState<SalesSnapshot>(EMPTY_SALES);
+  const [salesError, setSalesError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [savingItem, setSavingItem] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -106,12 +101,18 @@ export default function MorningBriefPage() {
         if (!response.ok) throw new Error(data.error ?? "Could not load morning briefs");
         return data as BriefDocument;
       }),
-      fetch("/api/home?period=month").then(async (response) => response.ok ? response.json() as Promise<SalesSnapshot> : EMPTY_SALES),
+      fetch("/api/home?period=month")
+        .then(async (response) => {
+          if (!response.ok) return { snapshot: EMPTY_SALES, error: "Sales call data is unavailable right now." };
+          return { snapshot: await response.json() as SalesSnapshot, error: "" };
+        })
+        .catch(() => ({ snapshot: EMPTY_SALES, error: "Sales call data is unavailable right now." })),
     ])
-      .then(([briefs, snapshot]) => {
+      .then(([briefs, salesResult]) => {
         setDocument(briefs);
         setSelectedId(briefs.briefs[0]?.id ?? null);
-        setSales({ upcomingCalls: snapshot.upcomingCalls ?? [], recentCalls: snapshot.recentCalls ?? [] });
+        setSales({ upcomingCalls: salesResult.snapshot.upcomingCalls ?? [], recentCalls: salesResult.snapshot.recentCalls ?? [] });
+        setSalesError(salesResult.error);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Could not load morning brief"));
   }, []);
@@ -181,7 +182,7 @@ export default function MorningBriefPage() {
             <div className="flex gap-2 overflow-x-auto pb-2 xl:block xl:space-y-2 xl:overflow-visible">
               {document?.briefs.map((brief) => {
                 const done = brief.checklist.filter((item) => item.done).length;
-                return <button key={brief.id} onClick={() => setSelectedId(brief.id)} className={`min-w-40 rounded-xl border p-3 text-left transition-colors xl:w-full ${brief.id === selected.id ? "border-sky-500/50 bg-sky-500/10" : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"}`}>
+                return <button key={brief.id} aria-pressed={brief.id === selected.id} onClick={() => setSelectedId(brief.id)} className={`min-w-40 rounded-xl border p-3 text-left transition-colors xl:w-full ${brief.id === selected.id ? "border-sky-500/50 bg-sky-500/10" : "border-zinc-800 bg-zinc-900 hover:border-zinc-700"}`}>
                   <p className={`text-sm font-bold ${brief.id === selected.id ? "text-sky-200" : "text-zinc-200"}`}>{formatDate(brief.date, { weekday: "short", month: "short", day: "numeric" })}</p>
                   <p className="mt-1 text-[11px] text-zinc-500">{done}/{brief.checklist.length} wins</p>
                 </button>;
@@ -206,7 +207,7 @@ export default function MorningBriefPage() {
 
             <SectionCard number="3" eyebrow="Pipeline" title="3. Sales Calls" description="A live view of what just happened and what is coming next in the SalesOS call pipeline." accent="amber">
               {workspaceById.get("sales") && <div className="mb-6 rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-4"><BriefContent content={workspaceById.get("sales")!} /></div>}
-              <div className="grid gap-5 lg:grid-cols-2">
+              {salesError ? <div role="alert"><EmptyState>Sales call data is unavailable right now. Open Sales Calls to verify the pipeline.</EmptyState></div> : <div className="grid gap-5 lg:grid-cols-2">
                 <div>
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-sm font-bold text-white">Future Sales Calls</h3>
@@ -221,7 +222,7 @@ export default function MorningBriefPage() {
                   </div>
                   <CallList calls={sales.recentCalls} future={false} empty="No completed sales calls were found." />
                 </div>
-              </div>
+              </div>}
             </SectionCard>
 
             <SectionCard number="4" eyebrow="Retention + Results" title="4. Client Success" description="The client actions that protect momentum, implementation, relationships, and retention." accent="emerald">

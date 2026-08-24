@@ -23,7 +23,7 @@ function groupForHeading(heading: string): WorkspaceSectionId {
   if (/client|member success|member action/.test(normalized)) return "clients";
   if (/win|priority|priorities|must do/.test(normalized)) return "priorities";
   if (/personal|admin|coverage gap|decision/.test(normalized)) return "details";
-  if (/setter|outreach|reply|replies|inbox|revenue|lead|follow up/.test(normalized)) return "morning-setter";
+  if (/setter|outreach|reach out|reaching out|reply|replies|inbox|revenue|lead|follow up/.test(normalized)) return "morning-setter";
   return "details";
 }
 
@@ -31,8 +31,8 @@ function parseSections(content: string): ParsedSection[] {
   const sections: ParsedSection[] = [];
   let current: ParsedSection | null = null;
 
-  for (const raw of content.split("\n")) {
-    const heading = raw.match(/^##\s+(.+)$/);
+  for (const raw of content.replace(/\r\n?/g, "\n").split("\n")) {
+    const heading = raw.trim().match(/^##\s+(.+)$/);
     if (heading) {
       current = { heading: heading[1].trim(), body: [] };
       sections.push(current);
@@ -46,6 +46,17 @@ function parseSections(content: string): ParsedSection[] {
   }
 
   return sections.filter((section) => section.heading && (section.body.some((line) => line.trim()) || normalizeHeading(section.heading) !== "morning brief"));
+}
+
+export function formatSalesCallDate(value: string): string {
+  const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function organizeMorningBrief(content: string): MorningBriefWorkspaceSection[] {

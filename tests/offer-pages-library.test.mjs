@@ -69,7 +69,7 @@ test("Offer Lab has one dedicated tab containing the three offer one-sheets", ()
         url: "https://7fc-ai-mastermind-doc.vercel.app/",
       },
       {
-        title: "7-Figure CEO AI Mastermind Start",
+        title: "7-Figure CEO Launch",
         url: "https://7fc-ai-mastermind-start.vercel.app/",
       },
       {

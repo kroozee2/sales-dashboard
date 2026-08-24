@@ -36,7 +36,7 @@ export const OFFER_PAGE_ASSETS: OfferPageAsset[] = [
     title: "7-Figure CEO Launch",
     url: "https://7fc-ai-mastermind-start.vercel.app/",
     category: "funnel",
-    purpose: "Six-month implementation offer for experts streamlining their offer, marketing, and AI-powered fulfillment.",
+    purpose: "Six-month done-for-you offer, content, and conversion build for experts streamlining their business.",
     audience: "Experts with real skills, client proof, content momentum, and a growing audience.",
     tags: ["7-Figure CEO", "Launch", "mastermind", "30K", "application"],
     featured: true,

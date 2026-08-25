@@ -117,21 +117,71 @@ export function syncEligibility(lastSync: string | null | undefined, kind: "prof
   return { eligible: !Number.isFinite(last) || now.getTime() >= last + cooldownMs, nextEligibleAt };
 }
 
+export function extractCompetitorProfileStats(items: Record<string, unknown>[], expectedHandle: string) {
+  const expected = expectedHandle.trim().replace(/^@/, "").toLowerCase();
+  if (!/^[a-z0-9._]{1,30}$/.test(expected)) return { handle: null, followers: null };
+  let matched = false;
+  for (const item of items) {
+    const handleValue = item.ownerUsername ?? item.username;
+    const handle = typeof handleValue === "string" && /^[A-Za-z0-9._]{1,30}$/.test(handleValue) ? handleValue.toLowerCase() : null;
+    if (handle !== expected) continue;
+    matched = true;
+    const followerValue = item.ownerFollowersCount ?? item.followersCount;
+    if (followerValue === null || followerValue === undefined || followerValue === "") continue;
+    const followers = Number(followerValue);
+    if (Number.isFinite(followers) && Number.isInteger(followers) && followers >= 0) return { handle: expected, followers };
+  }
+  return { handle: matched ? expected : null, followers: null };
+}
+
+export function competitorPostMetric(post: { views?: number | null; plays?: number | null }) {
+  const views = Number(post.views || 0);
+  if (views > 0) return { value: views, label: "views" as const };
+  const plays = Number(post.plays || 0);
+  if (plays > 0) return { value: plays, label: "plays" as const };
+  return { value: null, label: "unavailable" as const };
+}
+
+export function averageCompetitorViews(posts: Array<{ views?: number | null }>) {
+  const known = posts.map((post) => Number(post.views || 0)).filter((views) => views > 0);
+  return known.length ? Math.round(known.reduce((sum, views) => sum + views, 0) / known.length) : null;
+}
+
+function extractEvidenceCopy(caption: string) {
+  const segments = caption.split(/\r?\n|(?<=[.!?])\s+/).map((segment) => segment.trim()).filter(Boolean);
+  const hook = (segments[0] || "").slice(0, 280);
+  let ctaIndex = -1;
+  for (let index = segments.length - 1; index >= 0; index--) {
+    if (/\b(comment|dm|message|follow|save|share|click|link|book|join|download|reply)\b/i.test(segments[index])) {
+      ctaIndex = index;
+      break;
+    }
+  }
+  const cta = ctaIndex >= 0 ? segments[ctaIndex].slice(0, 280) : "";
+  const description = segments.filter((_, index) => index !== 0 && index !== ctaIndex).join(" ").slice(0, 500);
+  const title = hook.slice(0, 120);
+  return { title, hook, description, cta };
+}
+
 export function mapCompetitorEvidence(items: Record<string, unknown>[]) {
   const number = (value: unknown) => Number(value ?? 0) || 0;
   return items.slice(0, INSTAGRAM_CREDIT_GUARD.maxSamplePosts).flatMap((item) => {
     const shortcode = String(item.shortCode || item.shortcode || "");
     const rawUrl = String(item.url || (shortcode ? `https://www.instagram.com/p/${shortcode}/` : ""));
-    if (!/^https:\/\/(www\.)?instagram\.com\/(p|reel)\//i.test(rawUrl)) return [];
+    const url = normalizeInstagramPostUrl(rawUrl);
+    if (!url) return [];
     const plays = number(item.videoPlayCount);
     const views = number(item.videoViewCount);
     const likes = number(item.likesCount);
     const comments = number(item.commentsCount);
+    const caption = String(item.caption || "");
+    const captionExcerpt = caption.slice(0, 500);
     return [{
-      url: rawUrl.split("?")[0],
+      url,
       postedAt: typeof item.timestamp === "string" ? item.timestamp : null,
       type: String(item.type || item.productType || "post").slice(0, 24),
-      captionExcerpt: String(item.caption || "").slice(0, 500),
+      captionExcerpt,
+      ...extractEvidenceCopy(caption),
       likes,
       comments,
       plays,

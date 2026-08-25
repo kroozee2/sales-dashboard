@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   aggregateInstagramMetrics,
   buildInstagramRecommendations,
@@ -12,6 +13,9 @@ import {
   parseGeneratedCarousel,
   parseGeneratedReel,
   mapCompetitorEvidence,
+  extractCompetitorProfileStats,
+  averageCompetitorViews,
+  competitorPostMetric,
 } from "../lib/instagram-command.ts";
 
 test("Instagram calendar includes canonical IG keys without creative-type contamination", () => {
@@ -82,14 +86,74 @@ test("strict dates reject impossible calendar dates", () => {
 
 test("competitor evidence stays compact, ranks deterministically, and keeps plays/views separate", () => {
   const evidence = mapCompetitorEvidence([
-    { id:"a", url:"https://www.instagram.com/p/a/", caption:"A".repeat(700), likesCount:10, commentsCount:2, videoPlayCount:500, videoViewCount:300, type:"Video" },
+    { id:"a", url:"https://www.instagram.com/p/a/", caption:"Stop chasing more leads.\nBuild a better conversion system instead.\nComment SYSTEM and I'll send the map.", likesCount:10, commentsCount:2, videoPlayCount:500, videoViewCount:300, type:"Video" },
     { id:"b", url:"https://www.instagram.com/p/b/", caption:"B", likesCount:100, commentsCount:30, videoPlayCount:0, videoViewCount:0, type:"Sidecar" },
   ]);
   assert.equal(evidence.length, 2);
   assert.equal(evidence[0].url, "https://www.instagram.com/p/a/");
   assert.equal(evidence[0].plays, 500);
   assert.equal(evidence[0].views, 300);
-  assert.equal(evidence[0].captionExcerpt.length, 500);
+  assert.equal(evidence[0].title, "Stop chasing more leads.");
+  assert.equal(evidence[0].hook, "Stop chasing more leads.");
+  assert.equal(evidence[0].description, "Build a better conversion system instead.");
+  assert.equal(evidence[0].cta, "Comment SYSTEM and I'll send the map.");
+});
+
+test("competitor evidence canonicalizes provider post URLs before persistence", () => {
+  const [post] = mapCompetitorEvidence([{url:"https://instagram.com/reel/ABC?utm_source=test",caption:"Hook",videoViewCount:100}]);
+  assert.equal(post.url,"https://www.instagram.com/reel/ABC/");
+});
+
+test("content breakdown separates a single-line hook, description, and CTA without AI invention", () => {
+  const [post] = mapCompetitorEvidence([{
+    url:"https://www.instagram.com/reel/single/",
+    caption:"Stop guessing what to post. Use your sales calls as research. Comment CONTENT and I'll send the framework.",
+    videoViewCount:900,
+  }]);
+  assert.equal(post.hook,"Stop guessing what to post.");
+  assert.equal(post.description,"Use your sales calls as research.");
+  assert.equal(post.cta,"Comment CONTENT and I'll send the framework.");
+});
+
+test("competitor refresh binds follower count to the requested profile without inventing zero", () => {
+  assert.deepEqual(extractCompetitorProfileStats([
+    { ownerUsername: "model.creator", ownerFollowersCount: 125400 },
+    { ownerUsername: "model.creator", ownerFollowersCount: 125400 },
+  ], "model.creator"), { handle: "model.creator", followers: 125400 });
+  assert.deepEqual(extractCompetitorProfileStats([
+    { ownerUsername: "wrong.creator", ownerFollowersCount: 999999 },
+    { ownerUsername: "model.creator", ownerFollowersCount: null },
+  ], "model.creator"), { handle: "model.creator", followers: null });
+  assert.deepEqual(extractCompetitorProfileStats([{ caption: "no profile metadata" }], "model.creator"), { handle: null, followers: null });
+});
+
+test("competitor performance keeps views and plays distinct", () => {
+  assert.deepEqual(competitorPostMetric({views:300,plays:500}), {value:300,label:"views"});
+  assert.deepEqual(competitorPostMetric({views:0,plays:500}), {value:500,label:"plays"});
+  assert.deepEqual(competitorPostMetric({views:0,plays:0}), {value:null,label:"unavailable"});
+  assert.equal(averageCompetitorViews([{views:300,plays:500},{views:0,plays:900}]),300);
+  assert.equal(averageCompetitorViews([{views:0,plays:900}]),null);
+});
+
+test("CTA-only captions retain the sourced call to action", () => {
+  const [post] = mapCompetitorEvidence([{url:"https://www.instagram.com/reel/cta/",caption:"Comment GUIDE below.",videoViewCount:100}]);
+  assert.equal(post.cta,"Comment GUIDE below.");
+});
+
+test("long captions retain a sourced CTA beyond the stored excerpt", () => {
+  const caption=`Hook. ${"Useful context. ".repeat(40)}Comment GUIDE below.`;
+  const [post] = mapCompetitorEvidence([{url:"https://www.instagram.com/reel/long/",caption,videoViewCount:100}]);
+  assert.equal(post.captionExcerpt.length,500);
+  assert.equal(post.cta,"Comment GUIDE below.");
+});
+
+test("competitor refresh persists verified profile stats with ranked evidence", () => {
+  const route = readFileSync(new URL("../app/api/instagram/competitors/refresh/route.ts", import.meta.url), "utf8");
+  assert.match(route, /extractCompetitorProfileStats\(posts,\s*expectedHandle\)/);
+  assert.match(route, /EVIDENCE_PREFIX.*creatorId/);
+  assert.match(route, /normalizeInstagramProfileUrl\(snapshotProfileUrl\)/);
+  assert.match(route, /instagramHandle:\s*profileStats\.handle/);
+  assert.match(route, /followers:\s*profileStats\.followers/);
 });
 
 test("generated creator output enforces exact bounded reel and carousel contracts", () => {

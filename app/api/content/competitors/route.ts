@@ -14,7 +14,7 @@ const ITEM_PREFIX = "CONTENT_COMPETITOR_ITEM_";
 const EVIDENCE_PREFIX = "CONTENT_COMPETITOR_EVIDENCE_";
 const MAX_BODY_BYTES = 220_000;
 
-type EvidenceSnapshot = Pick<ContentCompetitor, "id" | "instagramUrl" | "researchedAt" | "sampledPostsCount" | "evidence">;
+type EvidenceSnapshot = Pick<ContentCompetitor, "id" | "instagramUrl" | "instagramHandle" | "followers" | "researchedAt" | "sampledPostsCount" | "evidence">;
 
 function parseObject(value: unknown): unknown {
   if (typeof value !== "string") return null;

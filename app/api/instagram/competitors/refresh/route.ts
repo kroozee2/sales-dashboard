@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLeadsAdminClient } from "@/lib/supabase-leads";
 import { normalizeCompetitorResearch, parseCompetitorResearch, type ContentCompetitor } from "@/lib/content-competitors";
-import { INSTAGRAM_CREDIT_GUARD, mapCompetitorEvidence, normalizeInstagramProfileUrl, syncEligibility } from "@/lib/instagram-command";
+import { extractCompetitorProfileStats, INSTAGRAM_CREDIT_GUARD, mapCompetitorEvidence, normalizeInstagramProfileUrl, syncEligibility } from "@/lib/instagram-command";
 import { runActorSync } from "@/lib/apify-http";
 import { BoundedBodyError, readBoundedJsonObject } from "@/lib/http-bounds";
 
@@ -26,11 +26,20 @@ async function loadCreator(db: Db, creatorId: string): Promise<ContentCompetitor
   const item = await db.from("settings").select("value,updated_at").eq("key", `${ITEM_PREFIX}${creatorId}`).maybeSingle();
   if (item.error) throw new Error(item.error.message);
   const parsed = parseJson(item.data?.value);
-  const saved = normalizeCompetitorResearch(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...parsed, revision: item.data?.updated_at } : parsed);
-  if (saved) return saved;
-  const legacy = await db.from("settings").select("value").eq("key", LEGACY_KEY).maybeSingle();
-  if (legacy.error) throw new Error(legacy.error.message);
-  return parseCompetitorResearch(legacy.data?.value).find((creator) => creator.id === creatorId) || null;
+  let saved = normalizeCompetitorResearch(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...parsed, revision: item.data?.updated_at } : parsed);
+  if (!saved) {
+    const legacy = await db.from("settings").select("value").eq("key", LEGACY_KEY).maybeSingle();
+    if (legacy.error) throw new Error(legacy.error.message);
+    saved = parseCompetitorResearch(legacy.data?.value).find((creator) => creator.id === creatorId) || null;
+  }
+  if (!saved) return null;
+  const evidence = await db.from("settings").select("value").eq("key", `${EVIDENCE_PREFIX}${creatorId}`).maybeSingle();
+  if (evidence.error) throw new Error(evidence.error.message);
+  const rawSnapshot = parseJson(evidence.data?.value);
+  const snapshot = rawSnapshot && typeof rawSnapshot === "object" && !Array.isArray(rawSnapshot) ? rawSnapshot as Record<string, unknown> : null;
+  const snapshotProfileUrl = typeof snapshot?.instagramUrl === "string" ? snapshot.instagramUrl : "";
+  if (!snapshot || normalizeInstagramProfileUrl(snapshotProfileUrl) !== normalizeInstagramProfileUrl(saved.instagramUrl || "")) return saved;
+  return normalizeCompetitorResearch({ ...saved, ...snapshot, revision: saved.revision }) || saved;
 }
 
 async function reserveRefresh(db: Db, creatorId: string, profileUrl: string) {
@@ -109,9 +118,13 @@ export async function POST(req: NextRequest) {
       await finishLock(researchedAt);
       return NextResponse.json({ error: "The creator profile changed while research was running. The paid result was not attached." }, { status: 409 });
     }
+    const expectedHandle = new URL(profileUrl).pathname.split("/").filter(Boolean)[0];
+    const profileStats = extractCompetitorProfileStats(posts, expectedHandle);
     const snapshot = {
       id: latest.id,
       instagramUrl: profileUrl,
+      instagramHandle: profileStats.handle ?? latest.instagramHandle,
+      followers: profileStats.followers ?? latest.followers,
       researchedAt,
       sampledPostsCount: Math.min(posts.length, INSTAGRAM_CREDIT_GUARD.maxSamplePosts),
       evidence: mapCompetitorEvidence(posts),

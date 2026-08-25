@@ -160,8 +160,9 @@ export default function InstagramCommandCenter() {
     finally{setSaving(false);}
   }
 
-  function modelCreator(creator:ContentCompetitor,type:CreatorType){
-    setCreatorType(type);setTopic(`${creator.signaturePattern}\n\nOriginal 7-Figure CEO angle: ${creator.andrewAdaptation}`);setPillar(creator.pillars[0]||"7-Figure CEO");setSourceUrl(creator.evidence?.[0]?.url||"");setModeledCreatorId(creator.id);setGenerated(null);setTab("create");
+  function modelCreator(creator:ContentCompetitor,type:CreatorType,post?:NonNullable<ContentCompetitor["evidence"]>[number]){
+    const sourceDetails=[post?.title,post?.hook,post?.description,post?.cta].filter(Boolean).join("\n");
+    setCreatorType(type);setTopic(sourceDetails||`${creator.signaturePattern}\n\nOriginal 7-Figure CEO angle: ${creator.andrewAdaptation}`);setPillar(creator.pillars[0]||"7-Figure CEO");setSourceUrl(post?.url||creator.evidence?.[0]?.url||"");setModeledCreatorId(creator.id);setGenerated(null);setTab("create");
   }
 
   if(loading) return <div className="min-h-screen bg-[#07070a] p-8 text-center text-sm text-zinc-500">Loading Instagram Command Center…</div>;

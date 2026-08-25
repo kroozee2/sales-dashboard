@@ -20,6 +20,10 @@ export interface CompetitorEvidence {
   postedAt: string | null;
   type: string;
   captionExcerpt: string;
+  title: string;
+  hook: string;
+  description: string;
+  cta: string;
   likes: number;
   comments: number;
   plays: number;
@@ -39,6 +43,8 @@ export interface ContentCompetitor {
   watchStatus: CompetitorWatchStatus;
   websiteUrl?: string;
   instagramUrl?: string;
+  instagramHandle?: string;
+  followers?: number;
   researchedAt?: string;
   sampledPostsCount?: number;
   evidence?: CompetitorEvidence[];
@@ -169,6 +175,10 @@ function safeEvidence(value: unknown): CompetitorEvidence[] | undefined {
       postedAt: typeof item.postedAt === "string" ? item.postedAt : null,
       type: typeof item.type === "string" ? item.type.slice(0, 24) : "post",
       captionExcerpt: typeof item.captionExcerpt === "string" ? item.captionExcerpt.slice(0, 500) : "",
+      title: typeof item.title === "string" ? item.title.slice(0, 120) : "",
+      hook: typeof item.hook === "string" ? item.hook.slice(0, 280) : "",
+      description: typeof item.description === "string" ? item.description.slice(0, 500) : "",
+      cta: typeof item.cta === "string" ? item.cta.slice(0, 280) : "",
       likes: Number(item.likes || 0) || 0,
       comments: Number(item.comments || 0) || 0,
       plays: Number(item.plays || 0) || 0,
@@ -197,6 +207,8 @@ function sanitizeSaved(value: unknown): ContentCompetitor | null {
     watchStatus: status === "active" || status === "paused" || status === "watching" ? status : "watching",
     websiteUrl: safeWebsiteUrl(value.websiteUrl),
     instagramUrl: typeof value.instagramUrl === "string" ? safeInstagramProfileUrl(value.instagramUrl) : undefined,
+    instagramHandle: typeof value.instagramHandle === "string" && /^[A-Za-z0-9._]{1,30}$/.test(value.instagramHandle) ? value.instagramHandle : undefined,
+    followers: typeof value.followers === "number" && Number.isInteger(value.followers) && value.followers >= 0 ? value.followers : undefined,
     researchedAt: typeof value.researchedAt === "string" && Number.isFinite(Date.parse(value.researchedAt)) ? value.researchedAt : undefined,
     sampledPostsCount: Math.min(MAX_SAMPLE_POSTS, Math.max(0, Number(value.sampledPostsCount || 0) || 0)) || undefined,
     evidence: safeEvidence(value.evidence),
@@ -251,6 +263,20 @@ export function mergeCompetitorResearch(saved: unknown): ContentCompetitor[] {
   }));
   const defaultIds = new Set(DEFAULT_CONTENT_CREATORS.map((creator) => creator.id));
   return [...mergedDefaults, ...savedCreators.filter((creator) => !defaultIds.has(creator.id))];
+}
+
+export function mergeEditableCompetitorResponse(current: ContentCompetitor | null | undefined, saved: ContentCompetitor): ContentCompetitor {
+  if (!current) return saved;
+  if (current.instagramUrl !== saved.instagramUrl) return saved;
+  return {
+    ...current,
+    ...saved,
+    instagramHandle: current.instagramHandle,
+    followers: current.followers,
+    researchedAt: current.researchedAt,
+    sampledPostsCount: current.sampledPostsCount,
+    evidence: current.evidence,
+  };
 }
 
 export function upsertCompetitorResearch(current: unknown, creator: unknown): ContentCompetitor[] {

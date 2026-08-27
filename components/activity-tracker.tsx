@@ -18,7 +18,7 @@ const LABELS: Record<string, string> = {
  * anything from a session it can't identify, so this never blocks the UI.
  */
 export function ActivityTracker() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   useEffect(() => {
     if (!pathname || pathname === "/login") return;
     const label = LABELS[pathname];

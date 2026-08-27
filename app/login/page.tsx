@@ -16,7 +16,7 @@ const CAPABILITIES = [
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/";
+  const next = params?.get("next") || "/";
 
   const [stage, setStage] = useState<"signin" | "setPassword">("signin");
   const [email, setEmail] = useState("");

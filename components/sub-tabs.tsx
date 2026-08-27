@@ -30,7 +30,7 @@ export const SUB_TAB_GROUPS: Record<string, Tab[]> = {
 };
 
 export function SubTabs({ group, className }: { group: keyof typeof SUB_TAB_GROUPS; className?: string }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const tabs = SUB_TAB_GROUPS[group];
   if (!tabs) return null;
   return (

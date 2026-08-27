@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/tasks", label: "Execution", emoji: "⚡", match: ["/projects", "/winning-formula"], section: "Backend" },
   { href: "/team", label: "Team", emoji: "👥", section: "Backend" },
 
+  { href: "/messaging", label: "Messaging", emoji: "🧠", section: "Vault" },
   { href: "/playbook", label: "Playbook", emoji: "📋", section: "Vault" },
   { href: "/resources", label: "Resources", emoji: "🎁", match: ["/two-step"], section: "Vault" },
   { href: "/install", label: "Install App", emoji: "📲" },
@@ -48,7 +49,7 @@ const BOTTOM_NAV: NavItem[] = [
 ];
 
 export function BottomNav() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   // The login screen renders before the visitor is authenticated — don't show
   // them the app's structure (or Andrew's name) on the way in.
   if (pathname === "/login") return null;
@@ -205,7 +206,7 @@ function Footer({ pathname, onNavigate }: { pathname: string; onNavigate?: () =>
 }
 
 export function Sidebar() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
 
   // See BottomNav: no app chrome on the login screen.

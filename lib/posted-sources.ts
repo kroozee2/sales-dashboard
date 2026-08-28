@@ -70,13 +70,26 @@ export async function findRecentInstagramRuns(token: string): Promise<{ runId: s
   const res = await fetch(`https://api.apify.com/v2/acts/${IG_ACTOR}/runs?desc=1&limit=10`, { headers: apifyHeaders(token) });
   if (!res.ok) throw new Error(`Apify recent Instagram runs failed (${res.status})`);
   const json = await res.json() as { data?: { items?: Array<Record<string, unknown>> } };
-  const cutoff = Date.now() - 15 * 60_000;
+  const cutoff = Date.now() - 30 * 60_000;
   const reusable = new Set(["READY", "RUNNING", "SUCCEEDED"]);
-  const recent = (json.data?.items ?? []).find((run) => {
+  const candidates = (json.data?.items ?? []).filter((run) => {
     const startedAt = Date.parse(String(run.startedAt ?? ""));
-    return reusable.has(String(run.status ?? "")) && Number.isFinite(startedAt) && startedAt >= cutoff && run.id && run.defaultDatasetId;
+    return reusable.has(String(run.status ?? "")) && Number.isFinite(startedAt) && startedAt >= cutoff && run.id && run.defaultDatasetId && run.defaultKeyValueStoreId;
   });
-  return recent ? [{ runId: String(recent.id), datasetId: String(recent.defaultDatasetId) }] : [];
+
+  for (const run of candidates) {
+    const inputResponse = await fetch(
+      `https://api.apify.com/v2/key-value-stores/${String(run.defaultKeyValueStoreId)}/records/INPUT`,
+      { headers: apifyHeaders(token) },
+    );
+    if (!inputResponse.ok) continue;
+    const input = await inputResponse.json() as { directUrls?: Array<string | { url?: string }> };
+    const directUrls = (input.directUrls ?? []).map((entry) => typeof entry === "string" ? entry : entry.url ?? "");
+    if (directUrls.includes(IG_PROFILE)) {
+      return [{ runId: String(run.id), datasetId: String(run.defaultDatasetId) }];
+    }
+  }
+  return [];
 }
 
 // Read a finished run's dataset, map to rows, date-guard, and upsert.

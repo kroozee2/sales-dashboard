@@ -85,6 +85,9 @@ test("extracts a useful first-line hook without inventing one", () => {
     "The AI Morning Brief Dashboard",
   );
   assert.equal(extractInstagramHook('Comment “skool” for the full guide 👇'), "Hook/headline unavailable");
+  assert.equal(extractInstagramHook("Comment GUIDE below and I’ll send you the checklist"), "Hook/headline unavailable");
+  assert.equal(extractInstagramHook("DM me STACK and I’ll send the automation map"), "Hook/headline unavailable");
+  assert.equal(extractInstagramHook("Reply YES and I will share it"), "Hook/headline unavailable");
   assert.equal(extractInstagramHook(""), "Hook/headline unavailable");
   assert.equal(extractInstagramHook(null), "Hook/headline unavailable");
 });
@@ -160,10 +163,11 @@ test("the analytics API fails closed when its Instagram database query fails", (
   assert.match(route, /if \(error\)[\s\S]*status: 500/);
 });
 
-test("manual sync persists run references and has no fixed polling-attempt cutoff", () => {
+test("manual sync uses a server-owned reservation and has no fixed polling-attempt cutoff", () => {
   const page = readFileSync(new URL("../app/instagram/page.tsx", import.meta.url), "utf8");
   const startRoute = readFileSync(new URL("../app/api/content/posted/sync-start/route.ts", import.meta.url), "utf8");
   const pollRoute = readFileSync(new URL("../app/api/content/posted/sync-poll/route.ts", import.meta.url), "utf8");
+  const legacyRoute = readFileSync(new URL("../app/api/content/posted/route.ts", import.meta.url), "utf8");
   const state = readFileSync(new URL("../lib/instagram-sync-state.ts", import.meta.url), "utf8");
   const sources = readFileSync(new URL("../lib/posted-sources.ts", import.meta.url), "utf8");
   assert.match(page, /instagram-sync-runs/);
@@ -175,6 +179,12 @@ test("manual sync persists run references and has no fixed polling-attempt cutof
   assert.match(startRoute, /findRecentInstagramRuns/);
   assert.match(startRoute, /pendingStart/);
   assert.match(state, /\.eq\("value", currentRaw\)/);
+  assert.match(state, /getReservedInstagramSyncRuns/);
+  assert.match(state, /RUNNING_LOCK_MS = 24 \* 60 \* 60_000/);
+  assert.match(pollRoute, /getReservedInstagramSyncRuns/);
+  assert.doesNotMatch(page, /JSON\.stringify\(\{ platform: "instagram", runs \}\)/);
+  assert.match(legacyRoute, /Instagram sync must use the reserved async sync endpoint/);
+  assert.doesNotMatch(legacyRoute, /mapInstagram/);
   assert.match(pollRoute, /terminal: false/);
   assert.match(page, /if \(polled\.terminal\) localStorage\.removeItem/);
   assert.doesNotMatch(sources, /token=\$\{token\}/);

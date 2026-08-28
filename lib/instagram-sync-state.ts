@@ -10,7 +10,8 @@ type SyncState = {
 };
 
 const SETTINGS_KEY = "INSTAGRAM_POSTED_CONTENT_SYNC";
-const START_LOCK_MS = 2 * 60_000;
+const STARTING_LOCK_MS = 5 * 60_000;
+const RUNNING_LOCK_MS = 24 * 60 * 60_000;
 const MAX_ATTEMPTS = 3;
 
 function parseState(value: unknown): SyncState | null {
@@ -24,9 +25,9 @@ function parseState(value: unknown): SyncState | null {
   }
 }
 
-function isFresh(state: SyncState, now = Date.now()) {
+function isFresh(state: SyncState, maxAgeMs: number, now = Date.now()) {
   const updatedAt = Date.parse(state.updatedAt);
-  return Number.isFinite(updatedAt) && now - updatedAt < START_LOCK_MS;
+  return Number.isFinite(updatedAt) && now - updatedAt < maxAgeMs;
 }
 
 export async function claimInstagramSyncStart(): Promise<
@@ -40,8 +41,8 @@ export async function claimInstagramSyncStart(): Promise<
     if (readError) throw new Error(readError.message);
     const currentRaw = typeof row?.value === "string" ? row.value : null;
     const current = parseState(currentRaw);
-    if (current?.phase === "running" && current.runs?.length && isFresh(current)) return { kind: "reuse", runs: current.runs };
-    if (current?.phase === "starting" && isFresh(current)) return { kind: "wait" };
+    if (current?.phase === "running" && current.runs?.length && isFresh(current, RUNNING_LOCK_MS)) return { kind: "reuse", runs: current.runs };
+    if (current?.phase === "starting" && isFresh(current, STARTING_LOCK_MS)) return { kind: "wait" };
 
     const nonce = crypto.randomUUID();
     const nextRaw = JSON.stringify({ phase: "starting", nonce, updatedAt: new Date().toISOString() } satisfies SyncState);
@@ -69,6 +70,15 @@ export async function claimInstagramSyncStart(): Promise<
   return { kind: "wait" };
 }
 
+export async function getReservedInstagramSyncRuns(): Promise<InstagramSyncRun[]> {
+  const db = createLeadsAdminClient();
+  const { data: row, error } = await db.from("settings").select("value").eq("key", SETTINGS_KEY).maybeSingle();
+  if (error) throw new Error(error.message);
+  const state = parseState(row?.value);
+  if (state?.phase !== "running" || !state.runs?.length) throw new Error("No active Instagram sync reservation");
+  return state.runs;
+}
+
 export async function saveInstagramSyncRuns(nonce: string, runs: InstagramSyncRun[]): Promise<void> {
   const db = createLeadsAdminClient();
   const { data: row, error: readError } = await db.from("settings").select("value").eq("key", SETTINGS_KEY).maybeSingle();
@@ -94,13 +104,18 @@ export async function finishInstagramSync(runs: InstagramSyncRun[]): Promise<voi
   if (readError) throw new Error(readError.message);
   const currentRaw = typeof row?.value === "string" ? row.value : null;
   const current = parseState(currentRaw);
-  const sameRuns = current?.runs?.length === runs.length && current.runs.every((run, index) => run.runId === runs[index]?.runId);
-  if (!currentRaw || !sameRuns) return;
+  const sameRuns = current?.runs?.length === runs.length && current.runs.every((run, index) =>
+    run.runId === runs[index]?.runId && run.datasetId === runs[index]?.datasetId
+  );
+  if (!currentRaw || !sameRuns) throw new Error("Instagram sync reservation does not match");
   const nextRaw = JSON.stringify({ phase: "idle", updatedAt: new Date().toISOString() } satisfies SyncState);
-  const { error } = await db
+  const { data: updated, error } = await db
     .from("settings")
     .update({ value: nextRaw, updated_at: new Date().toISOString() })
     .eq("key", SETTINGS_KEY)
-    .eq("value", currentRaw);
+    .eq("value", currentRaw)
+    .select("value")
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  if (!updated) throw new Error("Instagram sync reservation changed before completion");
 }

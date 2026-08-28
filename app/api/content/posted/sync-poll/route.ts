@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { contentDb } from "@/lib/supabase-content";
 import { runStatus, ingestDataset, type Platform } from "@/lib/posted-sources";
-import { finishInstagramSync } from "@/lib/instagram-sync-state";
+import { finishInstagramSync, getReservedInstagramSyncRuns } from "@/lib/instagram-sync-state";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,10 +15,13 @@ const TERMINAL_BAD = new Set(["FAILED", "ABORTED", "TIMED-OUT"]);
 export async function POST(req: NextRequest) {
   const token = process.env.APIFY_TOKEN;
   if (!token) return NextResponse.json({ error: "APIFY_TOKEN not configured" }, { status: 500 });
-  const { platform, runs } = (await req.json().catch(() => ({}))) as { platform?: Platform; runs?: RunRef[] };
-  if (!platform || !runs?.length) return NextResponse.json({ error: "platform and runs required" }, { status: 400 });
+  const body = (await req.json().catch(() => ({}))) as { platform?: Platform; runs?: RunRef[] };
+  const { platform } = body;
+  if (!platform) return NextResponse.json({ error: "platform required" }, { status: 400 });
 
   try {
+    const runs = platform === "instagram" ? await getReservedInstagramSyncRuns() : body.runs;
+    if (!runs?.length) return NextResponse.json({ error: "runs required" }, { status: 400 });
     const statuses = await Promise.all(runs.map((r) => runStatus(r.runId, token)));
     if (statuses.some((s) => TERMINAL_BAD.has(s))) {
       if (platform === "instagram") await finishInstagramSync(runs);

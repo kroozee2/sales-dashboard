@@ -15,18 +15,13 @@ import {
 } from "@/lib/content-constants";
 
 type Tab = "analytics" | "calendar" | "competitors";
-type InstagramSyncRun = { runId: string; datasetId: string };
 const INSTAGRAM_SYNC_KEY = "instagram-sync-runs";
 
-function readPendingInstagramRuns(): InstagramSyncRun[] | null {
+function hasPendingInstagramSync(): boolean {
   try {
-    const value = localStorage.getItem(INSTAGRAM_SYNC_KEY);
-    if (!value) return null;
-    const runs = JSON.parse(value) as InstagramSyncRun[];
-    if (!Array.isArray(runs) || !runs.length || runs.some((run) => !run?.runId || !run?.datasetId)) return null;
-    return runs;
+    return localStorage.getItem(INSTAGRAM_SYNC_KEY) === "pending";
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -129,8 +124,7 @@ export default function InstagramPage() {
   useEffect(() => {
     void loadAnalytics();
     void loadContent();
-    const pendingRuns = readPendingInstagramRuns();
-    if (pendingRuns) void continueInstagramSync(pendingRuns);
+    if (hasPendingInstagramSync()) void continueInstagramSync();
   }, []);
 
   async function loadAnalytics() {
@@ -162,12 +156,12 @@ export default function InstagramPage() {
     }
   }
 
-  async function pollInstagramSync(runs: InstagramSyncRun[]) {
+  async function pollInstagramSync() {
     while (true) {
       const pollResponse = await fetch("/api/content/posted/sync-poll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "instagram", runs }),
+        body: JSON.stringify({ platform: "instagram" }),
       });
       const polled = await pollResponse.json();
       if (!pollResponse.ok) {
@@ -179,10 +173,10 @@ export default function InstagramPage() {
     }
   }
 
-  async function continueInstagramSync(runs: InstagramSyncRun[]) {
+  async function continueInstagramSync() {
     setSyncing(true);
     try {
-      await pollInstagramSync(runs);
+      await pollInstagramSync();
       localStorage.removeItem(INSTAGRAM_SYNC_KEY);
       await loadAnalytics();
       await loadContent();
@@ -197,16 +191,15 @@ export default function InstagramPage() {
   }
 
   async function triggerSync() {
-    const pendingRuns = readPendingInstagramRuns();
-    if (pendingRuns) {
-      await continueInstagramSync(pendingRuns);
+    if (hasPendingInstagramSync()) {
+      await continueInstagramSync();
       return;
     }
 
     setSyncing(true);
     try {
       let startResponse: Response;
-      let started: { runs?: InstagramSyncRun[]; error?: string; pendingStart?: boolean };
+      let started: { started?: boolean; error?: string; pendingStart?: boolean };
       do {
         startResponse = await fetch("/api/content/posted/sync-start", {
           method: "POST",
@@ -216,10 +209,9 @@ export default function InstagramPage() {
         started = await startResponse.json();
         if (startResponse.status === 202 && started.pendingStart) await new Promise((resolve) => setTimeout(resolve, 1000));
       } while (startResponse.status === 202 && started.pendingStart);
-      if (!startResponse.ok || !started.runs?.length) throw new Error(started.error || "Instagram sync could not start");
-      const runs = started.runs;
-      localStorage.setItem(INSTAGRAM_SYNC_KEY, JSON.stringify(runs));
-      await continueInstagramSync(runs);
+      if (!startResponse.ok || !started.started) throw new Error(started.error || "Instagram sync could not start");
+      localStorage.setItem(INSTAGRAM_SYNC_KEY, "pending");
+      await continueInstagramSync();
     } catch (e) {
       console.error(e);
       setMsg(`Sync failed: ${e instanceof Error ? e.message : "Unknown error"}. Use Sync Instagram to resume.`);

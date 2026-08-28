@@ -46,8 +46,8 @@ export function extractInstagramHook(text: string | null | undefined): string {
   if (headline) return headline;
 
   const cta = lines[0] ?? "";
-  const topic = cta
-    .replace(/^(comment|dm|message|reply|type)\b[\s\S]*?\b(?:to get|for)\s+/i, "")
+  const topicMatch = cta.match(/\b(?:to get|for)\s+(.+)$/i);
+  const topic = (topicMatch?.[1] ?? "")
     .replace(/[👇⬇️]+$/u, "")
     .trim();
   if (topic && !/^(?:the\s+)?(?:full\s+)?(?:step[- ]by[- ]step\s+)?(?:guide|details|invitation|trainings?|walk ?through)$/i.test(topic)) {

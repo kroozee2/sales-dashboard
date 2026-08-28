@@ -18,13 +18,13 @@ export async function POST(req: NextRequest) {
   try {
     if (platform === "instagram") {
       const claim = await claimInstagramSyncStart();
-      if (claim.kind === "reuse") return NextResponse.json({ platform, runs: claim.runs, reused: true });
+      if (claim.kind === "reuse") return NextResponse.json({ platform, started: true, reused: true });
       if (claim.kind === "wait") return NextResponse.json({ platform, pendingStart: true }, { status: 202 });
 
       const recentRuns = await findRecentInstagramRuns(token);
       const runs = recentRuns.length ? recentRuns : await startPlatform(platform, token);
       await saveInstagramSyncRuns(claim.nonce, runs);
-      return NextResponse.json({ platform, runs, reused: recentRuns.length > 0 });
+      return NextResponse.json({ platform, started: true, reused: recentRuns.length > 0 });
     }
     const runs = await startPlatform(platform, token);
     return NextResponse.json({ platform, runs });

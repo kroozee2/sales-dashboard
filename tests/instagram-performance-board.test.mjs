@@ -185,7 +185,7 @@ test("manual sync uses a server-owned reservation and has no fixed polling-attem
   assert.doesNotMatch(page, /JSON\.stringify\(\{ platform: "instagram", runs \}\)/);
   assert.match(legacyRoute, /Instagram sync must use the reserved async sync endpoint/);
   assert.doesNotMatch(legacyRoute, /mapInstagram/);
-  assert.match(pollRoute, /terminal: false/);
+  assert.match(pollRoute, /terminal: noReservation/);
   assert.match(page, /if \(polled\.terminal\) localStorage\.removeItem/);
   assert.doesNotMatch(sources, /token=\$\{token\}/);
 });

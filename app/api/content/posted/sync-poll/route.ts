@@ -37,6 +37,11 @@ export async function POST(req: NextRequest) {
     const { data } = await contentDb().from("posted_content").select("*").order("posted_at", { ascending: false });
     return NextResponse.json({ done: true, synced, posted: data ?? [] });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "poll failed", terminal: false }, { status: 502 });
+    const message = e instanceof Error ? e.message : "poll failed";
+    const noReservation = message === "No active Instagram sync reservation";
+    return NextResponse.json(
+      { error: message, terminal: noReservation },
+      { status: noReservation ? 409 : 502 },
+    );
   }
 }

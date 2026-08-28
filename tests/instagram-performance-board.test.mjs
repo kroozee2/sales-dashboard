@@ -79,8 +79,13 @@ test("extracts a useful first-line hook without inventing one", () => {
     extractInstagramHook('Comment "skool" for the guide 👇\n\nNew to Claude: Build Your Sales Dashboard'),
     "New to Claude: Build Your Sales Dashboard",
   );
-  assert.equal(extractInstagramHook(""), "Hook unavailable");
-  assert.equal(extractInstagramHook(null), "Hook unavailable");
+  assert.equal(
+    extractInstagramHook('Comment “skool” to get the AI Morning Brief Dashboard 👇'),
+    "The AI Morning Brief Dashboard",
+  );
+  assert.equal(extractInstagramHook('Comment “skool” for the full guide 👇'), "Hook/headline unavailable");
+  assert.equal(extractInstagramHook(""), "Hook/headline unavailable");
+  assert.equal(extractInstagramHook(null), "Hook/headline unavailable");
 });
 
 test("rates videos by views and non-video posts by interactions with factual rank labels", () => {

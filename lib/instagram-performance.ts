@@ -43,7 +43,17 @@ export function extractInstagramHook(text: string | null | undefined): string {
     .map((line) => line.trim())
     .filter(Boolean);
   const headline = lines.find((line) => !/^(comment|dm|message|reply|type)\b/i.test(line));
-  return headline || lines[0] || "Hook unavailable";
+  if (headline) return headline;
+
+  const cta = lines[0] ?? "";
+  const topic = cta
+    .replace(/^(comment|dm|message|reply|type)\b[\s\S]*?\b(?:to get|for)\s+/i, "")
+    .replace(/[👇⬇️]+$/u, "")
+    .trim();
+  if (topic && !/^(?:the\s+)?(?:full\s+)?(?:step[- ]by[- ]step\s+)?(?:guide|details|invitation|trainings?|walk ?through)$/i.test(topic)) {
+    return topic.charAt(0).toUpperCase() + topic.slice(1);
+  }
+  return "Hook/headline unavailable";
 }
 
 export function instagramPerformanceLabel(rank: number, count: number): string {

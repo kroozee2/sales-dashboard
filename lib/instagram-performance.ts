@@ -17,38 +17,37 @@ export type InstagramPerformanceRow = {
   name: string;
   description: string;
   hook: string;
-  likes: number;
-  comments: number;
-  views: number;
-  interactions: number;
+  likes: number | null;
+  comments: number | null;
+  views: number | null;
+  interactions: number | null;
   engagementRate: number | null;
   mediaType: string;
-  performanceBasis: "views" | "interactions";
+  performanceBasis: "views" | "interactions" | "unavailable";
   performanceLabel: string;
-  performanceRank: number;
+  performanceRank: number | null;
   performanceGroupSize: number;
 };
 
 const DAY_MS = 86_400_000;
 
-const cleanNumber = (value: number | null | undefined) => {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+const metricNumber = (value: number | null | undefined): number | null => {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 };
 
 export function extractInstagramHook(text: string | null | undefined): string {
-  const firstLine = (text ?? "")
+  const lines = (text ?? "")
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find(Boolean);
-  return firstLine || "Hook unavailable";
+    .filter(Boolean);
+  const headline = lines.find((line) => !/^(comment|dm|message|reply|type)\b/i.test(line));
+  return headline || lines[0] || "Hook unavailable";
 }
 
 export function instagramPerformanceLabel(rank: number, count: number): string {
-  if (rank <= 1) return "Top performer";
-  if (rank <= Math.ceil(count * 0.25)) return "Top 25%";
-  if (rank <= Math.ceil(count * 0.5)) return "Above average";
-  return "Below average";
+  return `#${rank} of ${count}`;
 }
 
 export function buildInstagramPerformanceBoard(
@@ -63,12 +62,19 @@ export function buildInstagramPerformanceBoard(
       return Number.isFinite(postedAt) && postedAt >= cutoff && postedAt <= now.getTime();
     })
     .map((post) => {
-      const views = cleanNumber(post.views);
-      const likes = cleanNumber(post.likes);
-      const comments = cleanNumber(post.comments);
-      const interactions = likes + comments;
+      const mediaType = post.media_type || "post";
+      const rawViews = metricNumber(post.views);
+      const views = mediaType !== "video" && rawViews === 0 ? null : rawViews;
+      const likes = metricNumber(post.likes);
+      const comments = metricNumber(post.comments);
+      const interactions = likes === null && comments === null ? null : (likes ?? 0) + (comments ?? 0);
       const description = (post.text ?? "").trim();
       const hook = extractInstagramHook(description);
+      const performanceBasis = views !== null
+        ? "views" as const
+        : interactions !== null
+          ? "interactions" as const
+          : "unavailable" as const;
       return {
         id: post.id,
         postedAt: post.posted_at as string,
@@ -80,26 +86,35 @@ export function buildInstagramPerformanceBoard(
         comments,
         views,
         interactions,
-        engagementRate: views > 0 ? Number(((interactions / views) * 100).toFixed(2)) : null,
-        mediaType: post.media_type || "post",
-        performanceBasis: views > 0 ? "views" as const : "interactions" as const,
+        engagementRate: views !== null && views > 0 && interactions !== null
+          ? Number(((interactions / views) * 100).toFixed(2))
+          : null,
+        mediaType,
+        performanceBasis,
       };
     });
 
   const ranks = new Map<string, { rank: number; count: number }>();
   for (const basis of ["views", "interactions"] as const) {
-    const group = current
-      .filter((post) => post.performanceBasis === basis)
-      .sort((a, b) => {
-        const primary = basis === "views" ? b.views - a.views : b.interactions - a.interactions;
-        return primary || b.interactions - a.interactions || Date.parse(b.postedAt) - Date.parse(a.postedAt);
-      });
-    group.forEach((post, index) => ranks.set(post.id, { rank: index + 1, count: group.length }));
+    const group = current.filter((post) => post.performanceBasis === basis);
+    const metric = (post: (typeof current)[number]) => basis === "views" ? post.views ?? 0 : post.interactions ?? 0;
+    group.forEach((post) => {
+      const rank = 1 + group.filter((other) => metric(other) > metric(post)).length;
+      ranks.set(post.id, { rank, count: group.length });
+    });
   }
 
   return current
     .map((post) => {
-      const rank = ranks.get(post.id) ?? { rank: 1, count: 1 };
+      const rank = ranks.get(post.id);
+      if (!rank) {
+        return {
+          ...post,
+          performanceLabel: "Metrics unavailable",
+          performanceRank: null,
+          performanceGroupSize: 0,
+        };
+      }
       return {
         ...post,
         performanceLabel: instagramPerformanceLabel(rank.rank, rank.count),

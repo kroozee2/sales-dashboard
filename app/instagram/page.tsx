@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { InstagramPerformanceGrid } from "@/components/instagram-performance-grid";
+import { InstagramPerformanceSpreadsheet } from "@/components/instagram-performance-grid";
 import {
   CATEGORIES,
   CONTENT_STATUSES,
@@ -15,6 +15,20 @@ import {
 } from "@/lib/content-constants";
 
 type Tab = "analytics" | "calendar" | "competitors";
+type InstagramSyncRun = { runId: string; datasetId: string };
+const INSTAGRAM_SYNC_KEY = "instagram-sync-runs";
+
+function readPendingInstagramRuns(): InstagramSyncRun[] | null {
+  try {
+    const value = localStorage.getItem(INSTAGRAM_SYNC_KEY);
+    if (!value) return null;
+    const runs = JSON.parse(value) as InstagramSyncRun[];
+    if (!Array.isArray(runs) || !runs.length || runs.some((run) => !run?.runId || !run?.datasetId)) return null;
+    return runs;
+  } catch {
+    return null;
+  }
+}
 
 interface AnalyticsData {
   summary: {
@@ -96,6 +110,7 @@ export default function InstagramPage() {
   const [tab, setTab] = useState<Tab>("calendar");
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -112,20 +127,23 @@ export default function InstagramPage() {
   const [quickType, setQuickType] = useState<"reel" | "carousel">("reel");
 
   useEffect(() => {
-    loadAnalytics();
-    loadContent();
+    void loadAnalytics();
+    void loadContent();
+    const pendingRuns = readPendingInstagramRuns();
+    if (pendingRuns) void continueInstagramSync(pendingRuns);
   }, []);
 
   async function loadAnalytics() {
     setLoading(true);
+    setAnalyticsError(null);
     try {
       const res = await fetch("/api/instagram/analytics");
-      if (res.ok) {
-        const json = await res.json();
-        setData(json);
-      }
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Instagram analytics request failed");
+      setData(json);
     } catch (e) {
       console.error(e);
+      setAnalyticsError(e instanceof Error ? e.message : "Instagram analytics request failed");
     } finally {
       setLoading(false);
     }
@@ -144,35 +162,28 @@ export default function InstagramPage() {
     }
   }
 
-  async function triggerSync() {
-    setSyncing(true);
-    try {
-      const startResponse = await fetch("/api/content/posted/sync-start", {
+  async function pollInstagramSync(runs: InstagramSyncRun[]) {
+    while (true) {
+      const pollResponse = await fetch("/api/content/posted/sync-poll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "instagram" }),
+        body: JSON.stringify({ platform: "instagram", runs }),
       });
-      const started = await startResponse.json();
-      if (!startResponse.ok || !started.runs?.length) {
-        throw new Error(started.error || "Instagram sync could not start");
+      const polled = await pollResponse.json();
+      if (!pollResponse.ok) {
+        localStorage.removeItem(INSTAGRAM_SYNC_KEY);
+        throw new Error(polled.error || "Instagram sync failed");
       }
+      if (polled.done) return;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
 
-      let completed = false;
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        const pollResponse = await fetch("/api/content/posted/sync-poll", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ platform: "instagram", runs: started.runs }),
-        });
-        const polled = await pollResponse.json();
-        if (!pollResponse.ok) throw new Error(polled.error || "Instagram sync failed");
-        if (polled.done) {
-          completed = true;
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
-      if (!completed) throw new Error("Instagram sync timed out before completion");
+  async function continueInstagramSync(runs: InstagramSyncRun[]) {
+    setSyncing(true);
+    try {
+      await pollInstagramSync(runs);
+      localStorage.removeItem(INSTAGRAM_SYNC_KEY);
       await loadAnalytics();
       await loadContent();
       setMsg("✓ Instagram content and performance metrics are current.");
@@ -181,6 +192,32 @@ export default function InstagramPage() {
       console.error(e);
       setMsg(`Sync failed: ${e instanceof Error ? e.message : "Unknown error"}`);
     } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function triggerSync() {
+    const pendingRuns = readPendingInstagramRuns();
+    if (pendingRuns) {
+      await continueInstagramSync(pendingRuns);
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const startResponse = await fetch("/api/content/posted/sync-start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "instagram" }),
+      });
+      const started = await startResponse.json();
+      if (!startResponse.ok || !started.runs?.length) throw new Error(started.error || "Instagram sync could not start");
+      const runs = started.runs as InstagramSyncRun[];
+      localStorage.setItem(INSTAGRAM_SYNC_KEY, JSON.stringify(runs));
+      await continueInstagramSync(runs);
+    } catch (e) {
+      console.error(e);
+      setMsg(`Sync failed: ${e instanceof Error ? e.message : "Unknown error"}. Use Sync Instagram to resume.`);
       setSyncing(false);
     }
   }
@@ -508,9 +545,9 @@ export default function InstagramPage() {
           </div>
 
           {/* Month Calendar Grid */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
+          <div className="overflow-hidden bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setMonth(new Date(year, mon - 1, 1))}
                   className="w-8 h-8 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center"
@@ -536,16 +573,18 @@ export default function InstagramPage() {
               <span className="text-xs text-zinc-500">{igItems.length} Instagram items</span>
             </div>
 
-            <div className="grid grid-cols-7 gap-1 mb-1">
-              {weekdays.map((d) => (
-                <div key={d} className="text-center text-[11px] text-zinc-600 font-semibold uppercase py-1">
-                  {d}
+            <div className="-mx-1 overflow-x-auto pb-2">
+              <div className="min-w-[700px] px-1">
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {weekdays.map((d) => (
+                    <div key={d} className="text-center text-[11px] text-zinc-600 font-semibold uppercase py-1">
+                      {d}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
 
-            <div className="grid grid-cols-7 gap-1">
-              {cells.map((day, i) => {
+                <div className="grid grid-cols-7 gap-1">
+                  {cells.map((day, i) => {
                 if (!day) return <div key={`e${i}`} className="min-h-[92px] rounded-xl bg-zinc-950/40" />;
                 const dayItems = byDay[day] ?? [];
                 const isToday = today.getFullYear() === year && today.getMonth() === mon && today.getDate() === day;
@@ -622,11 +661,13 @@ export default function InstagramPage() {
                     </div>
                   </div>
                 );
-              })}
+                  })}
+                </div>
+              </div>
             </div>
           </div>
 
-          <InstagramPerformanceGrid posts={data?.dbPosts ?? []} />
+          <InstagramPerformanceSpreadsheet posts={data?.dbPosts ?? []} loading={loading} error={analyticsError} />
         </div>
       )}
 

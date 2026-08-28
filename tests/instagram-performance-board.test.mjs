@@ -23,11 +23,23 @@ const post = (overrides = {}) => ({
   ...overrides,
 });
 
-test("Instagram opens on the calendar and keeps the 90-day board underneath it", () => {
+test("Instagram opens on the calendar and keeps the 90-day spreadsheet underneath it", () => {
   const page = readFileSync(new URL("../app/instagram/page.tsx", import.meta.url), "utf8");
   assert.match(page, /useState<Tab>\("calendar"\)/);
-  assert.match(page, /tab === "calendar"[\s\S]*InstagramPerformanceGrid/);
+  assert.match(page, /tab === "calendar"[\s\S]*InstagramPerformanceSpreadsheet/);
   assert.match(page, /Instagram Content Calendar[\s\S]*Analytics & Reel Retentions/);
+});
+
+test("performance history is a compact spreadsheet named from each hook or headline", () => {
+  const spreadsheet = readFileSync(new URL("../components/instagram-performance-grid.tsx", import.meta.url), "utf8");
+  assert.match(spreadsheet, /<table/);
+  assert.match(spreadsheet, /Reel name/);
+  assert.match(spreadsheet, /Views/);
+  assert.match(spreadsheet, /Likes/);
+  assert.match(spreadsheet, /Comments/);
+  assert.match(spreadsheet, /Performance/);
+  assert.match(spreadsheet, /Open ↗/);
+  assert.doesNotMatch(spreadsheet, />Name \/ description</);
 });
 
 test("the analytics API returns the complete rolling 90-day Instagram dataset", () => {
@@ -63,11 +75,15 @@ test("keeps exact views, comments, likes, URL, hook, and description", () => {
 
 test("extracts a useful first-line hook without inventing one", () => {
   assert.equal(extractInstagramHook("\n\nA specific opening line.\nMore copy"), "A specific opening line.");
+  assert.equal(
+    extractInstagramHook('Comment "skool" for the guide 👇\n\nNew to Claude: Build Your Sales Dashboard'),
+    "New to Claude: Build Your Sales Dashboard",
+  );
   assert.equal(extractInstagramHook(""), "Hook unavailable");
   assert.equal(extractInstagramHook(null), "Hook unavailable");
 });
 
-test("rates videos by views and non-video posts by interactions", () => {
+test("rates videos by views and non-video posts by interactions with factual rank labels", () => {
   const rows = buildInstagramPerformanceBoard([
     post({ id: "v1", views: 4000, likes: 10, comments: 2 }),
     post({ id: "v2", views: 1000, likes: 50, comments: 10 }),
@@ -77,9 +93,53 @@ test("rates videos by views and non-video posts by interactions", () => {
 
   assert.equal(rows.find((row) => row.id === "v1")?.performanceBasis, "views");
   assert.equal(rows.find((row) => row.id === "c1")?.performanceBasis, "interactions");
-  assert.equal(rows.find((row) => row.id === "v1")?.performanceLabel, "Top performer");
-  assert.equal(rows.find((row) => row.id === "c1")?.performanceLabel, "Top performer");
-  assert.equal(instagramPerformanceLabel(1, 8), "Top performer");
-  assert.equal(instagramPerformanceLabel(2, 8), "Top 25%");
-  assert.equal(instagramPerformanceLabel(5, 8), "Below average");
+  assert.equal(rows.find((row) => row.id === "v1")?.performanceLabel, "#1 of 2");
+  assert.equal(rows.find((row) => row.id === "c1")?.performanceLabel, "#1 of 2");
+  assert.equal(instagramPerformanceLabel(1, 8), "#1 of 8");
+  assert.equal(instagramPerformanceLabel(5, 8), "#5 of 8");
+});
+
+test("equal metrics receive equal factual ranks", () => {
+  const rows = buildInstagramPerformanceBoard([
+    post({ id: "a", views: 1000 }),
+    post({ id: "b", views: 1000 }),
+    post({ id: "c", views: 500 }),
+  ], NOW);
+
+  assert.equal(rows.find((row) => row.id === "a")?.performanceRank, 1);
+  assert.equal(rows.find((row) => row.id === "b")?.performanceRank, 1);
+  assert.equal(rows.find((row) => row.id === "c")?.performanceRank, 3);
+});
+
+test("keeps missing metrics unavailable instead of converting them to exact zeroes", () => {
+  const [row] = buildInstagramPerformanceBoard([
+    post({ views: null, likes: null, comments: undefined, media_type: "image" }),
+  ], NOW);
+
+  assert.equal(row.views, null);
+  assert.equal(row.likes, null);
+  assert.equal(row.comments, null);
+  assert.equal(row.interactions, null);
+  assert.equal(row.performanceBasis, "unavailable");
+  assert.equal(row.performanceLabel, "Metrics unavailable");
+});
+
+test("calendar landing view is usable on mobile and reports loading and API errors truthfully", () => {
+  const page = readFileSync(new URL("../app/instagram/page.tsx", import.meta.url), "utf8");
+  const grid = readFileSync(new URL("../components/instagram-performance-grid.tsx", import.meta.url), "utf8");
+  assert.match(page, /overflow-x-auto/);
+  assert.match(page, /min-w-\[700px\]/);
+  assert.match(page, /analyticsError/);
+  assert.match(page, /loading=\{loading\}/);
+  assert.match(grid, /Loading Instagram performance/);
+  assert.match(grid, /Instagram performance is unavailable/);
+});
+
+test("manual sync persists run references and has no fixed polling-attempt cutoff", () => {
+  const page = readFileSync(new URL("../app/instagram/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /instagram-sync-runs/);
+  assert.match(page, /localStorage\.setItem/);
+  assert.match(page, /localStorage\.removeItem/);
+  assert.match(page, /while \(true\)/);
+  assert.doesNotMatch(page, /attempt < 60/);
 });

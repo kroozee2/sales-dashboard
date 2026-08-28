@@ -5,12 +5,14 @@ export const runtime = "nodejs";
 
 export async function GET() {
   const db = contentDb();
+  const cutoff90Days = new Date(Date.now() - 90 * 86_400_000).toISOString();
 
   // Query posted content from Supabase
   const { data: posts } = await db
     .from("posted_content")
     .select("*")
     .eq("platform", "instagram")
+    .gte("posted_at", cutoff90Days)
     .order("posted_at", { ascending: false });
 
   const igPosts = posts ?? [];
@@ -277,6 +279,6 @@ export async function GET() {
     gaps,
     recommendations,
     postedCount: igPosts.length,
-    dbPosts: igPosts.slice(0, 10),
+    dbPosts: igPosts,
   });
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { InstagramPerformanceGrid } from "@/components/instagram-performance-grid";
 import {
   CATEGORIES,
   CONTENT_STATUSES,
@@ -92,7 +93,7 @@ interface AnalyticsData {
 }
 
 export default function InstagramPage() {
-  const [tab, setTab] = useState<Tab>("analytics");
+  const [tab, setTab] = useState<Tab>("calendar");
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -146,17 +147,39 @@ export default function InstagramPage() {
   async function triggerSync() {
     setSyncing(true);
     try {
-      await fetch("/api/content/posted/sync-start", {
+      const startResponse = await fetch("/api/content/posted/sync-start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ platform: "instagram" }),
       });
+      const started = await startResponse.json();
+      if (!startResponse.ok || !started.runs?.length) {
+        throw new Error(started.error || "Instagram sync could not start");
+      }
+
+      let completed = false;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        const pollResponse = await fetch("/api/content/posted/sync-poll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: "instagram", runs: started.runs }),
+        });
+        const polled = await pollResponse.json();
+        if (!pollResponse.ok) throw new Error(polled.error || "Instagram sync failed");
+        if (polled.done) {
+          completed = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+      if (!completed) throw new Error("Instagram sync timed out before completion");
       await loadAnalytics();
       await loadContent();
-      setMsg("✓ Instagram content synced with Apify!");
+      setMsg("✓ Instagram content and performance metrics are current.");
       setTimeout(() => setMsg(null), 3000);
     } catch (e) {
       console.error(e);
+      setMsg(`Sync failed: ${e instanceof Error ? e.message : "Unknown error"}`);
     } finally {
       setSyncing(false);
     }
@@ -286,8 +309,8 @@ export default function InstagramPage() {
         {/* Tab Selection */}
         <div className="flex items-center gap-2 mt-8 pt-4 border-t border-zinc-800/80">
           {[
-            { key: "analytics", label: "📊 Analytics & Reel Retentions" },
             { key: "calendar", label: "📅 Instagram Content Calendar" },
+            { key: "analytics", label: "📊 Analytics & Reel Retentions" },
             { key: "competitors", label: "🔍 Competitor Reel Analysis" },
           ].map((t) => (
             <button
@@ -602,6 +625,8 @@ export default function InstagramPage() {
               })}
             </div>
           </div>
+
+          <InstagramPerformanceGrid posts={data?.dbPosts ?? []} />
         </div>
       )}
 

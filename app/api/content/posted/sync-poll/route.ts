@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { contentDb } from "@/lib/supabase-content";
 import { runStatus, ingestDataset, type Platform } from "@/lib/posted-sources";
+import { finishInstagramSync } from "@/lib/instagram-sync-state";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -20,7 +21,8 @@ export async function POST(req: NextRequest) {
   try {
     const statuses = await Promise.all(runs.map((r) => runStatus(r.runId, token)));
     if (statuses.some((s) => TERMINAL_BAD.has(s))) {
-      return NextResponse.json({ error: `A scrape run ${statuses.find((s) => TERMINAL_BAD.has(s))}. Try again.` }, { status: 502 });
+      if (platform === "instagram") await finishInstagramSync(runs);
+      return NextResponse.json({ error: `A scrape run ${statuses.find((s) => TERMINAL_BAD.has(s))}. Try again.`, terminal: true }, { status: 502 });
     }
     if (!statuses.every((s) => s === "SUCCEEDED")) {
       return NextResponse.json({ done: false, statuses });
@@ -28,9 +30,10 @@ export async function POST(req: NextRequest) {
     // All finished — ingest each dataset, then hand back the fresh table.
     let synced = 0;
     for (const r of runs) synced += await ingestDataset(platform, r.datasetId, token);
+    if (platform === "instagram") await finishInstagramSync(runs);
     const { data } = await contentDb().from("posted_content").select("*").order("posted_at", { ascending: false });
     return NextResponse.json({ done: true, synced, posted: data ?? [] });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : "poll failed" }, { status: 502 });
+    return NextResponse.json({ error: e instanceof Error ? e.message : "poll failed", terminal: false }, { status: 502 });
   }
 }

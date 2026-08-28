@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { startPlatform, ALL_PLATFORMS, type Platform } from "@/lib/posted-sources";
+import { startPlatform, findRecentInstagramRuns, ALL_PLATFORMS, type Platform } from "@/lib/posted-sources";
+import { claimInstagramSyncStart, saveInstagramSyncRuns } from "@/lib/instagram-sync-state";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,6 +16,16 @@ export async function POST(req: NextRequest) {
   if (!platform || !ALL_PLATFORMS.includes(platform)) return NextResponse.json({ error: "valid platform required" }, { status: 400 });
 
   try {
+    if (platform === "instagram") {
+      const claim = await claimInstagramSyncStart();
+      if (claim.kind === "reuse") return NextResponse.json({ platform, runs: claim.runs, reused: true });
+      if (claim.kind === "wait") return NextResponse.json({ platform, pendingStart: true }, { status: 202 });
+
+      const recentRuns = await findRecentInstagramRuns(token);
+      const runs = recentRuns.length ? recentRuns : await startPlatform(platform, token);
+      await saveInstagramSyncRuns(claim.nonce, runs);
+      return NextResponse.json({ platform, runs, reused: recentRuns.length > 0 });
+    }
     const runs = await startPlatform(platform, token);
     return NextResponse.json({ platform, runs });
   } catch (e) {

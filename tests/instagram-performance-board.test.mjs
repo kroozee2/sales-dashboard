@@ -7,6 +7,7 @@ import {
   extractInstagramHook,
   instagramPerformanceLabel,
 } from "../lib/instagram-performance.ts";
+import { mapInstagram } from "../lib/posted-instagram.ts";
 
 const NOW = new Date("2026-08-28T19:00:00.000Z");
 
@@ -129,22 +130,52 @@ test("keeps missing metrics unavailable instead of converting them to exact zero
   assert.equal(row.performanceLabel, "Metrics unavailable");
 });
 
+test("the production Instagram mapper preserves missing metrics as null and genuine zeroes as zero", () => {
+  const [missing] = mapInstagram([{ id: "missing", shortCode: "missing", type: "Video" }]);
+  assert.equal(missing.views, null);
+  assert.equal(missing.likes, null);
+  assert.equal(missing.comments, null);
+
+  const [zero] = mapInstagram([{ id: "zero", shortCode: "zero", type: "Video", videoPlayCount: 0, likesCount: 0, commentsCount: 0 }]);
+  assert.equal(zero.views, 0);
+  assert.equal(zero.likes, 0);
+  assert.equal(zero.comments, 0);
+});
+
 test("calendar landing view is usable on mobile and reports loading and API errors truthfully", () => {
   const page = readFileSync(new URL("../app/instagram/page.tsx", import.meta.url), "utf8");
   const grid = readFileSync(new URL("../components/instagram-performance-grid.tsx", import.meta.url), "utf8");
   assert.match(page, /overflow-x-auto/);
   assert.match(page, /min-w-\[700px\]/);
   assert.match(page, /analyticsError/);
+  assert.match(page, /Instagram analytics are unavailable/);
   assert.match(page, /loading=\{loading\}/);
   assert.match(grid, /Loading Instagram performance/);
   assert.match(grid, /Instagram performance is unavailable/);
 });
 
+test("the analytics API fails closed when its Instagram database query fails", () => {
+  const route = readFileSync(new URL("../app/api/instagram/analytics/route.ts", import.meta.url), "utf8");
+  assert.match(route, /data: posts, error/);
+  assert.match(route, /if \(error\)[\s\S]*status: 500/);
+});
+
 test("manual sync persists run references and has no fixed polling-attempt cutoff", () => {
   const page = readFileSync(new URL("../app/instagram/page.tsx", import.meta.url), "utf8");
+  const startRoute = readFileSync(new URL("../app/api/content/posted/sync-start/route.ts", import.meta.url), "utf8");
+  const pollRoute = readFileSync(new URL("../app/api/content/posted/sync-poll/route.ts", import.meta.url), "utf8");
+  const state = readFileSync(new URL("../lib/instagram-sync-state.ts", import.meta.url), "utf8");
+  const sources = readFileSync(new URL("../lib/posted-sources.ts", import.meta.url), "utf8");
   assert.match(page, /instagram-sync-runs/);
   assert.match(page, /localStorage\.setItem/);
   assert.match(page, /localStorage\.removeItem/);
   assert.match(page, /while \(true\)/);
   assert.doesNotMatch(page, /attempt < 60/);
+  assert.match(startRoute, /claimInstagramSyncStart/);
+  assert.match(startRoute, /findRecentInstagramRuns/);
+  assert.match(startRoute, /pendingStart/);
+  assert.match(state, /\.eq\("value", currentRaw\)/);
+  assert.match(pollRoute, /terminal: false/);
+  assert.match(page, /if \(polled\.terminal\) localStorage\.removeItem/);
+  assert.doesNotMatch(sources, /token=\$\{token\}/);
 });

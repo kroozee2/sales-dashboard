@@ -8,12 +8,16 @@ export async function GET() {
   const cutoff90Days = new Date(Date.now() - 90 * 86_400_000).toISOString();
 
   // Query posted content from Supabase
-  const { data: posts } = await db
+  const { data: posts, error } = await db
     .from("posted_content")
     .select("*")
     .eq("platform", "instagram")
     .gte("posted_at", cutoff90Days)
     .order("posted_at", { ascending: false });
+
+  if (error) {
+    return NextResponse.json({ error: "Instagram performance data is unavailable" }, { status: 500 });
+  }
 
   const igPosts = posts ?? [];
 

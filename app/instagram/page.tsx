@@ -171,7 +171,7 @@ export default function InstagramPage() {
       });
       const polled = await pollResponse.json();
       if (!pollResponse.ok) {
-        localStorage.removeItem(INSTAGRAM_SYNC_KEY);
+        if (polled.terminal) localStorage.removeItem(INSTAGRAM_SYNC_KEY);
         throw new Error(polled.error || "Instagram sync failed");
       }
       if (polled.done) return;
@@ -205,14 +205,19 @@ export default function InstagramPage() {
 
     setSyncing(true);
     try {
-      const startResponse = await fetch("/api/content/posted/sync-start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "instagram" }),
-      });
-      const started = await startResponse.json();
+      let startResponse: Response;
+      let started: { runs?: InstagramSyncRun[]; error?: string; pendingStart?: boolean };
+      do {
+        startResponse = await fetch("/api/content/posted/sync-start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: "instagram" }),
+        });
+        started = await startResponse.json();
+        if (startResponse.status === 202 && started.pendingStart) await new Promise((resolve) => setTimeout(resolve, 1000));
+      } while (startResponse.status === 202 && started.pendingStart);
       if (!startResponse.ok || !started.runs?.length) throw new Error(started.error || "Instagram sync could not start");
-      const runs = started.runs as InstagramSyncRun[];
+      const runs = started.runs;
       localStorage.setItem(INSTAGRAM_SYNC_KEY, JSON.stringify(runs));
       await continueInstagramSync(runs);
     } catch (e) {
@@ -375,8 +380,12 @@ export default function InstagramPage() {
       {/* 📊 TAB 1: ANALYTICS & REEL RETENTIONS */}
       {tab === "analytics" && (
         <div className="space-y-6">
-          {loading || !data ? (
+          {loading ? (
             <div className="p-12 text-center text-zinc-500 text-sm">Loading Instagram metrics...</div>
+          ) : analyticsError || !data ? (
+            <div className="p-12 text-center text-rose-300 text-sm">
+              Instagram analytics are unavailable{analyticsError ? `: ${analyticsError}` : "."}
+            </div>
           ) : (
             <>
               {/* Stat Cards Grid */}

@@ -1,4 +1,6 @@
 import { contentDb } from "@/lib/supabase-content";
+import { mapInstagram } from "@/lib/posted-instagram";
+export { mapInstagram } from "@/lib/posted-instagram";
 
 // ── Shared config + mappers for the Posted tab's social sources ──────────────
 export const FB_PROFILE = "https://www.facebook.com/andrew.kroeze.50";
@@ -9,11 +11,12 @@ const FB_ACTOR = "apify~facebook-posts-scraper";
 const IG_ACTOR = "apify~instagram-scraper";
 const YT_ACTOR = "lurkapi~youtube-channel-videos-stats-scraper";
 const num = (v: unknown) => Number(v ?? 0) || 0;
+const apifyHeaders = (token: string) => ({ Authorization: `Bearer ${token}` });
 
 export type Row = {
   platform: string; profile_name: string; profile_url: string; post_url: string | null;
   external_id: string; text: string | null; posted_at: string | null;
-  likes: number; comments: number; shares: number; reactions: number; views: number; media_type: string | null;
+  likes: number | null; comments: number | null; shares: number; reactions: number | null; views: number | null; media_type: string | null;
 };
 
 export type Platform = "facebook" | "instagram" | "youtube";
@@ -44,8 +47,8 @@ export function withinWindow(rows: Row[]): Row[] {
 // ── Apify REST helpers ───────────────────────────────────────────────────────
 // Start an actor run (returns fast) — used by the async per-platform sync.
 export async function startRun(actor: string, input: unknown, token: string): Promise<{ runId: string; datasetId: string }> {
-  const res = await fetch(`https://api.apify.com/v2/acts/${actor}/runs?token=${token}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  const res = await fetch(`https://api.apify.com/v2/acts/${actor}/runs`, {
+    method: "POST", headers: { ...apifyHeaders(token), "Content-Type": "application/json" }, body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Apify start ${actor} failed (${res.status})`);
   const j = await res.json();
@@ -58,14 +61,27 @@ export async function startPlatform(platform: Platform, token: string) {
 
 // Poll a run's status.
 export async function runStatus(runId: string, token: string): Promise<string> {
-  const res = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${token}`);
+  const res = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, { headers: apifyHeaders(token) });
   if (!res.ok) throw new Error(`Apify status ${runId} failed (${res.status})`);
   return (await res.json()).data.status as string;
 }
 
+export async function findRecentInstagramRuns(token: string): Promise<{ runId: string; datasetId: string }[]> {
+  const res = await fetch(`https://api.apify.com/v2/acts/${IG_ACTOR}/runs?desc=1&limit=10`, { headers: apifyHeaders(token) });
+  if (!res.ok) throw new Error(`Apify recent Instagram runs failed (${res.status})`);
+  const json = await res.json() as { data?: { items?: Array<Record<string, unknown>> } };
+  const cutoff = Date.now() - 15 * 60_000;
+  const reusable = new Set(["READY", "RUNNING", "SUCCEEDED"]);
+  const recent = (json.data?.items ?? []).find((run) => {
+    const startedAt = Date.parse(String(run.startedAt ?? ""));
+    return reusable.has(String(run.status ?? "")) && Number.isFinite(startedAt) && startedAt >= cutoff && run.id && run.defaultDatasetId;
+  });
+  return recent ? [{ runId: String(recent.id), datasetId: String(recent.defaultDatasetId) }] : [];
+}
+
 // Read a finished run's dataset, map to rows, date-guard, and upsert.
 export async function ingestDataset(platform: Platform, datasetId: string, token: string): Promise<number> {
-  const res = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&format=json&token=${token}`);
+  const res = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&format=json`, { headers: apifyHeaders(token) });
   if (!res.ok) throw new Error(`Apify dataset ${datasetId} failed (${res.status})`);
   const items = (await res.json()) as Record<string, unknown>[];
   const rows = withinWindow(mapper(platform)(Array.isArray(items) ? items : []));
@@ -78,8 +94,8 @@ export async function ingestDataset(platform: Platform, datasetId: string, token
 
 // Synchronous run-and-ingest (used by the /route.ts POST for curl/backfill).
 export async function runActorSync(actor: string, input: unknown, token: string): Promise<Record<string, unknown>[]> {
-  const res = await fetch(`https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${token}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  const res = await fetch(`https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items`, {
+    method: "POST", headers: { ...apifyHeaders(token), "Content-Type": "application/json" }, body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Apify ${actor} failed (${res.status})`);
   const j = await res.json();
@@ -99,25 +115,6 @@ export function mapFacebook(items: Record<string, unknown>[]): Row[] {
     views: num(p.viewsCount),
     media_type: p.isVideo ? "video" : null,
   })).filter((r) => r.external_id);
-}
-
-export function mapInstagram(items: Record<string, unknown>[]): Row[] {
-  return items.map((p) => {
-    const shortcode = (p.shortCode as string) || (p.shortcode as string) || "";
-    const type = ((p.type as string) || (p.productType as string) || "").toLowerCase();
-    return {
-      platform: "instagram",
-      profile_name: (p.ownerUsername as string) ? `@${p.ownerUsername as string}` : "@kaptainkroeze",
-      profile_url: IG_PROFILE,
-      post_url: (p.url as string) || (shortcode ? `https://www.instagram.com/p/${shortcode}/` : null),
-      external_id: (p.id as string) || shortcode,
-      text: (p.caption as string) ?? null,
-      posted_at: (p.timestamp as string) ?? null,
-      likes: num(p.likesCount), comments: num(p.commentsCount), shares: 0, reactions: num(p.likesCount),
-      views: num(p.videoPlayCount) || num(p.videoViewCount),
-      media_type: type.includes("video") || type.includes("reel") || type === "clips" ? "video" : type.includes("sidecar") ? "carousel" : "image",
-    };
-  }).filter((r) => r.external_id);
 }
 
 export function mapYouTube(items: Record<string, unknown>[]): Row[] {

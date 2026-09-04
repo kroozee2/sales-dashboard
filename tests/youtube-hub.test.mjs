@@ -14,6 +14,7 @@ import {
   sortYouTubeVideos,
   withinYouTubeWindow,
 } from "../lib/youtube.ts";
+import { normalizeComposioYouTubeItem, normalizeFreshUtcTimestamp, normalizeStrictUtcTimestamp } from "../lib/composio-youtube.ts";
 
 const video = (overrides = {}) => ({
   id: "video-1",
@@ -151,6 +152,41 @@ test("YouTube ingestion preserves unavailable metrics instead of turning them in
   assert.equal(normalizeYouTubeRecoveryInput({ ...recoveryInput, publishedAfter: new Date(midday - 366 * 86_400_000).toISOString().slice(0, 10) }, midday), null);
 });
 
+test("Composio YouTube imports are public, exact-account, bounded, and explicit-format", () => {
+  const now = new Date("2026-09-04T12:00:00.000Z");
+  const source = {
+    id: "abc12345xyz",
+    title: "Composio video",
+    publishedAt: "2026-08-01T12:00:00Z",
+    duration: "PT1M2S",
+    views: "123",
+    likes: undefined,
+    comments: "4",
+    thumbnailUrl: "https://i.ytimg.com/vi/abc12345xyz/hqdefault.jpg",
+    format: "short",
+    privacyStatus: "public",
+    channelId: "UCbMr7zg8Eqv7_M_B-RuIgCA",
+  };
+  const row = normalizeComposioYouTubeItem(source, now);
+  assert.equal(row.id, source.id);
+  assert.equal(row.durationSeconds, 62);
+  assert.equal(row.views, 123);
+  assert.equal(row.likes, null);
+  assert.equal(row.comments, 4);
+  assert.equal(row.url, "https://www.youtube.com/shorts/abc12345xyz");
+  assert.throws(() => normalizeComposioYouTubeItem({ ...source, channelId: "UCwrong" }, now), /account mismatch/);
+  assert.throws(() => normalizeComposioYouTubeItem({ ...source, privacyStatus: "unlisted" }, now), /public/);
+  assert.throws(() => normalizeComposioYouTubeItem({ ...source, format: "video" }, now), /format/);
+  assert.throws(() => normalizeComposioYouTubeItem({ ...source, publishedAt: "2025-09-04T11:59:59Z" }, now), /365-day/);
+  assert.throws(() => normalizeComposioYouTubeItem({ ...source, publishedAt: "2026-02-31T12:00:00Z" }, now), /publish date/);
+  assert.throws(() => normalizeComposioYouTubeItem({ ...source, extra: true }, now), /Unsupported/);
+  assert.equal(normalizeStrictUtcTimestamp("2026-02-31T12:00:00Z"), null);
+  assert.equal(normalizeStrictUtcTimestamp("2026-02-28T12:00:00.123456Z"), "2026-02-28T12:00:00.123Z");
+  assert.equal(normalizeFreshUtcTimestamp("2026-02-31T12:00:00Z", now), null);
+  assert.equal(normalizeFreshUtcTimestamp("2026-08-01T12:00:00Z", now), null);
+  assert.equal(normalizeFreshUtcTimestamp("2026-09-04T12:10:00Z", now), "2026-09-04T12:10:00.000Z");
+});
+
 test("YouTube ideas are normalized into shared Content records with structured video metadata", () => {
   const value = sanitizeYouTubeIdea({
     title: "  The calm CEO operating system  ",
@@ -187,6 +223,7 @@ test("YouTube routes are protected, bounded, and keep credentials server-side", 
   const generate = readFileSync(new URL("../app/api/youtube/generate/route.ts", import.meta.url), "utf8");
   const startSync = readFileSync(new URL("../app/api/content/posted/sync-start/route.ts", import.meta.url), "utf8");
   const pollSync = readFileSync(new URL("../app/api/content/posted/sync-poll/route.ts", import.meta.url), "utf8");
+  const composioImport = readFileSync(new URL("../app/api/youtube/composio-import/route.ts", import.meta.url), "utf8");
   assert.doesNotMatch(analytics, /NEXT_PUBLIC_YOUTUBE/);
   assert.match(analytics, /source|provenance/i);
   assert.match(content, /sanitizeYouTubeIdea/);
@@ -206,4 +243,22 @@ test("YouTube routes are protected, bounded, and keep credentials server-side", 
   assert.match(analytics, /!Object\.hasOwn\(raw, "channelId"\)/);
   assert.match(analytics, /raw\?\.channelId === YOUTUBE_CHANNEL\.id/);
   assert.match(analytics, /raw\.channelHandle === YOUTUBE_CHANNEL\.handle/);
+  assert.match(composioImport, /isHotLeadsAgent/);
+  assert.match(composioImport, /readBoundedRequestBody/);
+  assert.match(composioImport, /onConflict: "external_id"/);
+  assert.match(composioImport, /15 \* 60_000/);
+  assert.match(analytics, /raw\?\.provider === "composio" \? raw\.fetchedAt/);
+  assert.match(analytics, /latestComposioSnapshot/);
+  assert.match(analytics, /snapshot\.count === snapshot\.size/);
+  assert.match(analytics, /typeof snapshotSize === "number"/);
+  assert.doesNotMatch(analytics, /Number\(raw\?\.snapshotSize\)/);
+  assert.match(analytics, /for \(const row of youtubeRows\)/);
+  assert.match(analytics, /raw\?\.provider === "composio"/);
+  assert.match(analytics, /current\.valid = current\.valid && validSize && current\.size === snapshotSize/);
+  assert.match(analytics, /hasComposioRows = youtubeRows\.some/);
+  assert.match(analytics, /hasComposioRows \? \[\] : channelRows/);
+  assert.match(analytics, /Date\.now\(\) - 366 \* 86_400_000/);
+  assert.match(analytics, /withinYouTubeWindow/);
+  assert.match(composioImport, /snapshotSize: normalized\.length/);
+  assert.doesNotMatch(composioImport, /APIFY_TOKEN/);
 });

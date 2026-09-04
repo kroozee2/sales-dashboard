@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { contentDb } from "@/lib/supabase-content";
+import { normalizeFreshUtcTimestamp } from "@/lib/composio-youtube";
 import {
   YOUTUBE_CHANNEL,
   aggregateYouTubeDashboard,
@@ -15,6 +16,9 @@ export function buildYouTubeAnalyticsResponse(rows: Record<string, unknown>[], n
   const youtubeRows = rows.filter((row) => row.platform === "youtube");
   if (youtubeRows.some((row) => {
     const raw = row.raw && typeof row.raw === "object" && !Array.isArray(row.raw) ? row.raw as Record<string, unknown> : null;
+    if (raw?.provider === "composio") {
+      return raw.channelId !== YOUTUBE_CHANNEL.id || raw.channelHandle !== YOUTUBE_CHANNEL.handle || !isExpectedYouTubeProfile(row.profile_url);
+    }
     if (!raw || (!Object.hasOwn(raw, "channelId") && !Object.hasOwn(raw, "channelHandle"))) return false;
     return raw.channelId !== YOUTUBE_CHANNEL.id || raw.channelHandle !== YOUTUBE_CHANNEL.handle || !isExpectedYouTubeProfile(row.profile_url);
   })) {
@@ -24,23 +28,60 @@ export function buildYouTubeAnalyticsResponse(rows: Record<string, unknown>[], n
     const raw = row.raw && typeof row.raw === "object" && !Array.isArray(row.raw) ? row.raw as Record<string, unknown> : null;
     return raw?.channelId === YOUTUBE_CHANNEL.id && raw.channelHandle === YOUTUBE_CHANNEL.handle;
   });
+  const composioSnapshots = new Map<string, { count: number; size: number; valid: boolean }>();
+  for (const row of youtubeRows) {
+    const raw = row.raw && typeof row.raw === "object" && !Array.isArray(row.raw) ? row.raw as Record<string, unknown> : null;
+    const fetchedAt = raw?.provider === "composio" ? normalizeFreshUtcTimestamp(raw.fetchedAt, now) ?? "" : "";
+    const snapshotSize = raw?.snapshotSize;
+    if (!Number.isFinite(Date.parse(fetchedAt))) continue;
+    const validSize = typeof snapshotSize === "number" && Number.isInteger(snapshotSize) && snapshotSize >= 1 && snapshotSize <= 500;
+    const current = composioSnapshots.get(fetchedAt) ?? { count: 0, size: validSize ? snapshotSize : 0, valid: validSize };
+    current.count += 1;
+    current.valid = current.valid && validSize && current.size === snapshotSize;
+    composioSnapshots.set(fetchedAt, current);
+  }
+  const latestComposioSnapshot = [...composioSnapshots]
+    .filter(([, snapshot]) => snapshot.valid && snapshot.count === snapshot.size)
+    .map(([fetchedAt]) => fetchedAt)
+    .sort()
+    .at(-1) ?? null;
+  const hasComposioRows = youtubeRows.some((row) => {
+    const raw = row.raw && typeof row.raw === "object" && !Array.isArray(row.raw) ? row.raw as Record<string, unknown> : null;
+    return raw?.provider === "composio";
+  });
+  const snapshotRows = latestComposioSnapshot
+    ? channelRows.filter((row) => {
+      const raw = row.raw && typeof row.raw === "object" && !Array.isArray(row.raw) ? row.raw as Record<string, unknown> : null;
+      return raw?.provider === "composio" && raw.fetchedAt === latestComposioSnapshot;
+    })
+    : hasComposioRows ? [] : channelRows;
   const videos = withinYouTubeWindow(
-    channelRows.map(normalizePostedYouTubeRow).filter((row): row is NonNullable<typeof row> => row !== null),
+    snapshotRows.map(normalizePostedYouTubeRow).filter((row): row is NonNullable<typeof row> => row !== null),
     now,
   );
-  const newestSync = channelRows
-    .map((row) => String(row.updated_at ?? row.created_at ?? ""))
+  const newestSync = snapshotRows
+    .map((row) => {
+      const raw = row.raw && typeof row.raw === "object" && !Array.isArray(row.raw) ? row.raw as Record<string, unknown> : null;
+      return String(raw?.provider === "composio" ? raw.fetchedAt ?? "" : row.updated_at ?? row.created_at ?? "");
+    })
     .filter((value) => Number.isFinite(Date.parse(value)))
     .sort()
     .at(-1) ?? null;
   const hasVerifiedSnapshot = videos.length > 0 && newestSync !== null;
+  const providers = new Set(snapshotRows.flatMap((row) => {
+    const raw = row.raw && typeof row.raw === "object" && !Array.isArray(row.raw) ? row.raw as Record<string, unknown> : null;
+    return raw?.provider === "composio" ? ["composio"] : raw ? ["apify"] : [];
+  }));
+  const source = providers.has("composio")
+    ? providers.has("apify") ? "Composio + Apify verified public snapshots" : "Composio YouTube Data API"
+    : "Apify YouTube public channel snapshot";
   const start = new Date(now.getTime() - 365 * 86_400_000).toISOString().slice(0, 10);
   const end = now.toISOString().slice(0, 10);
   return {
     account: YOUTUBE_CHANNEL,
     dateRange: { start, end, label: "Past 365 days" },
     provenance: {
-      source: hasVerifiedSnapshot ? "Apify YouTube public channel snapshot" : "No verified YouTube snapshot",
+      source: hasVerifiedSnapshot ? source : "No verified YouTube snapshot",
       scope: hasVerifiedSnapshot ? "Public lifetime counters for uploads published in the selected period" : "Unavailable until the first verified channel sync completes",
       lastSyncedAt: newestSync,
       complete: false,
@@ -57,7 +98,9 @@ export function buildYouTubeAnalyticsResponse(rows: Record<string, unknown>[], n
 }
 
 export async function GET() {
-  const cutoff = new Date(Date.now() - 365 * 86_400_000).toISOString();
+  // Keep one extra day only for validating yesterday's complete snapshot.
+  // buildYouTubeAnalyticsResponse still applies the exact rolling 365-day display window.
+  const cutoff = new Date(Date.now() - 366 * 86_400_000).toISOString();
   const { data, error } = await contentDb()
     .from("posted_content")
     .select("*")

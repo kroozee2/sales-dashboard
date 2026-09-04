@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { saleRevenueAmount } from "@/lib/revenue-metrics";
+import { dashboardBookedRevenueEvents, saleRevenueAmount } from "@/lib/revenue-metrics";
 
 const db = () => createClient(
   process.env.NEXT_PUBLIC_SUPABASE_CALLS_URL!,
@@ -72,9 +72,8 @@ export async function GET(req: NextRequest) {
   const todayStartIso = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).toISOString();
   const nowIso = new Date().toISOString();
 
-  const [salesRes, paymentsRes, leadsCountRes, offersRes, recurringRes, upcomingRes, recentCallsRes] = await Promise.all([
+  const [salesRes, leadsCountRes, offersRes, recurringRes, upcomingRes, recentCallsRes] = await Promise.all([
     client.from("sales_calls").select("name, call_date, result, deal_amount, new_revenue, cc_upfront, offer").gte("call_date", sinceIso),
-    client.from("manual_payments").select("name, amount, payment_date, offer, status").eq("status", "collected").gte("payment_date", r.prevStart.toISOString().split("T")[0]),
     client.from("leads").select("id", { count: "exact", head: true }).gte("opt_in_date", r.curStart.toISOString()),
     client.from("offers").select("id, airtable_id, name"),
     client.from("manual_payments").select("name, amount, interval_type, next_bill_date").eq("payment_type", "recurring").eq("status", "active"),
@@ -90,7 +89,9 @@ export async function GET(req: NextRequest) {
     return raw.replace(/[[\]"]/g, "").trim() || null;
   };
 
-  // Revenue events: closed sales + collected payments.
+  // Revenue events: booked closed sales only. Cash collected is shown in the
+  // separate Stripe + manual Cash Collected widget. Mixing both here double
+  // counts non-Stripe deals when their sales call and payment are both logged.
   //
   // A sale's value can live in any of three columns depending on how it was
   // logged: new_revenue (the explicit booked-revenue field), deal_amount on
@@ -98,18 +99,11 @@ export async function GET(req: NextRequest) {
   // explicit revenue value so a stale contract amount cannot overstate results.
 
   type Ev = { name: string; amount: number; date: Date; kind: "Sale" | "Payment"; offer: string | null };
-  const events: Ev[] = [];
-  for (const s of salesRes.data ?? []) {
-    const amount = saleRevenueAmount(s);
-    if (s.result === "✅ Sale" && amount > 0 && s.call_date) {
-      events.push({ name: s.name, amount, date: new Date(s.call_date), kind: "Sale", offer: offerName(s.offer) });
-    }
-  }
-  for (const p of paymentsRes.data ?? []) {
-    if (p.amount && p.payment_date) {
-      events.push({ name: p.name, amount: Number(p.amount), date: new Date(p.payment_date + "T12:00"), kind: "Payment", offer: offerName(p.offer) });
-    }
-  }
+  const events: Ev[] = dashboardBookedRevenueEvents(salesRes.data ?? []).map((event) => ({
+    ...event,
+    date: new Date(event.date),
+    offer: offerName(event.offer),
+  }));
 
   // Bucketed cumulative series (this period vs last period)
   const curB = new Array(r.buckets).fill(0);

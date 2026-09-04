@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   collectedManualPayments,
+  dashboardBookedRevenueEvents,
   netSucceededChargeCents,
   saleRevenueAmount,
   summarizeRecurringRevenue,
@@ -34,6 +35,37 @@ test("dashboard booked revenue prefers explicit new revenue, then falls back to 
   assert.equal(saleRevenueAmount({ deal_amount: 12_000, new_revenue: 1_000, cc_upfront: 1_000 }), 1_000);
   assert.equal(saleRevenueAmount({ deal_amount: 6_000, new_revenue: null, cc_upfront: 3_000 }), 6_000);
   assert.equal(saleRevenueAmount({ deal_amount: null, new_revenue: null, cc_upfront: 3_000 }), 3_000);
+});
+
+test("dashboard booked revenue counts a non-Stripe sale once and leaves cash to the cash-collected metric", () => {
+  const events = dashboardBookedRevenueEvents([
+    {
+      name: "Chris Contreras",
+      result: "✅ Sale",
+      call_date: "2026-09-03T18:30:00+00:00",
+      deal_amount: 6_000,
+      new_revenue: 6_000,
+      cc_upfront: 3_000,
+      offer: "Content & Conversion Accelerator",
+    },
+    {
+      name: "Chris Contreras — Commas payment",
+      result: "💳 Collected",
+      call_date: "2026-09-03T22:47:51+00:00",
+      deal_amount: 3_000,
+      new_revenue: 3_000,
+      cc_upfront: 3_000,
+      offer: "Content & Conversion Accelerator",
+    },
+  ]);
+
+  assert.deepEqual(events, [{
+    name: "Chris Contreras",
+    amount: 6_000,
+    date: "2026-09-03T18:30:00+00:00",
+    kind: "Sale",
+    offer: "Content & Conversion Accelerator",
+  }]);
 });
 
 test("cash revenue is net of full and partial Stripe refunds", () => {

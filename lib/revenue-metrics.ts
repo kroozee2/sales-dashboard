@@ -49,6 +49,37 @@ export function saleRevenueAmount(sale: SaleRevenueFields): number {
     || Number(sale.cc_upfront ?? 0);
 }
 
+export type DashboardSaleRevenueRow = SaleRevenueFields & {
+  name: string;
+  result?: string | null;
+  call_date?: string | null;
+  offer?: string | null;
+};
+
+export type DashboardBookedRevenueEvent = {
+  name: string;
+  amount: number;
+  date: string;
+  kind: "Sale";
+  offer: string | null;
+};
+
+export function dashboardBookedRevenueEvents(
+  sales: DashboardSaleRevenueRow[],
+): DashboardBookedRevenueEvent[] {
+  return sales.flatMap((sale) => {
+    const amount = saleRevenueAmount(sale);
+    if (sale.result !== "✅ Sale" || amount <= 0 || !sale.call_date) return [];
+    return [{
+      name: sale.name,
+      amount,
+      date: sale.call_date,
+      kind: "Sale" as const,
+      offer: sale.offer ?? null,
+    }];
+  });
+}
+
 export function netSucceededChargeCents(charge: StripeChargeRevenueFields): number {
   if (charge.status !== "succeeded") return 0;
   return Math.max(0, Number(charge.amount ?? 0) - Number(charge.amount_refunded ?? 0));

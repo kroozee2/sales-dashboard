@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { contentDb } from "@/lib/supabase-content";
 import { normalizeFreshUtcTimestamp } from "@/lib/composio-youtube";
+import { normalizeStoredOwnerAnalytics } from "@/lib/youtube-owner-analytics";
 import {
   YOUTUBE_CHANNEL,
   aggregateYouTubeDashboard,
@@ -12,7 +13,12 @@ import {
 
 export const runtime = "nodejs";
 
-export function buildYouTubeAnalyticsResponse(rows: Record<string, unknown>[], now = new Date()) {
+export function buildYouTubeAnalyticsResponse(rows: Record<string, unknown>[], now = new Date(), ownerRows: Record<string, unknown>[] = []) {
+  const ownerAnalytics = ownerRows
+    .map((row) => normalizeStoredOwnerAnalytics(row.raw, now))
+    .filter((value): value is NonNullable<typeof value> => value !== null)
+    .sort((a, b) => a.fetchedAt.localeCompare(b.fetchedAt))
+    .at(-1) ?? null;
   const youtubeRows = rows.filter((row) => row.platform === "youtube");
   if (youtubeRows.some((row) => {
     const raw = row.raw && typeof row.raw === "object" && !Array.isArray(row.raw) ? row.raw as Record<string, unknown> : null;
@@ -85,14 +91,19 @@ export function buildYouTubeAnalyticsResponse(rows: Record<string, unknown>[], n
       scope: hasVerifiedSnapshot ? "Public lifetime counters for uploads published in the selected period" : "Unavailable until the first verified channel sync completes",
       lastSyncedAt: newestSync,
       complete: false,
-      note: hasVerifiedSnapshot ? "Private YouTube Studio analytics are not connected. Public counters are cached snapshots." : "Run Sync YouTube to create the first verified public snapshot.",
+      note: ownerAnalytics
+        ? "Authenticated owner metrics are date-bounded. Public video counters remain lifetime snapshots."
+        : hasVerifiedSnapshot ? "Private YouTube Studio analytics are not connected. Public counters are cached snapshots." : "Run Sync YouTube to create the first verified public snapshot.",
     },
     capabilities: {
       publicMetrics: hasVerifiedSnapshot,
-      privateAnalytics: false,
-      unavailable: ["watchTime", "averageViewDuration", "averagePercentageViewed", "subscribersGained", "impressions", "impressionsCtr", "trafficSources"],
+      privateAnalytics: ownerAnalytics !== null,
+      unavailable: ownerAnalytics
+        ? ["impressions", "impressionsCtr", "retention", "returningViewers", "uniqueViewers", "searchTerms"]
+        : ["watchTime", "averageViewDuration", "averagePercentageViewed", "subscribersGained", "impressions", "impressionsCtr", "trafficSources"],
     },
     summary: aggregateYouTubeDashboard(videos),
+    ownerAnalytics,
     videos: sortYouTubeVideos(videos, "recent"),
   };
 }
@@ -101,16 +112,18 @@ export async function GET() {
   // Keep one extra day only for validating yesterday's complete snapshot.
   // buildYouTubeAnalyticsResponse still applies the exact rolling 365-day display window.
   const cutoff = new Date(Date.now() - 366 * 86_400_000).toISOString();
-  const { data, error } = await contentDb()
-    .from("posted_content")
-    .select("*")
-    .eq("platform", "youtube")
-    .gte("posted_at", cutoff)
-    .limit(5_000)
-    .order("posted_at", { ascending: false });
-  if (error) return NextResponse.json({ error: "YouTube cache is temporarily unavailable" }, { status: 502 });
+  const db = contentDb();
+  const [publicResult, ownerResult] = await Promise.all([
+    db.from("posted_content").select("*").eq("platform", "youtube").gte("posted_at", cutoff).limit(5_000).order("posted_at", { ascending: false }),
+    db.from("posted_content").select("raw").eq("platform", "youtube_owner_analytics").limit(5).order("posted_at", { ascending: false }),
+  ]);
+  if (publicResult.error || ownerResult.error) return NextResponse.json({ error: "YouTube cache is temporarily unavailable" }, { status: 502 });
   try {
-    return NextResponse.json(buildYouTubeAnalyticsResponse((data ?? []) as Record<string, unknown>[]));
+    return NextResponse.json(buildYouTubeAnalyticsResponse(
+      (publicResult.data ?? []) as Record<string, unknown>[],
+      new Date(),
+      (ownerResult.data ?? []) as Record<string, unknown>[],
+    ));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "YouTube analytics unavailable" }, { status: 409 });
   }

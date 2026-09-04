@@ -15,6 +15,7 @@ import {
   withinYouTubeWindow,
 } from "../lib/youtube.ts";
 import { normalizeComposioYouTubeItem, normalizeFreshUtcTimestamp, normalizeStrictUtcTimestamp } from "../lib/composio-youtube.ts";
+import { normalizeOwnerAnalyticsImport, normalizeStoredOwnerAnalytics } from "../lib/youtube-owner-analytics.ts";
 
 const video = (overrides = {}) => ({
   id: "video-1",
@@ -50,6 +51,8 @@ test("YouTube is a first-class Marketing page", () => {
 test("YouTube hub exposes dashboard, long-form, Shorts, and creation workspaces", () => {
   const page = readFileSync(new URL("../app/youtube/page.tsx", import.meta.url), "utf8");
   assert.match(page, /Dashboard/);
+  assert.doesNotMatch(page, /if \(!analytics\?\.capabilities\.publicMetrics\) return/);
+  assert.match(page, /Authenticated source:/);
   assert.match(page, /Long-form/);
   assert.match(page, /Shorts/);
   assert.match(page, /Create/);
@@ -224,6 +227,7 @@ test("YouTube routes are protected, bounded, and keep credentials server-side", 
   const startSync = readFileSync(new URL("../app/api/content/posted/sync-start/route.ts", import.meta.url), "utf8");
   const pollSync = readFileSync(new URL("../app/api/content/posted/sync-poll/route.ts", import.meta.url), "utf8");
   const composioImport = readFileSync(new URL("../app/api/youtube/composio-import/route.ts", import.meta.url), "utf8");
+  const ownerImport = readFileSync(new URL("../app/api/youtube/owner-analytics-import/route.ts", import.meta.url), "utf8");
   assert.doesNotMatch(analytics, /NEXT_PUBLIC_YOUTUBE/);
   assert.match(analytics, /source|provenance/i);
   assert.match(content, /sanitizeYouTubeIdea/);
@@ -261,4 +265,42 @@ test("YouTube routes are protected, bounded, and keep credentials server-side", 
   assert.match(analytics, /withinYouTubeWindow/);
   assert.match(composioImport, /snapshotSize: normalized\.length/);
   assert.doesNotMatch(composioImport, /APIFY_TOKEN/);
+  assert.match(ownerImport, /isHotLeadsAgent/);
+  assert.match(ownerImport, /readBoundedRequestBody\(req, MAX_BODY_BYTES\)/);
+  assert.match(ownerImport, /normalizeOwnerAnalyticsImport/);
+  assert.match(ownerImport, /onConflict: "external_id"/);
+  assert.doesNotMatch(ownerImport, /refresh_token|client_secret|access_token/);
+});
+
+
+test("owner Analytics imports require exact account, strict dates, freshness, and bounded metrics", () => {
+  const now = new Date("2026-09-04T21:30:00Z");
+  const payload = {
+    source: "youtube-analytics-api",
+    channelId: "UCbMr7zg8Eqv7_M_B-RuIgCA",
+    channelHandle: "@andrewkroeze999",
+    startDate: "2025-09-05",
+    endDate: "2026-09-03",
+    fetchedAt: "2026-09-04T21:29:00Z",
+    metrics: { views: 12000, estimatedMinutesWatched: 48000, averageViewDuration: 240, averageViewPercentage: 38.2, subscribersGained: 120, subscribersLost: 15 },
+    trafficSources: [{ type: "YT_SEARCH", views: 2500 }],
+  };
+  const value = normalizeOwnerAnalyticsImport(payload, now);
+  assert.equal(value.channelId, payload.channelId);
+  assert.equal(value.metrics.subscribersNet, 105);
+  assert.equal(value.trafficSources[0].type, "YT_SEARCH");
+  assert.throws(() => normalizeOwnerAnalyticsImport({ ...payload, channelId: "wrong" }, now), /account mismatch/);
+  assert.throws(() => normalizeOwnerAnalyticsImport({ ...payload, endDate: "2026-02-31" }, now), /date/);
+  assert.throws(() => normalizeOwnerAnalyticsImport({ ...payload, fetchedAt: "2026-08-01T00:00:00Z" }, now), /fetchedAt/);
+  assert.throws(() => normalizeOwnerAnalyticsImport({ ...payload, metrics: { ...payload.metrics, views: -1 } }, now), /views/);
+  assert.throws(() => normalizeOwnerAnalyticsImport({ ...payload, metrics: { ...payload.metrics, averageViewPercentage: 101 } }, now), /averageViewPercentage/);
+  assert.throws(() => normalizeOwnerAnalyticsImport({ ...payload, metrics: { ...payload.metrics, views: 1.5 } }, now), /views/);
+  assert.doesNotThrow(() => normalizeOwnerAnalyticsImport({ ...payload, startDate: "2025-09-04", endDate: "2026-09-03" }, now));
+  assert.throws(() => normalizeOwnerAnalyticsImport({ ...payload, startDate: "2025-09-05", endDate: "2026-09-04" }, now), /date range/);
+  assert.throws(() => normalizeOwnerAnalyticsImport({ ...payload, trafficSources: [{ type: "YT_SEARCH", views: 1 }, { type: "YT_SEARCH", views: 2 }] }, now), /trafficSources/);
+  assert.throws(() => normalizeOwnerAnalyticsImport({ ...payload, trafficSources: Array.from({ length: 51 }, (_, i) => ({ type: `S${i}`, views: i })) }, now), /trafficSources/);
+  const persistedRaw = { provider: "youtube-analytics-api", metricBasis: "authenticated-period", ...value };
+  assert.equal(normalizeStoredOwnerAnalytics(persistedRaw, now)?.metrics.views, 12000);
+  assert.equal(normalizeStoredOwnerAnalytics({ ...persistedRaw, metricBasis: "public-lifetime" }, now), null);
+  assert.equal(normalizeStoredOwnerAnalytics({ provider: "youtube-analytics-api", ...value, fetchedAt: "2026-08-01T00:00:00Z" }, now), null);
 });

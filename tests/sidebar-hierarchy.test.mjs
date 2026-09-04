@@ -13,13 +13,22 @@ test("Jarvis belongs to Backend instead of Command", () => {
   assert.doesNotMatch(navLine("/jarvis"), /section: "Command"/);
 });
 
-test("Leads is the first item in Growth", () => {
+test("Sales and Marketing are separate sidebar sections in the requested order", () => {
+  assert.match(sidebar, /const sections = \["Command", "Sales", "Marketing", "Backend", "Vault"\]/);
+
+  assert.match(navLine("/leads"), /label: "Leads"[\s\S]*section: "Sales"/);
+  assert.match(navLine("/calls"), /label: "Sales Calls"[\s\S]*section: "Sales"/);
+  assert.match(navLine("/revenue"), /label: "Revenue"[\s\S]*section: "Sales"/);
+
+  assert.match(navLine("/content"), /label: "Content"[\s\S]*section: "Marketing"/);
+  assert.match(navLine("/instagram"), /label: "Instagram"[\s\S]*section: "Marketing"/);
+
   const leads = sidebar.indexOf('{ href: "/leads"');
+  const calls = sidebar.indexOf('{ href: "/calls"');
+  const revenue = sidebar.indexOf('{ href: "/revenue"');
   const content = sidebar.indexOf('{ href: "/content"');
   const instagram = sidebar.indexOf('{ href: "/instagram"');
-
-  assert.ok(leads >= 0 && content >= 0 && instagram >= 0);
-  assert.ok(leads < content, "Leads should appear before Content");
-  assert.ok(leads < instagram, "Leads should appear before Instagram");
-  assert.match(navLine("/leads"), /section: "Growth"/);
+  assert.ok(leads < calls && calls < revenue, "Sales should be Leads, Sales Calls, Revenue");
+  assert.ok(content < instagram, "Marketing should be Content, Instagram");
+  assert.doesNotMatch(sidebar, /section: "Growth"/);
 });

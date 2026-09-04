@@ -14,11 +14,12 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/morning-brief", label: "Morning Brief", emoji: "☀️", section: "Command" },
   { href: "/goals", label: "Goals", emoji: "🏁", section: "Command" },
 
-  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications", "/hot-leads", "/instagram-hot-leads"], section: "Growth" },
-  { href: "/content", label: "Content", emoji: "✍️", section: "Growth" },
-  { href: "/instagram", label: "Instagram", emoji: "📸", section: "Growth" },
-  { href: "/calls", label: "Calls", emoji: "📞", section: "Growth" },
-  { href: "/revenue", label: "Revenue", emoji: "💰", section: "Growth" },
+  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications", "/hot-leads", "/instagram-hot-leads"], section: "Sales" },
+  { href: "/calls", label: "Sales Calls", emoji: "📞", section: "Sales" },
+  { href: "/revenue", label: "Revenue", emoji: "💰", section: "Sales" },
+
+  { href: "/content", label: "Content", emoji: "✍️", section: "Marketing" },
+  { href: "/instagram", label: "Instagram", emoji: "📸", section: "Marketing" },
 
   { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Backend" },
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
@@ -92,10 +93,11 @@ function Brand() {
 }
 
 function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
-  const sections = ["Command", "Growth", "Backend", "Vault"];
+  const sections = ["Command", "Sales", "Marketing", "Backend", "Vault"];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Command: true,
-    Growth: true,
+    Sales: true,
+    Marketing: true,
     Backend: true,
     Vault: true,
   });

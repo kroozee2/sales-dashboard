@@ -20,6 +20,7 @@ const NAV_ITEMS: NavItem[] = [
 
   { href: "/content", label: "Content", emoji: "✍️", section: "Marketing" },
   { href: "/instagram", label: "Instagram", emoji: "📸", section: "Marketing" },
+  { href: "/youtube", label: "YouTube", emoji: "▶️", section: "Marketing" },
 
   { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Backend" },
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },

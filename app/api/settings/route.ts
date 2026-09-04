@@ -2,14 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createLeadsAdminClient } from '@/lib/supabase-leads';
 import { invalidateSettings } from '@/lib/settings';
 
-const RESERVED_SETTINGS_KEYS = new Set(['MESSAGING_BIBLE_V1']);
+const RESERVED_SETTINGS_KEYS = new Set([
+  'MESSAGING_BIBLE_V1',
+  'INSTAGRAM_POSTED_CONTENT_SYNC',
+  'YOUTUBE_POSTED_CONTENT_SYNC',
+]);
 
 export async function GET() {
   const supabase = createLeadsAdminClient();
   const { data, error } = await supabase.from('settings').select('key, value');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const map: Record<string, string> = {};
-  for (const row of data ?? []) map[row.key as string] = row.value as string;
+  for (const row of data ?? []) {
+    if (!RESERVED_SETTINGS_KEYS.has(row.key as string)) map[row.key as string] = row.value as string;
+  }
   return NextResponse.json({ settings: map });
 }
 

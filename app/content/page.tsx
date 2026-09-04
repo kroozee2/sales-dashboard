@@ -45,7 +45,7 @@ const TABS = [
 interface Posted {
   id: string; platform: string; profile_name: string | null; profile_url: string | null;
   post_url: string | null; text: string | null; posted_at: string | null;
-  likes: number; comments: number; shares: number; reactions: number; views: number; media_type: string | null;
+  likes: number | null; comments: number | null; shares: number | null; reactions: number | null; views: number | null; media_type: string | null;
 }
 interface Proof {
   id: string; headline: string | null; proof_point: string | null; one_liner: string | null;
@@ -1190,16 +1190,20 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
     if (syncing) return;
     setSyncing(platform); setMsg(`Pulling ${label}… this can take a couple minutes.`);
     try {
-      const started = await (await fetch("/api/content/posted/sync-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform }) })).json();
-      if (started.error || !started.runs) { setMsg(started.error || "Could not start sync."); return; }
-      const deadline = Date.now() + 8 * 60 * 1000; // give it up to 8 minutes
-      while (Date.now() < deadline) {
+      let started: { started?: boolean; pendingStart?: boolean; runs?: Array<{ runId: string; datasetId: string }>; error?: string } | null = null;
+      while (!started?.started && !started?.runs) {
+        const response = await fetch("/api/content/posted/sync-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform }) });
+        started = await response.json();
+        if (!response.ok && !started?.pendingStart) { setMsg(started?.error || "Could not start sync."); return; }
+        if (!started?.started && !started?.runs) await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
+      while (true) {
         await new Promise((r) => setTimeout(r, 5000));
-        const poll = await (await fetch("/api/content/posted/sync-poll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform, runs: started.runs }) })).json();
+        const pollBody = platform === "facebook" ? { platform, runs: started.runs } : { platform };
+        const poll = await (await fetch("/api/content/posted/sync-poll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pollBody) })).json();
         if (poll.error) { setMsg(poll.error); return; }
         if (poll.done) { setMsg(`${label}: pulled ${poll.synced} posts ✓`); onChanged(); return; }
       }
-      setMsg(`${label} is taking a while — it'll finish in the background. Refresh in a minute.`);
     } catch { setMsg("Sync failed. Try again."); } finally { setSyncing(null); }
   }
   const SYNCS: { k: "instagram" | "facebook" | "youtube"; label: string }[] = [
@@ -1229,10 +1233,10 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
     .sort((a, b) => {
       let av: number, bv: number;
       if (sortKey === "posted_at") { av = a.posted_at ? Date.parse(a.posted_at) : 0; bv = b.posted_at ? Date.parse(b.posted_at) : 0; }
-      else { av = a[sortKey]; bv = b[sortKey]; }
+      else { av = a[sortKey] ?? -1; bv = b[sortKey] ?? -1; }
       return sortDir === "desc" ? bv - av : av - bv;
     });
-  const totals = posted.reduce((a, p) => ({ likes: a.likes + p.likes, comments: a.comments + p.comments, shares: a.shares + p.shares, views: a.views + p.views }), { likes: 0, comments: 0, shares: 0, views: 0 });
+  const totals = posted.reduce((a, p) => ({ likes: a.likes + (p.likes ?? 0), comments: a.comments + (p.comments ?? 0), shares: a.shares + (p.shares ?? 0), views: a.views + (p.views ?? 0) }), { likes: 0, comments: 0, shares: 0, views: 0 });
   const arrow = (k: SortKey) => (sortKey === k ? (sortDir === "desc" ? " ↓" : " ↑") : "");
 
   const Th = ({ k, label, className = "" }: { k: SortKey; label: string; className?: string }) => (
@@ -1246,7 +1250,7 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <p className="text-white font-semibold text-sm">📣 Posted <span className="text-zinc-600 font-normal">({posted.length} posts)</span></p>
-          <p className="text-zinc-500 text-xs mt-0.5">Everything that actually went out — Instagram + Facebook (90d) &amp; YouTube (this year) — {totals.likes} likes · {totals.comments} comments · {totals.views.toLocaleString()} views.</p>
+          <p className="text-zinc-500 text-xs mt-0.5">Everything that actually went out — Instagram + Facebook (90d) &amp; YouTube (365d) — {totals.likes} likes · {totals.comments} comments · {totals.views.toLocaleString()} views.</p>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-zinc-600 text-[11px]">🔄 Sync:</span>
@@ -1334,10 +1338,10 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
                       <td className="px-3 py-2.5 text-zinc-300 align-top max-w-[360px]">
                         <span className="line-clamp-2 leading-snug">{p.text || <span className="text-zinc-600 italic">No caption</span>}</span>
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums align-top">{p.views > 0 ? <span className="text-zinc-200">{p.views.toLocaleString()}</span> : <span className="text-zinc-600">—</span>}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.likes}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.comments}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.shares}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums align-top">{p.views !== null && p.views > 0 ? <span className="text-zinc-200">{p.views.toLocaleString()}</span> : <span className="text-zinc-600">—</span>}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.likes ?? "—"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.comments ?? "—"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.shares ?? "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap align-top">
                         {p.post_url ? <a href={p.post_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 font-medium text-xs">Open →</a> : <span className="text-zinc-600 text-xs">—</span>}
                       </td>
@@ -1636,7 +1640,7 @@ function PostingAnalytics({ posted, onGo }: { posted: Posted[]; onGo: (t: string
   }, [posted, range, now]);
   const maxBucket = Math.max(1, ...buckets.map((b) => b.instagram + b.facebook + b.youtube));
 
-  const topPosts = [...inRange].sort((a, b) => b.views - a.views || (b.likes + b.comments) - (a.likes + a.comments)).slice(0, 6);
+  const topPosts = [...inRange].sort((a, b) => (b.views ?? -1) - (a.views ?? -1) || ((b.likes ?? 0) + (b.comments ?? 0)) - ((a.likes ?? 0) + (a.comments ?? 0))).slice(0, 6);
 
   const KPIS = [
     { label: "Posts", value: fmtN(totals.posts), sub: platforms.length ? `${platforms.length} platforms` : "" },
@@ -1745,8 +1749,8 @@ function PostingAnalytics({ posted, onGo }: { posted: Posted[]; onGo: (t: string
                   <span className="text-sm flex-shrink-0" title={m?.label}>{m?.icon ?? "•"}</span>
                   {p.platform === "youtube" && <span className={`text-[8px] font-bold px-1 py-0.5 rounded flex-shrink-0 ${p.media_type === "short" ? "bg-amber-500/15 text-amber-400" : "bg-sky-500/15 text-sky-400"}`}>{p.media_type === "short" ? "SHORT" : "LONG"}</span>}
                   <span className="text-zinc-200 text-sm truncate flex-1">{p.text || "—"}</span>
-                  <span className="text-zinc-400 text-xs tabular-nums flex-shrink-0">👁 {fmtN(p.views)}</span>
-                  <span className="text-zinc-500 text-xs tabular-nums flex-shrink-0 hidden sm:inline">❤️ {fmtN(p.likes)}</span>
+                  <span className="text-zinc-400 text-xs tabular-nums flex-shrink-0">👁 {p.views === null ? "—" : fmtN(p.views)}</span>
+                  <span className="text-zinc-500 text-xs tabular-nums flex-shrink-0 hidden sm:inline">❤️ {p.likes === null ? "—" : fmtN(p.likes)}</span>
                 </a>
               );
             })}

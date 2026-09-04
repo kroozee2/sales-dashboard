@@ -13,7 +13,11 @@ export const runtime = "nodejs";
 
 export function buildYouTubeAnalyticsResponse(rows: Record<string, unknown>[], now = new Date()) {
   const youtubeRows = rows.filter((row) => row.platform === "youtube");
-  if (youtubeRows.some((row) => !isExpectedYouTubeProfile(row.profile_url))) {
+  if (youtubeRows.some((row) => {
+    const raw = row.raw && typeof row.raw === "object" && !Array.isArray(row.raw) ? row.raw as Record<string, unknown> : null;
+    if (!raw || (!Object.hasOwn(raw, "channelId") && !Object.hasOwn(raw, "channelHandle"))) return false;
+    return raw.channelId !== YOUTUBE_CHANNEL.id || raw.channelHandle !== YOUTUBE_CHANNEL.handle || !isExpectedYouTubeProfile(row.profile_url);
+  })) {
     throw new Error("YouTube cache account mismatch");
   }
   const channelRows = youtubeRows.filter((row) => {

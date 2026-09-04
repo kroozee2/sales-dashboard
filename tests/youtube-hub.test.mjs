@@ -203,6 +203,7 @@ test("YouTube routes are protected, bounded, and keep credentials server-side", 
   assert.match(content, /readBoundedRequestBody/);
   assert.match(generate, /readBoundedRequestBody/);
   assert.match(analytics, /No verified YouTube snapshot/);
+  assert.match(analytics, /!Object\.hasOwn\(raw, "channelId"\)/);
   assert.match(analytics, /raw\?\.channelId === YOUTUBE_CHANNEL\.id/);
   assert.match(analytics, /raw\.channelHandle === YOUTUBE_CHANNEL\.handle/);
 });

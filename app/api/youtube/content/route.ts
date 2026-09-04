@@ -37,7 +37,6 @@ export async function GET() {
   const { data, error } = await contentDb()
     .from("content_items")
     .select("*")
-    .contains("platforms", ["youtube"])
     .order("updated_at", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: "YouTube production records are temporarily unavailable" }, { status: 502 });

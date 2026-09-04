@@ -44,9 +44,16 @@ export function collectedManualPayments<T extends ManualPaymentRevenueRow>(
 }
 
 export function saleRevenueAmount(sale: SaleRevenueFields): number {
-  return Number(sale.new_revenue ?? 0)
-    || Number(sale.deal_amount ?? 0)
-    || Number(sale.cc_upfront ?? 0);
+  if (sale.new_revenue !== null && sale.new_revenue !== undefined) {
+    const explicitRevenue = Number(sale.new_revenue);
+    return Number.isFinite(explicitRevenue) ? explicitRevenue : 0;
+  }
+
+  const legacyDealAmount = Number(sale.deal_amount ?? 0);
+  if (Number.isFinite(legacyDealAmount) && legacyDealAmount !== 0) return legacyDealAmount;
+
+  const upfrontCash = Number(sale.cc_upfront ?? 0);
+  return Number.isFinite(upfrontCash) ? upfrontCash : 0;
 }
 
 export type DashboardSaleRevenueRow = SaleRevenueFields & {

@@ -12,15 +12,15 @@ type NavItem = { href: string; label: string; emoji: string; match?: string[]; s
 const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Dashboard", emoji: "🏠", section: "Command" },
   { href: "/morning-brief", label: "Morning Brief", emoji: "☀️", section: "Command" },
-  { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Command" },
   { href: "/goals", label: "Goals", emoji: "🏁", section: "Command" },
 
+  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications", "/hot-leads", "/instagram-hot-leads"], section: "Growth" },
   { href: "/content", label: "Content", emoji: "✍️", section: "Growth" },
   { href: "/instagram", label: "Instagram", emoji: "📸", section: "Growth" },
-  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications", "/hot-leads", "/instagram-hot-leads"], section: "Growth" },
   { href: "/calls", label: "Calls", emoji: "📞", section: "Growth" },
   { href: "/revenue", label: "Revenue", emoji: "💰", section: "Growth" },
 
+  { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Backend" },
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
   { href: "/tasks", label: "Execution", emoji: "⚡", match: ["/projects", "/winning-formula"], section: "Backend" },
   { href: "/team", label: "Team", emoji: "👥", section: "Backend" },

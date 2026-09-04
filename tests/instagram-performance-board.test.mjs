@@ -24,11 +24,16 @@ const post = (overrides = {}) => ({
   ...overrides,
 });
 
-test("Instagram opens on the calendar and keeps the 90-day spreadsheet underneath it", () => {
+test("Instagram opens on performance and keeps calendar as a separate second tab", () => {
   const page = readFileSync(new URL("../app/instagram/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /useState<Tab>\("calendar"\)/);
-  assert.match(page, /tab === "calendar"[\s\S]*InstagramPerformanceSpreadsheet/);
-  assert.match(page, /Instagram Content Calendar[\s\S]*Analytics & Reel Retentions/);
+  assert.match(page, /type Tab = "performance" \| "calendar" \| "competitors"/);
+  assert.match(page, /useState<Tab>\("performance"\)/);
+  assert.match(page, /key: "performance", label: "📊 Performance"[\s\S]*key: "calendar", label: "📅 Calendar"/);
+
+  const performance = page.match(/tab === "performance"([\s\S]*?)tab === "calendar"/)?.[1] ?? "";
+  const calendar = page.match(/tab === "calendar"([\s\S]*?)tab === "competitors"/)?.[1] ?? "";
+  assert.match(performance, /InstagramPerformanceSpreadsheet/);
+  assert.doesNotMatch(calendar, /InstagramPerformanceSpreadsheet/);
 });
 
 test("performance history is a compact spreadsheet named from each hook or headline", () => {
@@ -145,14 +150,14 @@ test("the production Instagram mapper preserves missing metrics as null and genu
   assert.equal(zero.comments, 0);
 });
 
-test("calendar landing view is usable on mobile and reports loading and API errors truthfully", () => {
+test("calendar is usable on mobile and performance reports loading and API errors truthfully", () => {
   const page = readFileSync(new URL("../app/instagram/page.tsx", import.meta.url), "utf8");
   const grid = readFileSync(new URL("../components/instagram-performance-grid.tsx", import.meta.url), "utf8");
   assert.match(page, /overflow-x-auto/);
   assert.match(page, /min-w-\[700px\]/);
   assert.match(page, /analyticsError/);
-  assert.match(page, /Instagram analytics are unavailable/);
   assert.match(page, /loading=\{loading\}/);
+  assert.match(page, /error=\{analyticsError\}/);
   assert.match(grid, /Loading Instagram performance/);
   assert.match(grid, /Instagram performance is unavailable/);
 });

@@ -14,7 +14,7 @@ import {
   platformLabel,
 } from "@/lib/content-constants";
 
-type Tab = "analytics" | "calendar" | "competitors";
+type Tab = "performance" | "calendar" | "competitors";
 const INSTAGRAM_SYNC_KEY = "instagram-sync-runs";
 
 function hasPendingInstagramSync(): boolean {
@@ -102,7 +102,7 @@ interface AnalyticsData {
 }
 
 export default function InstagramPage() {
-  const [tab, setTab] = useState<Tab>("calendar");
+  const [tab, setTab] = useState<Tab>("performance");
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -343,8 +343,8 @@ export default function InstagramPage() {
         {/* Tab Selection */}
         <div className="flex items-center gap-2 mt-8 pt-4 border-t border-zinc-800/80">
           {[
-            { key: "calendar", label: "📅 Instagram Content Calendar" },
-            { key: "analytics", label: "📊 Analytics & Reel Retentions" },
+            { key: "performance", label: "📊 Performance" },
+            { key: "calendar", label: "📅 Calendar" },
             { key: "competitors", label: "🔍 Competitor Reel Analysis" },
           ].map((t) => (
             <button
@@ -369,16 +369,12 @@ export default function InstagramPage() {
         </div>
       )}
 
-      {/* 📊 TAB 1: ANALYTICS & REEL RETENTIONS */}
-      {tab === "analytics" && (
+      {/* 📊 TAB 1: PERFORMANCE */}
+      {tab === "performance" && (
         <div className="space-y-6">
-          {loading ? (
-            <div className="p-12 text-center text-zinc-500 text-sm">Loading Instagram metrics...</div>
-          ) : analyticsError || !data ? (
-            <div className="p-12 text-center text-rose-300 text-sm">
-              Instagram analytics are unavailable{analyticsError ? `: ${analyticsError}` : "."}
-            </div>
-          ) : (
+          <InstagramPerformanceSpreadsheet posts={data?.dbPosts ?? []} loading={loading} error={analyticsError} />
+
+          {!loading && !analyticsError && data && (
             <>
               {/* Stat Cards Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -667,8 +663,6 @@ export default function InstagramPage() {
               </div>
             </div>
           </div>
-
-          <InstagramPerformanceSpreadsheet posts={data?.dbPosts ?? []} loading={loading} error={analyticsError} />
         </div>
       )}
 

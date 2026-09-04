@@ -74,7 +74,7 @@ export async function PATCH(req: NextRequest) {
 
     const clean = sanitizeYouTubeIdea({
       title: Object.hasOwn(body, "title") ? body.title : current.title,
-      format: Object.hasOwn(body, "format") ? body.format : meta.youtube_format,
+      format: Object.hasOwn(body, "format") ? body.format : meta.youtube_format === "short" ? "short" : "long_form",
       targetDate: Object.hasOwn(body, "targetDate") ? body.targetDate : current.scheduled_date,
       stage: Object.hasOwn(body, "stage") ? body.stage : meta.video_stage,
       viewer: Object.hasOwn(body, "viewer") ? body.viewer : meta.target_viewer,

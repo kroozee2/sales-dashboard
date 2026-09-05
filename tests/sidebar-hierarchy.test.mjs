@@ -32,7 +32,7 @@ test("Sales and Marketing are separate sidebar sections in the requested order",
   assert.match(navLine("/calls"), /label: "Sales Calls"[\s\S]*section: "Sales"/);
   assert.match(navLine("/revenue"), /label: "Revenue"[\s\S]*section: "Sales"/);
 
-  assert.match(navLine("/content"), /label: "Content"[\s\S]*section: "Marketing"/);
+  assert.match(navLine("/content"), /label: "Calendar"[\s\S]*section: "Marketing"/);
   assert.match(navLine("/instagram"), /label: "Instagram"[\s\S]*section: "Marketing"/);
 
   const leads = sidebar.indexOf('{ href: "/leads"');
@@ -41,6 +41,6 @@ test("Sales and Marketing are separate sidebar sections in the requested order",
   const content = sidebar.indexOf('{ href: "/content"');
   const instagram = sidebar.indexOf('{ href: "/instagram"');
   assert.ok(leads < calls && calls < revenue, "Sales should be Leads, Sales Calls, Revenue");
-  assert.ok(content < instagram, "Marketing should be Content, Instagram");
+  assert.ok(content < instagram, "Marketing should be Calendar, Instagram");
   assert.doesNotMatch(sidebar, /section: "Growth"/);
 });

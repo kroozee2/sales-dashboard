@@ -30,10 +30,9 @@ interface CEvent {
 }
 
 const TABS = [
+  { key: "dashboard", label: "Dashboard", emoji: "📊" },
   { key: "calendar", label: "Calendar", emoji: "🗓️" },
   { key: "events", label: "Events", emoji: "🎟️" },
-  { key: "dashboard", label: "Dashboard", emoji: "📊" },
-  { key: "posted", label: "Posted", emoji: "📣" },
   { key: "ideas", label: "Ideas", emoji: "💡" },
   { key: "proof", label: "Proof", emoji: "🏆" },
   { key: "research", label: "Research", emoji: "🔎" },
@@ -1569,7 +1568,7 @@ const PLAT_META: Record<string, { label: string; icon: string; bar: string; text
 };
 const fmtN = (n: number) => n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k" : String(Math.round(n));
 
-function PostingAnalytics({ posted, onGo }: { posted: Posted[]; onGo: (t: string) => void }) {
+function PostingAnalytics({ posted }: { posted: Posted[] }) {
   type Range = "all" | "year" | "quarter" | "month" | "week";
   const [range, setRange] = useState<Range>("all");
   const [plat, setPlat] = useState<"all" | "instagram" | "facebook" | "youtube">("all");
@@ -1654,7 +1653,7 @@ function PostingAnalytics({ posted, onGo }: { posted: Posted[]; onGo: (t: string
     <div className="order-first flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-white font-bold text-base">📊 Posting analytics</p>
-        <button onClick={() => onGo("posted")} className="text-zinc-500 hover:text-white text-xs">See all posts →</button>
+        <button onClick={() => document.getElementById("posted-content")?.scrollIntoView({ behavior: "smooth" })} className="text-zinc-500 hover:text-white text-xs">See all posts →</button>
       </div>
 
       {/* Range + platform filters */}
@@ -1829,7 +1828,7 @@ function DashboardTab({ items, ideas, proof, stories, events, posted, onGo }: {
   return (
     <div className="flex flex-col gap-5">
       {/* Posting analytics — real numbers across every platform, leads the page */}
-      {posted.length > 0 && <PostingAnalytics posted={posted} onGo={onGo} />}
+      {posted.length > 0 && <PostingAnalytics posted={posted} />}
       {/* Event seat trackers */}
       {/* Numbers + streak — top on desktop, below the buttons on mobile */}
       <div className="order-2 lg:order-1 grid sm:grid-cols-[minmax(0,1fr)_auto] gap-3">
@@ -2183,7 +2182,7 @@ function EventDrawer({ event, onClose, onPatch }: { event: CEvent; onClose: () =
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ContentPage() {
-  const [tab, setTab] = useState<string>("calendar");
+  const [tab, setTab] = useState<string>("dashboard");
   const [items, setItems] = useState<ContentItem[]>([]);
   const [events, setEvents] = useState<CEvent[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -2256,7 +2255,7 @@ export default function ContentPage() {
       <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
         {TABS.map((t) => {
           const active = tab === t.key;
-          const badge = t.key === "ideas" ? counts.ideas : t.key === "proof" ? counts.proof : t.key === "calendar" ? counts.calendar : t.key === "events" ? counts.events : t.key === "posted" ? posted.length : 0;
+          const badge = t.key === "ideas" ? counts.ideas : t.key === "proof" ? counts.proof : t.key === "calendar" ? counts.calendar : t.key === "events" ? counts.events : 0;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${active ? "bg-blue-600/20 border-blue-500/40 text-blue-200" : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"}`}>
@@ -2269,7 +2268,14 @@ export default function ContentPage() {
 
       {/* Main content */}
       <div className="min-w-0">
-        {tab === "dashboard" && <DashboardTab items={items} ideas={ideas} proof={proof} stories={stories} events={events} posted={posted} onGo={setTab} />}
+        {tab === "dashboard" && (
+          <div className="space-y-8">
+            <DashboardTab items={items} ideas={ideas} proof={proof} stories={stories} events={events} posted={posted} onGo={setTab} />
+            <section id="posted-content" className="border-t border-zinc-800 pt-8 scroll-mt-6">
+              <PostedTab posted={posted} onChanged={loadPosted} />
+            </section>
+          </div>
+        )}
         {tab === "calendar" && (
           <div className="space-y-8">
             <CalendarTab items={items} events={events} onOpen={(i) => setOpenId(i.id)} onQuickAdd={quickAdd} onCreateOn={createOn} onReschedule={(id, date) => void patchItem(id, { scheduled_date: date })} />
@@ -2285,7 +2291,6 @@ export default function ContentPage() {
         {tab === "proof" && <ProofTab proof={proof} onChanged={load} />}
         {tab === "research" && <CompetitorResearch onIdeaSaved={load} />}
         {tab === "graphics" && <GraphicsStudio />}
-        {tab === "posted" && <PostedTab posted={posted} onChanged={loadPosted} />}
         {tab === "events" && <EventsTab events={events} onChanged={load} onEditEvent={setEditEventId} onBumpEvent={bumpEvent} />}
       </div>
 

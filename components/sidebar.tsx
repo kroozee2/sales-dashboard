@@ -13,12 +13,14 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Dashboard", emoji: "🏠", section: "Command" },
   { href: "/morning-brief", label: "Morning Brief", emoji: "☀️", section: "Command" },
   { href: "/goals", label: "Goals", emoji: "🏁", section: "Command" },
+  { href: "/projects", label: "Projects", emoji: "🗂️", section: "Command" },
+  { href: "/tasks", label: "Tasks", emoji: "📋", match: ["/winning-formula"], section: "Command" },
 
   { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications", "/hot-leads", "/instagram-hot-leads"], section: "Sales" },
   { href: "/calls", label: "Sales Calls", emoji: "📞", section: "Sales" },
   { href: "/revenue", label: "Revenue", emoji: "💰", section: "Sales" },
 
-  { href: "/content", label: "Content", emoji: "✍️", section: "Marketing" },
+  { href: "/content", label: "Calendar", emoji: "🗓️", section: "Marketing" },
   { href: "/instagram", label: "Instagram", emoji: "📸", section: "Marketing" },
   { href: "/youtube", label: "YouTube", emoji: "▶️", section: "Marketing" },
 
@@ -28,7 +30,6 @@ const NAV_ITEMS: NavItem[] = [
 
   { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Backend" },
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
-  { href: "/tasks", label: "Execution", emoji: "⚡", match: ["/projects", "/winning-formula"], section: "Backend" },
   { href: "/team", label: "Team", emoji: "👥", section: "Backend" },
 
   { href: "/messaging", label: "Messaging", emoji: "🧠", section: "Vault" },

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { SubTabs } from "@/components/sub-tabs";
 import { usePerson } from "@/lib/use-person";
+import { PersonSelect } from "@/components/sub-tabs";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface Project {
@@ -174,7 +174,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="w-full">
-      <SubTabs group="tasks" />
+      <div className="flex justify-end mb-3"><PersonSelect /></div>
       <div className="flex items-center justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-white flex items-center gap-2">🗂️ Projects</h1>

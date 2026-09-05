@@ -35,19 +35,20 @@ const payload = {
   calendar: [],
 };
 
-test("Clients workspace declares exactly Dashboard, Members, and Calendar tabs", () => {
+test("Clients workspace exposes Dashboard, Members, and Calendar as separate sidebar routes", () => {
   assert.deepEqual(CLIENT_TABS, ["Dashboard", "Members", "Calendar"]);
-  const page = readFileSync(new URL("../app/clients/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /role="tablist"/);
-  assert.match(page, /aria-selected=/);
-  assert.match(page, /aria-labelledby=/);
-  assert.match(page, /tabIndex=/);
-  assert.match(page, /ArrowRight/);
-  assert.match(page, /aria-pressed=/);
-  assert.match(page, /Helm is the source of truth/i);
-  assert.match(page, /Needs Attention/);
-  assert.match(page, /Upcoming 7 Days/);
-  assert.match(page, /AbortController/);
+  const workspace = readFileSync(new URL("../app/clients/clients-workspace.tsx", import.meta.url), "utf8");
+  const indexPage = readFileSync(new URL("../app/clients/page.tsx", import.meta.url), "utf8");
+  for (const view of ["dashboard", "members", "calendar"]) {
+    const route = readFileSync(new URL(`../app/clients/${view}/page.tsx`, import.meta.url), "utf8");
+    assert.match(route, new RegExp(`view="${view[0].toUpperCase()}${view.slice(1)}"`, "i"));
+  }
+  assert.match(indexPage, /redirect\("\/clients\/dashboard"\)/);
+  assert.doesNotMatch(workspace, /role="tablist"/);
+  assert.match(workspace, /Helm is the source of truth/i);
+  assert.match(workspace, /Needs Attention/);
+  assert.match(workspace, /Upcoming 7 Days/);
+  assert.match(workspace, /AbortController/);
 });
 
 test("SalesOS proxy rejects malformed or oversized nested Helm payloads", () => {
@@ -64,7 +65,7 @@ test("SalesOS proxy rejects malformed or oversized nested Helm payloads", () => 
 });
 
 test("month changes clear stale payloads before the next range loads", () => {
-  const page = readFileSync(new URL("../app/clients/page.tsx", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../app/clients/clients-workspace.tsx", import.meta.url), "utf8");
   assert.match(page, /setData\(null\);\s*setLoading\(true\)/);
   assert.match(page, /setRefreshKey/);
   assert.match(page, /nextRange\.from === range\.from/);

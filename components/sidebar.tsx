@@ -22,7 +22,10 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/instagram", label: "Instagram", emoji: "📸", section: "Marketing" },
   { href: "/youtube", label: "YouTube", emoji: "▶️", section: "Marketing" },
 
-  { href: "/clients", label: "Clients", emoji: "🫂", section: "Backend" },
+  { href: "/clients/dashboard", label: "Dashboard", emoji: "📊", section: "Clients" },
+  { href: "/clients/members", label: "Members", emoji: "👥", section: "Clients" },
+  { href: "/clients/calendar", label: "Calendar", emoji: "📅", section: "Clients" },
+
   { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Backend" },
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
   { href: "/tasks", label: "Execution", emoji: "⚡", match: ["/projects", "/winning-formula"], section: "Backend" },
@@ -95,11 +98,12 @@ function Brand() {
 }
 
 function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
-  const sections = ["Command", "Sales", "Marketing", "Backend", "Vault"];
+  const sections = ["Command", "Sales", "Marketing", "Clients", "Backend", "Vault"];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Command: true,
     Sales: true,
     Marketing: true,
+    Clients: true,
     Backend: true,
     Vault: true,
   });

@@ -66,7 +66,7 @@ test("stored briefs created before task links remain backward compatible", () =>
 });
 
 test("Morning Brief is a first-class Command tab with a saved checklist UI", () => {
-  assert.match(sidebar, /href: "\/morning-brief", label: "Morning Brief"[^\n]+section: "Command"/);
+  assert.match(sidebar, /href: "\/morning-brief", label: "Brief"[^\n]+section: "Command"/);
   assert.match(page, /Morning Brief/);
   assert.match(page, /\/api\/morning-briefs/);
   assert.match(page, /type="checkbox"/);

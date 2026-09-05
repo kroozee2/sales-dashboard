@@ -8,7 +8,7 @@ const projectsPage = readFileSync(new URL("../app/projects/page.tsx", import.met
 const contentPage = readFileSync(new URL("../app/content/page.tsx", import.meta.url), "utf8");
 
 function navLine(href) {
-  return sidebar.match(new RegExp(`\\{ href: "${href}"[^\\n]+\\}`))?.[0] ?? "";
+  return sidebar.split("\n").find((line) => line.includes(`href: "${href}"`)) ?? "";
 }
 
 function tabsBlock() {
@@ -36,15 +36,26 @@ test("Projects sits below Goals and Tasks fronts only Tasks and Winning Formula"
   assert.match(projectsPage, /<PersonSelect \/>/);
 });
 
-test("Marketing calls Content Calendar and puts Dashboard above Calendar", () => {
-  assert.match(navLine("/content"), /label: "Calendar"[\s\S]*section: "Marketing"/);
+test("Marketing gives Dashboard its own sidebar item above a Calendar-first workspace", () => {
+  assert.match(navLine("/content?tab=dashboard"), /label: "Dashboard"[\s\S]*contentTab: "dashboard"[\s\S]*section: "Marketing"/);
+  assert.match(navLine("/content"), /label: "Calendar"[\s\S]*contentTab: "calendar"[\s\S]*section: "Marketing"/);
+
+  const dashboardItem = sidebar.indexOf('{ href: "/content?tab=dashboard"');
+  const calendarItem = sidebar.indexOf('{ href: "/content", label: "Calendar"');
+  assert.ok(dashboardItem >= 0 && dashboardItem < calendarItem, "Marketing should order Dashboard above Calendar");
 
   const tabs = tabsBlock();
   const dashboard = tabs.indexOf('key: "dashboard"');
   const calendar = tabs.indexOf('key: "calendar"');
-  assert.ok(dashboard >= 0 && dashboard < calendar, "Dashboard should be immediately above Calendar");
+  assert.ok(dashboard >= 0 && dashboard < calendar, "Dashboard should remain immediately above Calendar in the workspace");
   assert.doesNotMatch(tabs, /key: "posted"/);
-  assert.match(contentPage, /useState<string>\("dashboard"\)/);
+  assert.match(contentPage, /\? requestedTab! : "calendar"/);
+  assert.match(contentPage, /searchParams\.get\("tab"\)/);
+});
+
+test("Command shortens Morning Brief to Brief without changing its route", () => {
+  assert.match(navLine("/morning-brief"), /label: "Brief"[\s\S]*section: "Command"/);
+  assert.doesNotMatch(navLine("/morning-brief"), /label: "Morning Brief"/);
 });
 
 test("Dashboard contains both posted analytics and the full posted workspace", () => {

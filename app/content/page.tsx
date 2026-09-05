@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   PLATFORMS, CATEGORIES, REEL_PILLARS, EVENT_TYPES, CONTENT_STATUSES,
   platformLabel, platformEmoji, platformChip, platformDot, categoryMeta, statusMeta,
@@ -2181,8 +2182,11 @@ function EventDrawer({ event, onClose, onPatch }: { event: CEvent; onClose: () =
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
-export default function ContentPage() {
-  const [tab, setTab] = useState<string>("dashboard");
+function ContentWorkspace() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab = TABS.some((candidate) => candidate.key === requestedTab) ? requestedTab! : "calendar";
   const [items, setItems] = useState<ContentItem[]>([]);
   const [events, setEvents] = useState<CEvent[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -2202,6 +2206,10 @@ export default function ContentPage() {
   }, []);
   useEffect(() => { void loadPosted(); }, [loadPosted]);
   useEffect(() => { void load(); }, [load]);
+
+  const selectTab = useCallback((nextTab: string) => {
+    router.push(nextTab === "calendar" ? "/content" : `/content?tab=${nextTab}`, { scroll: false });
+  }, [router]);
 
   const patchItem = useCallback(async (id: string, patch: Partial<ContentItem>) => {
     const j = await (await fetch("/api/content", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) })).json();
@@ -2257,7 +2265,7 @@ export default function ContentPage() {
           const active = tab === t.key;
           const badge = t.key === "ideas" ? counts.ideas : t.key === "proof" ? counts.proof : t.key === "calendar" ? counts.calendar : t.key === "events" ? counts.events : 0;
           return (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            <button key={t.key} onClick={() => selectTab(t.key)}
               className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${active ? "bg-blue-600/20 border-blue-500/40 text-blue-200" : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"}`}>
               {t.emoji} {t.label}
               {badge > 0 && <span className={`ml-1 ${active ? "text-blue-300" : "text-zinc-600"}`}>{badge}</span>}
@@ -2270,7 +2278,7 @@ export default function ContentPage() {
       <div className="min-w-0">
         {tab === "dashboard" && (
           <div className="space-y-8">
-            <DashboardTab items={items} ideas={ideas} proof={proof} stories={stories} events={events} posted={posted} onGo={setTab} />
+            <DashboardTab items={items} ideas={ideas} proof={proof} stories={stories} events={events} posted={posted} onGo={selectTab} />
             <section id="posted-content" className="border-t border-zinc-800 pt-8 scroll-mt-6">
               <PostedTab posted={posted} onChanged={loadPosted} />
             </section>
@@ -2297,5 +2305,13 @@ export default function ContentPage() {
       {openItem && <ItemDrawer item={openItem} events={events} proof={proof} onClose={() => setOpenId(null)} onPatch={patchItem} onDelete={delItem} />}
       {openEvent && <EventDrawer event={openEvent} onClose={() => setEditEventId(null)} onPatch={patchEvent} />}
     </div>
+  );
+}
+
+export default function ContentPage() {
+  return (
+    <Suspense fallback={<div className="max-w-6xl mx-auto px-4 py-6 text-sm text-zinc-500">Loading content…</div>}>
+      <ContentWorkspace />
+    </Suspense>
   );
 }

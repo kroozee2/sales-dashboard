@@ -22,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/instagram", label: "Instagram", emoji: "📸", section: "Marketing" },
   { href: "/youtube", label: "YouTube", emoji: "▶️", section: "Marketing" },
 
+  { href: "/clients", label: "Clients", emoji: "🫂", section: "Backend" },
   { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Backend" },
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
   { href: "/tasks", label: "Execution", emoji: "⚡", match: ["/projects", "/winning-formula"], section: "Backend" },

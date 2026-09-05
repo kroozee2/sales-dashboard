@@ -8,6 +8,13 @@ function navLine(href) {
   return sidebar.match(new RegExp(`\\{ href: "${href}"[^\\n]+\\}`))?.[0] ?? "";
 }
 
+test("Clients belongs to Backend and /clients is directly active", () => {
+  const clients = navLine("/clients");
+  assert.match(clients, /label: "Clients"/);
+  assert.match(clients, /section: "Backend"/);
+  assert.doesNotMatch(clients, /match:/);
+});
+
 test("Jarvis belongs to Backend instead of Command", () => {
   assert.match(navLine("/jarvis"), /section: "Backend"/);
   assert.doesNotMatch(navLine("/jarvis"), /section: "Command"/);

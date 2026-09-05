@@ -177,7 +177,7 @@ function nullableText(value: unknown, max: number): value is string | null {
   return value === null || text(value, max);
 }
 
-const RFC3339_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+const RFC3339_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function timestamp(value: unknown): value is string {
   if (!text(value, 64)) return false;

@@ -52,6 +52,7 @@ test("Clients workspace declares exactly Dashboard, Members, and Calendar tabs",
 
 test("SalesOS proxy rejects malformed or oversized nested Helm payloads", () => {
   assert.equal(isClientsPayload(payload), true);
+  assert.equal(isClientsPayload({ ...payload, generatedAt: "2026-09-04T16:00:00.123456Z" }), true);
   assert.equal(isClientsPayload({ ...payload, generatedAt: "not-a-date" }), false);
   assert.equal(isClientsPayload({ ...payload, generatedAt: "2026-02-30T00:00:00Z" }), false);
   assert.equal(isClientsPayload({ ...payload, generatedAt: "2026-09-04" }), false);

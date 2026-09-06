@@ -174,7 +174,7 @@ function PipelineView({ calls, onSelectCall }: { calls: SalesCall[]; onSelectCal
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const RESULT_OPTIONS: CallResult[] = ["✅ Sale", "📣 Follow Up", "🔜 Upcoming", "❌ Did Not Close", "👻 No Show"];
+const RESULT_OPTIONS: CallResult[] = ["✅ Sale", "📣 Follow Up", "🔜 Upcoming", "❌ Did Not Close", "👻 No Show", "➖ Other"];
 const TYPE_OPTIONS: CallType[] = ["📞 Sales Call", "🔍 Triage Call", "🤙 Connection Call", "🧑‍💼 Client Call", "🤝 Partnership Call", "🎓 Coaching Call", "🤝 JV Call", "👥 Group Call"];
 const QUALITY_OPTIONS: ProspectQuality[] = ["🔥 High", "👌 Medium", "❄️ Low"];
 const FOLLOW_UP_OPTIONS: FollowUpStatus[] = ["🚀 Rebook", "💳 Payment Link Sent", "📣 Sent Message", "✅ Closed", "❌ Lost"];
@@ -3425,10 +3425,12 @@ export default function CallsPage() {
 
   async function handleSave(updated: Partial<SalesCall>) {
     if (!selected) return;
+    const { id: _id, created_at, updated_at, booked_view_moved_off, booked_view_revision, booked_view_error, ...mutableFields } = updated;
+    void _id; void created_at; void updated_at; void booked_view_moved_off; void booked_view_revision; void booked_view_error;
     const res = await fetch("/api/sales-calls", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: selected.id, ...updated }),
+      body: JSON.stringify({ id: selected.id, ...mutableFields }),
     });
     const data = await res.json();
     if (data.call) {

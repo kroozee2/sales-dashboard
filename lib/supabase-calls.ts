@@ -5,7 +5,7 @@ const key = process.env.NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY!;
 
 export const callsDb = createClient(url, key);
 
-export type CallResult = "✅ Sale" | "📣 Follow Up" | "🔜 Upcoming" | "❌ Did Not Close" | "👻 No Show";
+export type CallResult = "✅ Sale" | "📣 Follow Up" | "🔜 Upcoming" | "❌ Did Not Close" | "👻 No Show" | "➖ Other";
 export type CallType = "📞 Sales Call" | "🔍 Triage Call" | "🤙 Connection Call" | "🧑‍💼 Client Call" | "🤝 Partnership Call" | "🎓 Coaching Call" | "🤝 JV Call" | "👥 Group Call";
 export type ProspectQuality = "🔥 High" | "👌 Medium" | "❄️ Low";
 export type FollowUpStatus = "🚀 Rebook" | "💳 Payment Link Sent" | "📣 Sent Message" | "✅ Closed" | "❌ Lost";
@@ -57,4 +57,7 @@ export interface SalesCall {
   // Meta
   created_at: string;
   updated_at: string;
+  booked_view_moved_off?: boolean;
+  booked_view_revision?: string;
+  booked_view_error?: "invalid_internal_marker";
 }

@@ -31,6 +31,35 @@ function isReelIdeaBoard(meta: unknown) {
   return Boolean(meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>).reel_workflow === "idea_board");
 }
 
+const STRICT_UTC_DATABASE_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|\+00:00)$/;
+
+function canonicalUtcTimestamp(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = STRICT_UTC_DATABASE_TIMESTAMP.exec(value);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second, fraction] = match;
+  const probe = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
+  if (
+    Number.isNaN(probe.getTime()) ||
+    probe.getUTCFullYear() !== Number(year) || probe.getUTCMonth() + 1 !== Number(month) || probe.getUTCDate() !== Number(day) ||
+    probe.getUTCHours() !== Number(hour) || probe.getUTCMinutes() !== Number(minute) || probe.getUTCSeconds() !== Number(second)
+  ) return null;
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}${fraction ? `.${fraction}` : ""}Z`;
+}
+
+function serializeContentItem<T>(item: T): T {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+  const output = { ...(item as Record<string, unknown>) };
+  for (const key of ["created_at", "updated_at"] as const) {
+    if (key in output) {
+      const canonical = canonicalUtcTimestamp(output[key]);
+      if (!canonical) throw new Error(`content item has invalid ${key}`);
+      output[key] = canonical;
+    }
+  }
+  return output as T;
+}
+
 // GET — all content items (+ events for the calendar)
 export async function GET() {
   const db = contentDb();
@@ -41,7 +70,7 @@ export async function GET() {
     db.from("content_proof").select("*").order("created_at", { ascending: false }),
     db.from("content_stories").select("*").order("posted_date", { ascending: false }).order("created_at", { ascending: false }),
   ]);
-  return NextResponse.json({ items: items.data ?? [], events: events.data ?? [], ideas: ideas.data ?? [], proof: proof.data ?? [], stories: stories.data ?? [] });
+  return NextResponse.json({ items: (items.data ?? []).map(serializeContentItem), events: events.data ?? [], ideas: ideas.data ?? [], proof: proof.data ?? [], stories: stories.data ?? [] });
 }
 
 // POST — create item
@@ -67,7 +96,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await contentDb().from("content_items").insert(fields).select().single();
   if (error?.code === "23505") return NextResponse.json({ error: "content item already exists" }, { status: 409 });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ item: data });
+  return NextResponse.json({ item: serializeContentItem(data) });
 }
 
 // PATCH — update item
@@ -80,7 +109,7 @@ export async function PATCH(req: NextRequest) {
   }
   if (typeof body.id !== "string" || !UUID_PATTERN.test(body.id)) return NextResponse.json({ error: "valid id required" }, { status: 400 });
   const expectedUpdatedAt = body.expected_updated_at;
-  if (expectedUpdatedAt !== undefined && (typeof expectedUpdatedAt !== "string" || !expectedUpdatedAt.trim() || Number.isNaN(Date.parse(expectedUpdatedAt)))) {
+  if (expectedUpdatedAt !== undefined && (typeof expectedUpdatedAt !== "string" || canonicalUtcTimestamp(expectedUpdatedAt) !== expectedUpdatedAt)) {
     return NextResponse.json({ error: "invalid expected_updated_at" }, { status: 400 });
   }
   const { id, expected_updated_at: _expectedUpdatedAt, ...requested } = body;
@@ -108,9 +137,10 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Existing Reel idea-board records must use the Instagram Reel Ideas endpoint" }, { status: 409 });
     }
     const storedRevision = typeof current.data.updated_at === "string" ? current.data.updated_at : null;
-    if (!storedRevision || Number.isNaN(Date.parse(storedRevision))) return NextResponse.json({ error: "content item has no valid revision" }, { status: 409 });
-    if (typeof expectedUpdatedAt === "string" && expectedUpdatedAt !== storedRevision) break;
-    const revisionMs = Date.parse(storedRevision);
+    const canonicalStoredRevision = canonicalUtcTimestamp(storedRevision);
+    if (!storedRevision || !canonicalStoredRevision) return NextResponse.json({ error: "content item has no valid revision" }, { status: 409 });
+    if (typeof expectedUpdatedAt === "string" && expectedUpdatedAt !== canonicalStoredRevision) break;
+    const revisionMs = Date.parse(canonicalStoredRevision);
     const nextUpdatedAtMs = Math.max(Date.now(), revisionMs + 1);
     if (!Number.isFinite(nextUpdatedAtMs) || nextUpdatedAtMs > 8_640_000_000_000_000) {
       return NextResponse.json({ error: "invalid expected_updated_at" }, { status: 400 });
@@ -119,7 +149,7 @@ export async function PATCH(req: NextRequest) {
     const update = db.from("content_items").update(fields).eq("id", id).eq("updated_at", storedRevision);
     const { data, error } = await update.select().maybeSingle();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (data) return NextResponse.json({ item: data });
+    if (data) return NextResponse.json({ item: serializeContentItem(data) });
     if (typeof expectedUpdatedAt === "string") break;
   }
   return NextResponse.json({ error: "content item changed; refresh and retry" }, { status: 409 });

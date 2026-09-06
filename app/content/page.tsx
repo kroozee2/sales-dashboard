@@ -10,6 +10,7 @@ import {
 import GraphicsStudio from "@/components/graphics-studio";
 import CompetitorResearch from "@/components/competitor-research";
 import ContentSpreadsheet from "@/components/content-spreadsheet";
+import { publishedSourcesOf } from "@/lib/content-published-sources";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ContentItem {
@@ -241,6 +242,7 @@ function ItemDrawer({ item, events, proof, onClose, onPatch, onDelete }: {
   onPatch: (id: string, patch: Partial<ContentItem>) => Promise<ContentItem | null>; onDelete: (id: string) => void;
 }) {
   const [local, setLocal] = useState<ContentItem>(item);
+  const publishedSources = publishedSourcesOf(local.meta);
   const [busy, setBusy] = useState(false);
   const [showDrafts, setShowDrafts] = useState(() => Object.keys(item.drafts || {}).length > 0);
   const m0 = (item.meta || {}) as Record<string, string>;
@@ -396,6 +398,24 @@ function ItemDrawer({ item, events, proof, onClose, onPatch, onDelete }: {
             </div>
           )}
         </div>
+
+        {publishedSources.length > 0 && (
+          <div className="px-5 py-4 space-y-2 border-b border-zinc-800">
+            <p className="text-zinc-400 text-xs uppercase tracking-wide">🔗 Published links</p>
+            {publishedSources.map((source) => (
+              <a
+                key={`${source.platform}:${source.external_id}`}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm hover:border-zinc-700"
+              >
+                <span className="text-zinc-200">{platformEmoji(source.platform)} {platformLabel(source.platform)}</span>
+                <span className="text-blue-400">Open →</span>
+              </a>
+            ))}
+          </div>
+        )}
 
         {/* Write it — the simple manual fields (headline, hook, details, CTA) */}
         <div className="px-5 py-4 space-y-3 flex-1">

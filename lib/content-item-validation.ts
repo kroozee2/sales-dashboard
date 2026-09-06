@@ -121,7 +121,12 @@ export function sanitizeContentPatch(body: Record<string, unknown>, allowed: Con
 }
 
 export function sanitizeContentCreate(body: Record<string, unknown>, allowed: ContentPatchAllowedValues) {
-  const sanitized = sanitizeContentPatch(body, allowed);
+  const { id, ...patchBody } = body;
+  const sanitized = sanitizeContentPatch(patchBody, allowed);
+  if (id !== undefined) {
+    if (typeof id !== "string" || !UUID_PATTERN.test(id)) throw new Error("id must be a valid UUID");
+    sanitized.fields.id = id;
+  }
   if (sanitized.rejected.length) throw new Error(`unsupported fields: ${sanitized.rejected.join(", ")}`);
   if (typeof sanitized.fields.title !== "string") throw new Error("title is required");
   if (typeof sanitized.fields.category !== "string") throw new Error("category is required");

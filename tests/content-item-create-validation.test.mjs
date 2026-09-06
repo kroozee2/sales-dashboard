@@ -58,3 +58,11 @@ test("all content mutations share the bounded JSON reader and protect Reel workf
   assert.match(source, /Existing Reel idea-board records must use the Instagram Reel Ideas endpoint/);
   assert.match(source, /New Reel idea-board records must use the Instagram Reel Ideas endpoint/);
 });
+
+
+test("content create accepts only a valid optional deterministic UUID", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const valid = sanitizeContentCreate({ id, title: "Imported actual", category: "connection", status: "posted", platforms: ["youtube"] }, allowed);
+  assert.equal(valid.fields.id, id);
+  assert.throws(() => sanitizeContentCreate({ id: "not-a-uuid", title: "Imported actual", category: "connection", status: "posted", platforms: ["youtube"] }, allowed), /id must be a valid UUID/);
+});

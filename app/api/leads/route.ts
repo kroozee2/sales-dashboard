@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
   const source = searchParams.get('source') ?? '';
   // ?hot=1 narrows to the hot list itself, for the sidebar's Hot List view.
   const hotOnly = searchParams.get('hot') === '1';
+  // ?sort=new orders by when the lead arrived, for the New Leads view.
+  const sortNew = searchParams.get('sort') === 'new';
   const summary = searchParams.get('summary') === 'true';
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
   const maxLimit = summary ? 1000 : 500;
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from('leads')
     .select(summary ? 'id,full_name,prospect_stage' : '*', { count: 'exact' })
-    .order('last_update', { ascending: false, nullsFirst: false })
+    .order(sortNew ? 'created_at' : 'last_update', { ascending: false, nullsFirst: false })
     .range(from, from + limit - 1);
 
   if (search) {

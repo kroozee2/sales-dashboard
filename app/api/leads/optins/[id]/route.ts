@@ -45,11 +45,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const existing = await findLead(db, contactId, body.email ?? null);
 
   if (existing) {
-    const { error } = await db.from("leads")
+    const { data, error } = await db.from("leads")
       .update({ prospect_stage: stage, ghl_contact_id: contactId, last_update: new Date().toISOString() })
-      .eq("id", existing.id);
+      .eq("id", existing.id).select("*").single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true, lead_id: existing.id, created: false, stage });
+    return NextResponse.json({ ok: true, lead_id: existing.id, created: false, stage, lead: data });
   }
 
   const name = (body.name ?? "").trim();
@@ -65,9 +65,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     ghl_contact_id: contactId,
     created_at: body.opted_in_at ?? new Date().toISOString(),
     last_update: new Date().toISOString(),
-  }).select("id").single();
+  }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, lead_id: data.id, created: true, stage });
+  return NextResponse.json({ ok: true, lead_id: data.id, created: true, stage, lead: data });
 }
 
 // POST — send this person an SMS or email through GoHighLevel.

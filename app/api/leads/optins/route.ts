@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createLeadsAdminClient } from "@/lib/supabase-leads";
 
 // The opt-in feed behind Leads → New Leads.
 //
@@ -106,5 +107,29 @@ export async function GET(req: NextRequest) {
 
   // Newest opt-in first.
   optins.sort((a, b) => (b.opted_in_at ?? "").localeCompare(a.opted_in_at ?? ""));
-  return NextResponse.json({ optins: optins.slice(0, limit), scanned, skipped_instagram: skippedInstagram });
+  const page = optins.slice(0, limit);
+
+  // Most opt-ins are not leads yet (1 of 25 sampled). Where one already exists,
+  // carry its stage so the grid shows the real pipeline position rather than a
+  // blank that invites setting it twice.
+  try {
+    const db = createLeadsAdminClient();
+    const ids = page.map((o) => o.id);
+    const emails = page.map((o) => o.email).filter((e): e is string => !!e);
+    const [byContact, byEmail] = await Promise.all([
+      db.from("leads").select("id, ghl_contact_id, prospect_stage").in("ghl_contact_id", ids),
+      emails.length ? db.from("leads").select("id, email, prospect_stage").in("email", emails) : Promise.resolve({ data: [] }),
+    ]);
+    const stageByContact = new Map((byContact.data ?? []).map((l) => [l.ghl_contact_id, l]));
+    const stageByEmail = new Map((byEmail.data ?? []).map((l) => [(l.email ?? "").toLowerCase(), l]));
+    for (const o of page) {
+      const match = stageByContact.get(o.id) ?? (o.email ? stageByEmail.get(o.email.toLowerCase()) : undefined);
+      (o as Record<string, unknown>).stage = match?.prospect_stage ?? null;
+      (o as Record<string, unknown>).lead_id = match?.id ?? null;
+    }
+  } catch {
+    // A lookup failure shouldn't cost you the feed; the stage column just stays blank.
+  }
+
+  return NextResponse.json({ optins: page, scanned, skipped_instagram: skippedInstagram });
 }

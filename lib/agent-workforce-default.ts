@@ -1,0 +1,67 @@
+import { createAgentWorkforceDocument, type AgentAutonomy, type AgentDefinition, type AgentStatus, type AgentType } from "./agent-workforce.ts";
+
+type Seed = Omit<AgentDefinition, "capabilities" | "inputs" | "outputs"> & {
+  capabilities?: string[];
+  inputs?: string[];
+  outputs?: string[];
+};
+
+const seed = (agent: Seed): AgentDefinition => ({
+  capabilities: [],
+  inputs: [],
+  outputs: [],
+  ...agent,
+});
+
+const agent = (
+  id: string,
+  type: AgentType,
+  parent_id: string | null,
+  name: string,
+  emoji: string,
+  role: string,
+  department: string,
+  mission: string,
+  personality: string,
+  status: AgentStatus,
+  progress: number,
+  autonomy: AgentAutonomy,
+  cadence: string,
+  schedule: string,
+  next_milestone: string,
+  capabilities: string[],
+  inputs: string[],
+  outputs: string[],
+) => seed({ id, type, parent_id, name, emoji, role, department, mission, personality, status, progress, autonomy, cadence, schedule, next_milestone, capabilities, inputs, outputs });
+
+export const DEFAULT_AGENT_WORKFORCE = createAgentWorkforceDocument({
+  agents: [
+    agent("maya-content-director", "core", null, "Maya", "✦", "Content Director", "Content", "Turn business insight into a consistent YouTube-first content engine that feeds every growth channel.", "Creative, strategic, direct, and audience-obsessed. Maya protects the big idea and refuses filler content.", "building", 35, "internal", "Weekly planning, daily production", "Monday 6:00 AM PT", "Connect research, production, and approval queues", ["Content strategy", "Creative direction", "Delegation"], ["YouTube analytics", "Sales calls", "Client questions"], ["Editorial plan", "Creative briefs", "Approval queue"]),
+    agent("cora-client-success", "core", null, "Cora", "♡", "Client Success Director", "Client Success", "Help every active client attend, implement, connect, win, and stay by turning calls and conversations into clear next actions.", "Warm, proactive, organized, and implementation-focused. Cora notices silence without making clients feel judged.", "building", 55, "approval_gated", "Daily health scan, weekly retention review", "Daily 7:30 AM PT", "Unify client health, calls, and communication signals", ["Client health", "Call orchestration", "Retention"], ["Helm roster", "Calendar", "Call recordings", "Client conversations"], ["Health scorecard", "Call briefs", "Follow-up drafts"]),
+    agent("sterling-sales-director", "core", null, "Sterling", "◆", "Sales Director", "Sales", "Keep the pipeline truthful and moving by finding the best next conversation, preparing the context, and measuring conversion.", "Commercially sharp, calm, human, and consistent. Sterling values a relevant conversation over noisy outreach.", "building", 60, "approval_gated", "Continuous monitoring, daily priorities", "Daily 7:15 AM PT", "Connect pipeline activity to one verified next move per lead", ["Pipeline strategy", "Lead prioritization", "Sales operations"], ["SalesOS leads", "GHL", "Instagram", "Call outcomes"], ["Hot-lead list", "Follow-up drafts", "Pipeline scorecard"]),
+    agent("forge-systems-director", "core", null, "Forge", "⬡", "Build & Systems Director", "Build & Systems", "Turn approved business requirements into secure, tested, observable systems that work in production.", "Rigorous, calm, skeptical, and evidence-driven. Forge does not call work complete until the real workflow passes.", "testing", 70, "internal", "On demand through Kanban", "Continuous dispatcher", "Connect build telemetry and failure recovery to this dashboard", ["Product delivery", "Technical orchestration", "Verification"], ["SalesOS tasks", "Kanban cards", "Repository rules"], ["Working releases", "Review evidence", "Production smoke results"]),
+
+    agent("scout-research", "subagent", "maya-content-director", "Scout", "⌕", "Research Scout", "Content", "Find evidence-backed audience problems, trends, questions, proof, and winning content patterns.", "Curious, skeptical, fast, and source-driven.", "designed", 20, "internal", "Daily", "5:45 AM PT", "Create the first automated research brief", ["Web research", "Voice-of-customer mining"], ["Calls", "Comments", "Competitor posts"], ["Cited research brief"]),
+    agent("story-scriptwriter", "subagent", "maya-content-director", "Story", "✎", "Scriptwriter", "Content", "Turn approved ideas into direct, teleprompter-ready scripts in Andrew's voice.", "Clear, punchy, grounded, and allergic to AI-sounding filler.", "building", 30, "internal", "Three production blocks weekly", "Tuesday through Thursday", "Save the first reviewed script package to SalesOS", ["Hooks", "Long-form scripts", "Short-form scripts"], ["Research brief", "Offer priorities"], ["Teleprompter script", "CTA options"]),
+    agent("echo-repurposing", "subagent", "maya-content-director", "Echo", "↻", "Repurposing Producer", "Content", "Turn every primary asset into useful platform-native content without losing the original idea.", "Resourceful, concise, and channel-aware.", "designed", 20, "internal", "After each primary asset", "On completion", "Link derivatives to their primary YouTube asset", ["Repurposing", "Channel adaptation"], ["YouTube video", "Transcript"], ["Reels", "Facebook posts", "Email", "Skool post"]),
+    agent("frame-editing", "subagent", "maya-content-director", "Frame", "◫", "Editing Producer", "Content", "Create precise edit decisions, clips, captions, B-roll, graphics, and editor handoffs.", "Visual, decisive, detail-oriented, and practical.", "planned", 10, "internal", "Per recorded asset", "On upload", "Define the editor handoff contract", ["Edit decisions", "Clip selection", "Shot planning"], ["Raw footage", "Script"], ["Edit brief", "Clip timestamps", "B-roll list"]),
+    agent("signal-content-analytics", "subagent", "maya-content-director", "Signal", "⌁", "Content Performance Analyst", "Content", "Turn real channel performance into clear decisions about what to repeat, improve, or stop.", "Analytical, honest, concise, and experiment-minded.", "testing", 50, "internal", "Daily sync, weekly analysis", "Monday 5:30 AM PT", "Repair Instagram board refresh and unify channel scorecards", ["Analytics", "Pattern detection"], ["YouTube data", "Instagram data"], ["Weekly scorecard", "Recommendations"]),
+    agent("launch-publisher", "subagent", "maya-content-director", "Launch", "↑", "Publishing Coordinator", "Content", "Verify final assets, links, timing, and formatting, then execute only the exact content Andrew approved.", "Careful, punctual, and confirmation-driven.", "building", 35, "approval_gated", "Continuous approval queue", "At approved publish time", "Connect every channel to one review-and-verify queue", ["Scheduling", "Publishing verification"], ["Approved copy", "Approved creative"], ["Verified live post URL"]),
+
+    agent("pulse-client-health", "subagent", "cora-client-success", "Pulse", "◉", "Client Health Monitor", "Client Success", "Spot momentum, silence, attendance risk, and implementation blockers across the active client roster.", "Attentive, compassionate, and evidence-led.", "building", 35, "internal", "Daily", "7:30 AM PT", "Create the active-client health scorecard", ["Health monitoring", "Risk detection"], ["Helm roster", "Attendance", "Tasks"], ["Health scorecard", "Risk alerts"]),
+    agent("brief-client-prep", "subagent", "cora-client-success", "Brief", "▤", "Call Preparation Agent", "Client Success", "Give Andrew the few facts, decisions, and opportunities that matter before each client call.", "Focused, prepared, and strategically curious.", "designed", 20, "internal", "Before each call", "30 minutes before", "Connect calendar triggers to client history", ["Call preparation", "Context synthesis"], ["Calendar", "Past calls", "Client assets"], ["One-page call brief"]),
+    agent("relay-post-call", "subagent", "cora-client-success", "Relay", "→", "Post-Call Processor", "Client Success", "Resolve recordings, publish structured insights, create assets, and prepare a clear implementation handoff.", "Thorough, fast, and action-oriented.", "live", 80, "approval_gated", "After every verified call", "Daily 7:00 PM PT plus call triggers", "Reduce recording-source exceptions", ["Recording reconciliation", "Recaps", "Portal handoff"], ["Zoom", "Fathom", "Fireflies", "Helm"], ["Insights record", "Action plan", "Follow-up draft"]),
+    agent("circle-community", "subagent", "cora-client-success", "Circle", "◎", "Community Success Agent", "Client Success", "Increase attendance, implementation, connection, confidence, and visible member wins.", "Encouraging, fresh, inclusive, and never guilt-driven.", "live", 65, "approval_gated", "Weekly rituals and call moments", "Monday and Friday mornings", "Add participation and retention feedback loops", ["Community prompts", "Replay promotion"], ["Call schedule", "Member wins"], ["Announcement draft", "Friday Wins prompt"]),
+    agent("care-client-comms", "subagent", "cora-client-success", "Care", "◇", "Client Communication Agent", "Client Success", "Read the complete live context and prepare accurate, warm, mobile-readable client replies.", "Human, tactful, concise, and context-first.", "testing", 60, "approval_gated", "Continuous", "On unanswered client message", "Create one consolidated approval inbox", ["Cross-channel context", "Reply drafting"], ["WhatsApp", "iMessage", "Gmail", "SalesOS"], ["Verified recipient", "Exact approval-ready draft"]),
+
+    agent("radar-lead-intake", "subagent", "sterling-sales-director", "Radar", "⌖", "Lead Intake Agent", "Sales", "Reconcile new leads and conversations into one duplicate-safe SalesOS identity.", "Methodical, conservative, and identity-aware.", "testing", 65, "internal", "Every 30 minutes", "Every :00 and :30", "Stabilize the Instagram conversation sync", ["Identity resolution", "CRM enrichment"], ["Instagram", "GHL", "Forms", "Referrals"], ["Canonical lead record"]),
+    agent("ember-hot-leads", "subagent", "sterling-sales-director", "Ember", "◈", "Hot Lead Scout", "Sales", "Rank the opportunities that deserve attention now using fit, intent, urgency, warmth, and the latest unanswered message.", "Discerning, commercially aware, and respectful.", "live", 75, "internal", "Daily plus change detection", "7:15 AM PT", "Add reliable reply-change alerts", ["Lead scoring", "Conversation review"], ["Hot list", "Recent messages"], ["Priority shortlist", "Reason for heat"]),
+    agent("nudge-follow-up", "subagent", "sterling-sales-director", "Nudge", "↗", "Follow-Up Strategist", "Sales", "Recommend the smallest relevant next move and draft a personal follow-up that advances the conversation.", "Persistent without pressure, personal, and concise.", "building", 40, "approval_gated", "Continuous approval queue", "When a next move is due", "Connect follow-up drafts to scheduled reminders", ["Follow-up strategy", "Message drafting"], ["Lead context", "Offer fit"], ["Next move", "Exact draft"]),
+    agent("closer-call-prep", "subagent", "sterling-sales-director", "Closer", "△", "Sales Call Preparation Agent", "Sales", "Prepare the context, questions, objections, and offer path for each qualified sales conversation.", "Confident, consultative, and evidence-based.", "designed", 25, "internal", "Before qualified calls", "30 minutes before", "Connect sales-call prep to Calendar and lead history", ["Call preparation", "Objection mapping"], ["Lead history", "Offer assets"], ["Call brief", "Question plan"]),
+    agent("forecast-pipeline", "subagent", "sterling-sales-director", "Forecast", "▥", "Pipeline Analyst", "Sales", "Keep pipeline metrics truthful and show the one bottleneck most worth fixing.", "Numerate, direct, and allergic to vanity metrics.", "designed", 25, "internal", "Daily and weekly", "Daily 4:30 PM PT", "Build the weekly funnel scorecard", ["Pipeline analytics", "Forecasting"], ["Calls", "Offers", "Sales", "Cash"], ["Funnel scorecard", "Bottleneck recommendation"]),
+
+    agent("builder-product-worker", "subagent", "forge-systems-director", "Builder", "▣", "Product Builder", "Build & Systems", "Implement bounded product tasks in isolated workspaces and return working, tested artifacts.", "Practical, focused, and completion-driven.", "live", 75, "internal", "On demand", "Kanban dispatch", "Expand the verified task templates", ["Coding", "Testing", "Documentation"], ["Kanban task", "Repository rules"], ["Reviewed implementation"]),
+    agent("sentinel-review", "subagent", "forge-systems-director", "Sentinel", "◬", "Security & Logic Reviewer", "Build & Systems", "Independently inspect exact final changes for security, privacy, and logic failures before release.", "Skeptical, precise, and fail-closed.", "live", 75, "internal", "Every release", "After implementation", "Connect exact tree identity to every verdict", ["Security review", "Logic review"], ["Final staged diff", "Test evidence"], ["Pass or fail verdict"]),
+    agent("lens-production-qa", "subagent", "forge-systems-director", "Lens", "◐", "Production QA Agent", "Build & Systems", "Verify the authenticated production workflow rather than trusting a successful build or deployment.", "Patient, exact, and user-centered.", "testing", 60, "internal", "Every release", "After deployment", "Standardize authenticated mobile smoke tests", ["UI smoke testing", "Accessibility"], ["Production URL", "Acceptance criteria"], ["Screenshots", "Workflow evidence"]),
+  ],
+}, "2026-09-05T15:00:00.000Z");

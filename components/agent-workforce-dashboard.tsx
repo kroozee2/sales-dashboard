@@ -1,0 +1,613 @@
+'use client';
+
+import { FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
+import { Activity, Bot, ChevronRight, Clock3, Pencil, Plus, Search, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
+import { agentWorkforceDraftKey, parseAgentWorkforceDraft, persistAgentWorkforceDraft, reconcileAgentWorkforceDraft } from '@/lib/agent-workforce-draft';
+import {
+  AGENT_AUTONOMY,
+  AGENT_STATUSES,
+  isAgentEditorDirty,
+  shouldCloseAgentEditor,
+  slugifyAgentId,
+  uniqueAgentId,
+  type AgentAutonomy,
+  type AgentDefinition,
+  type AgentStatus,
+  type AgentType,
+  type AgentWorkforceDocument,
+} from '@/lib/agent-workforce';
+
+type WorkforceView = 'core' | 'subagent';
+type FormAgent = Omit<AgentDefinition, 'capabilities' | 'inputs' | 'outputs'> & {
+  capabilities_text: string;
+  inputs_text: string;
+  outputs_text: string;
+};
+
+const STATUS_LABEL: Record<AgentStatus, string> = {
+  planned: 'Planned',
+  designed: 'Designed',
+  building: 'Building',
+  testing: 'Testing',
+  live: 'Released',
+  paused: 'Paused',
+};
+
+const STATUS_STYLE: Record<AgentStatus, string> = {
+  planned: 'border-zinc-700 bg-zinc-800/60 text-zinc-300',
+  designed: 'border-violet-500/25 bg-violet-500/10 text-violet-300',
+  building: 'border-blue-500/25 bg-blue-500/10 text-blue-300',
+  testing: 'border-amber-500/25 bg-amber-500/10 text-amber-300',
+  live: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300',
+  paused: 'border-rose-500/25 bg-rose-500/10 text-rose-300',
+};
+
+const AUTONOMY_LABEL: Record<AgentAutonomy, string> = {
+  draft_only: 'Draft only',
+  internal: 'Autonomous internally',
+  approval_gated: 'Approval required',
+};
+
+function listToText(items: string[]) { return items.join('\n'); }
+function textToList(value: string) {
+  return value.split(/\n|,/).map((item) => item.trim()).filter(Boolean);
+}
+
+function toForm(agent: AgentDefinition): FormAgent {
+  return {
+    ...agent,
+    capabilities_text: listToText(agent.capabilities),
+    inputs_text: listToText(agent.inputs),
+    outputs_text: listToText(agent.outputs),
+  };
+}
+
+function newAgent(type: AgentType, parent?: AgentDefinition): FormAgent {
+  return {
+    id: `agent-${crypto.randomUUID()}`,
+    type,
+    parent_id: type === 'subagent' ? parent?.id ?? '' : null,
+    name: '',
+    emoji: type === 'core' ? '✦' : '◇',
+    role: '',
+    department: parent?.department ?? '',
+    mission: '',
+    personality: '',
+    status: 'planned',
+    progress: 0,
+    autonomy: 'internal',
+    cadence: '',
+    schedule: '',
+    next_milestone: '',
+    capabilities_text: '',
+    inputs_text: '',
+    outputs_text: '',
+  };
+}
+
+function formAgentToDefinition(form: FormAgent): AgentDefinition {
+  return { id: form.id, type: form.type, parent_id: form.type === 'core' ? null : form.parent_id, name: form.name.trim(), emoji: form.emoji.trim(), role: form.role.trim(), department: form.department.trim(), mission: form.mission.trim(), personality: form.personality.trim(), status: form.status, progress: form.progress, autonomy: form.autonomy, cadence: form.cadence.trim(), schedule: form.schedule.trim(), capabilities: textToList(form.capabilities_text), inputs: textToList(form.inputs_text), outputs: textToList(form.outputs_text), next_milestone: form.next_milestone.trim() };
+}
+
+function sameAgentDefinition(left: AgentDefinition, right: AgentDefinition) {
+  return (Object.keys(left) as (keyof AgentDefinition)[]).every((key) => JSON.stringify(left[key]) === JSON.stringify(right[key]));
+}
+
+function statusDot(status: AgentStatus) {
+  if (status === 'live') return 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,.75)]';
+  if (status === 'building' || status === 'testing') return 'bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,.55)]';
+  if (status === 'paused') return 'bg-rose-400';
+  return 'bg-zinc-500';
+}
+
+const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#090a0d]';
+
+function useDialogLifecycle(containerRef: RefObject<HTMLElement | null>, requestClose: () => void, initialFocusRef?: RefObject<HTMLElement | null>, returnFocusRef?: RefObject<HTMLElement | null>, fallbackFocusRef?: RefObject<HTMLElement | null>) {
+  const closeRef = useRef(requestClose);
+  useEffect(() => { closeRef.current = requestClose; }, [requestClose]);
+
+  useEffect(() => {
+    const previousFocus = returnFocusRef?.current ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const fallbackFocus = fallbackFocusRef?.current ?? null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const dialog = containerRef.current instanceof HTMLDialogElement ? containerRef.current : null;
+    if (dialog && !dialog.open) dialog.showModal();
+    const focusFirst = () => {
+      const first = initialFocusRef?.current ?? containerRef.current?.querySelector<HTMLElement>('button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])');
+      first?.focus();
+    };
+    const frame = window.requestAnimationFrame(focusFirst);
+
+    const onFocusIn = (event: FocusEvent) => {
+      if (containerRef.current && event.target instanceof Node && !containerRef.current.contains(event.target)) focusFirst();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== 'Tab' || !containerRef.current) return;
+      const focusable = Array.from(containerRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])')).filter((element) => !element.hasAttribute('hidden'));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('keydown', onKeyDown);
+      if (dialog?.open) dialog.close();
+      document.body.style.overflow = previousOverflow;
+      const previousIsUsable = previousFocus?.isConnected && previousFocus !== document.body && !previousFocus.matches('[disabled], [hidden], [inert]');
+      (previousIsUsable ? previousFocus : fallbackFocus)?.focus();
+    };
+  }, [containerRef, fallbackFocusRef, initialFocusRef, returnFocusRef]);
+}
+
+function AgentCard({ agent, childCount, parentName, onEdit, onOpen }: { agent: AgentDefinition; childCount?: number; parentName?: string; onEdit: (opener: HTMLButtonElement) => void; onOpen: (opener: HTMLButtonElement) => void }) {
+  return (
+    <article className="group rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-blue-400/20 hover:bg-white/[0.04] sm:p-5">
+      <div className="flex items-start gap-4">
+        <button onClick={(event) => onOpen(event.currentTarget)} className={`${FOCUS_RING} grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-white/10 bg-gradient-to-br from-blue-500/20 to-violet-500/10 overflow-hidden whitespace-nowrap text-ellipsis text-2xl leading-none shadow-inner`} aria-label={`Open ${agent.name}`}>
+          <span aria-hidden="true">{agent.emoji}</span>
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <button onClick={(event) => onOpen(event.currentTarget)} className={`${FOCUS_RING} min-h-11 min-w-0 max-w-full flex-1 rounded-lg text-left`}>
+              <div className="flex min-w-0 items-center gap-2">
+                <h3 className="truncate text-base font-semibold text-zinc-100">{agent.name}</h3>
+                <span className={`h-1.5 w-1.5 rounded-full ${statusDot(agent.status)}`} />
+              </div>
+              <p className="mt-0.5 max-w-full break-words text-xs text-zinc-400 [overflow-wrap:anywhere]">{agent.role}</p>
+            </button>
+            <button onClick={(event) => onEdit(event.currentTarget)} className={`${FOCUS_RING} grid min-h-11 min-w-11 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] p-2 text-zinc-400 transition hover:text-white`} aria-label={`Edit agent ${agent.name}`}>
+              <Pencil size={14} />
+            </button>
+          </div>
+          <p className="mt-3 line-clamp-2 break-words text-sm leading-6 text-zinc-400 [overflow-wrap:anywhere]">{agent.mission}</p>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <div className="mb-2 flex items-center justify-between text-[11px]">
+          <span className="font-medium text-zinc-400">Blueprint progress</span>
+          <span className="font-mono text-zinc-300">{agent.progress}%</span>
+        </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+          <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-violet-400 transition-all" style={{ width: `${agent.progress}%` }} />
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className={`rounded-full border px-2.5 py-1 text-[10px] font-medium ${STATUS_STYLE[agent.status]}`}>{STATUS_LABEL[agent.status]}</span>
+        <span className="rounded-full border border-white/[0.07] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400">{AUTONOMY_LABEL[agent.autonomy]}</span>
+        {typeof childCount === 'number' && <span className="rounded-full border border-white/[0.07] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400">{childCount} sub-agents</span>}
+        {parentName && <span className="max-w-full break-words rounded-2xl border border-blue-400/15 bg-blue-400/[0.06] px-2.5 py-1 text-[10px] text-blue-300/80 [overflow-wrap:anywhere]">Reports to {parentName}</span>}
+      </div>
+
+      <button onClick={(event) => onOpen(event.currentTarget)} className={`${FOCUS_RING} mt-4 flex min-h-11 w-full items-center justify-between border-t border-white/[0.06] pt-4 text-xs text-zinc-400 transition group-hover:text-zinc-300`}>
+        <span className="truncate pr-3">Next: {agent.next_milestone || 'Define the next milestone'}</span>
+        <ChevronRight size={14} className="shrink-0" />
+      </button>
+    </article>
+  );
+}
+
+function DetailPanel({ agent, teamMembers, returnFocusRef, fallbackFocusRef, onClose, onEdit }: { agent: AgentDefinition; teamMembers: AgentDefinition[]; returnFocusRef: RefObject<HTMLElement | null>; fallbackFocusRef: RefObject<HTMLElement | null>; onClose: () => void; onEdit: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  useDialogLifecycle(dialogRef, onClose, closeButtonRef, returnFocusRef, fallbackFocusRef);
+  return (
+    <dialog ref={dialogRef} aria-labelledby="agent-detail-title" onCancel={(event) => { event.preventDefault(); onClose(); }} className="fixed inset-0 z-[80] m-0 h-[100dvh] max-h-none w-full max-w-none border-0 bg-black/70 p-0 text-left backdrop-blur-sm">
+      <div className="flex h-full justify-end" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+      <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-[#0c0d10] pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] pt-[max(1.25rem,env(safe-area-inset-top))] shadow-2xl sm:pb-[max(1.75rem,env(safe-area-inset-bottom))] sm:pl-[max(1.75rem,env(safe-area-inset-left))] sm:pr-[max(1.75rem,env(safe-area-inset-right))] sm:pt-[max(1.75rem,env(safe-area-inset-top))]">
+        <div className="sticky top-0 z-10 -mx-2 flex items-start justify-between gap-4 bg-[#0c0d10]/95 px-2 pb-3 backdrop-blur">
+          <div className="flex min-w-0 items-center gap-4">
+            <div aria-hidden="true" className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden whitespace-nowrap text-ellipsis rounded-2xl border border-blue-400/20 bg-gradient-to-br from-blue-500/20 to-violet-500/10 text-3xl leading-none">{agent.emoji}</div>
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-start gap-2"><h2 id="agent-detail-title" className="min-w-0 break-words text-2xl font-semibold tracking-tight text-white [overflow-wrap:anywhere]">{agent.name}</h2><span className={`mt-3 h-2 w-2 shrink-0 rounded-full ${statusDot(agent.status)}`} /></div>
+              <p className="mt-1 break-words text-sm text-zinc-400 [overflow-wrap:anywhere]">{agent.role} · {agent.department}</p>
+            </div>
+          </div>
+          <button ref={closeButtonRef} autoFocus onClick={onClose} className={`${FOCUS_RING} grid min-h-11 min-w-11 shrink-0 place-items-center rounded-xl border border-white/10 p-2.5 text-zinc-400 hover:text-white`} aria-label="Close agent details"><X size={18} /></button>
+        </div>
+
+        <div className="mt-8 grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4"><p className="text-[10px] uppercase tracking-[0.18em] text-zinc-400">Blueprint status</p><p className="mt-2 text-sm text-zinc-200">{STATUS_LABEL[agent.status]} · {agent.progress}%</p></div>
+          <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4"><p className="text-[10px] uppercase tracking-[0.18em] text-zinc-400">Autonomy</p><p className="mt-2 text-sm text-zinc-200">{AUTONOMY_LABEL[agent.autonomy]}</p></div>
+        </div>
+
+        <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Mission</h3><p className="mt-3 min-w-0 break-words text-sm leading-7 text-zinc-300 [overflow-wrap:anywhere]">{agent.mission}</p></section>
+        <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Personality</h3><p className="mt-3 min-w-0 break-words rounded-xl border border-violet-400/10 bg-violet-400/[0.045] p-4 text-sm leading-7 text-zinc-300 [overflow-wrap:anywhere]">{agent.personality}</p></section>
+
+        <div className="mt-7 grid gap-5 sm:grid-cols-2">
+          <section className="min-w-0"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Schedule</h3><p className="mt-2 break-words text-sm text-zinc-300 [overflow-wrap:anywhere]">{agent.schedule || 'On demand'}</p><p className="mt-1 break-words text-xs text-zinc-400 [overflow-wrap:anywhere]">{agent.cadence || 'Cadence not set'}</p></section>
+          <section className="min-w-0"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Next milestone</h3><p className="mt-2 break-words text-sm leading-6 text-zinc-300 [overflow-wrap:anywhere]">{agent.next_milestone || 'Not defined'}</p></section>
+        </div>
+
+        {[['Capabilities', agent.capabilities], ['Inputs', agent.inputs], ['Outputs', agent.outputs]].map(([label, items]) => (
+          <section key={String(label)} className="mt-7">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">{label}</h3>
+            <div className="mt-3 flex flex-wrap gap-2">{(items as string[]).length ? (items as string[]).map((item) => <span key={item} className="max-w-full break-words rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-300 [overflow-wrap:anywhere]">{item}</span>) : <span className="text-sm text-zinc-400">None defined</span>}</div>
+          </section>
+        ))}
+
+        {agent.type === 'core' && (
+          <section className="mt-8"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Team</h3><div className="mt-3 space-y-2">{teamMembers.map((child) => <div key={child.id} className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] p-3"><span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden whitespace-nowrap text-ellipsis text-lg leading-none">{child.emoji}</span><div className="min-w-0"><p className="break-words text-sm text-zinc-200 [overflow-wrap:anywhere]">{child.name}</p><p className="break-words text-xs text-zinc-400 [overflow-wrap:anywhere]">{child.role}</p></div><span className="ml-auto font-mono text-[10px] text-zinc-400">{child.progress}%</span></div>)}</div></section>
+        )}
+
+        <button onClick={onEdit} className={`${FOCUS_RING} mt-8 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-blue-500`}><Pencil size={15} /> Edit agent</button>
+      </aside>
+      </div>
+    </dialog>
+  );
+}
+
+function AgentEditor({ form, coreAgents, saving, cleanupPending, error, initiallyDirty, creating, recoveryOnly, returnFocusRef, fallbackFocusRef, onChange, onClose, onSubmit }: { form: FormAgent; coreAgents: AgentDefinition[]; saving: boolean; cleanupPending: boolean; error: string; initiallyDirty: boolean; creating: boolean; recoveryOnly: boolean; returnFocusRef: RefObject<HTMLElement | null>; fallbackFocusRef: RefObject<HTMLElement | null>; onChange: (next: FormAgent) => void; onClose: () => void; onSubmit: (event: FormEvent) => void }) {
+  const [initialForm] = useState(() => JSON.stringify(form));
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const alertRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const isDirty = isAgentEditorDirty(initialForm, JSON.stringify(form), initiallyDirty);
+  const editorLocked = saving || cleanupPending;
+  const requestClose = () => {
+    if (editorLocked) return;
+    const discardConfirmed = !isDirty || window.confirm('Discard your unsaved agent changes?');
+    if (shouldCloseAgentEditor(false, isDirty, discardConfirmed)) onClose();
+  };
+  useDialogLifecycle(dialogRef, requestClose, nameInputRef, returnFocusRef, fallbackFocusRef);
+  useEffect(() => { if (error) alertRef.current?.focus(); }, [error]);
+  const navigationStateRef = useRef({ isDirty, saving: editorLocked, onClose });
+  const historyGuardId = `agent-editor-${useId()}`;
+  const historyGuardGenerationRef = useRef(0);
+  useEffect(() => { navigationStateRef.current = { isDirty, saving: editorLocked, onClose }; }, [editorLocked, isDirty, onClose]);
+  useEffect(() => {
+    const guardId = historyGuardId;
+    const guardGeneration = historyGuardGenerationRef;
+    const generation = ++guardGeneration.current;
+    if (window.history.state?.agentEditorGuard !== guardId) {
+      window.history.pushState({ ...window.history.state, agentEditorGuard: guardId }, '');
+    }
+    const discardMessage = 'Discard your unsaved agent changes?';
+    const leaveMessage = 'Leave this page? Your unsaved agent draft will be kept in this tab.';
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      const state = navigationStateRef.current;
+      if (!state.isDirty && !state.saving) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const onDocumentClick = (event: MouseEvent) => {
+      const state = navigationStateRef.current;
+      const target = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null;
+      if (!target || (!state.isDirty && !state.saving)) return;
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || target.hasAttribute('download') || (target.target && target.target.toLowerCase() !== '_self')) return;
+      const destination = new URL(target.href, window.location.href);
+      const current = window.location;
+      if (destination.origin === current.origin && destination.pathname === current.pathname && destination.search === current.search) return;
+      if (state.saving || !window.confirm(leaveMessage)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    const onPopState = (event: PopStateEvent) => {
+      if (event.state?.agentEditorGuard === guardId) return;
+      const state = navigationStateRef.current;
+      if (state.saving || (state.isDirty && !window.confirm(discardMessage))) {
+        window.history.forward();
+        return;
+      }
+      state.onClose();
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('popstate', onPopState);
+    document.addEventListener('click', onDocumentClick, true);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('popstate', onPopState);
+      document.removeEventListener('click', onDocumentClick, true);
+      queueMicrotask(() => {
+        if (guardGeneration.current !== generation) return;
+        if (window.history.state?.agentEditorGuard === guardId) window.history.back();
+      });
+    };
+  }, [historyGuardId]);
+
+  const field = (key: keyof FormAgent, value: string | number | null) => onChange({ ...form, [key]: value });
+  const inputClass = `mt-1.5 min-h-11 w-full rounded-lg border border-zinc-500 bg-[#18181b] px-3 py-2.5 text-base text-zinc-100 transition placeholder:text-zinc-400 sm:text-sm focus:border-blue-400/50 ${FOCUS_RING}`;
+  const labelClass = 'text-[11px] font-medium text-zinc-400';
+  return (
+    <dialog ref={dialogRef} aria-labelledby="agent-editor-title" onCancel={(event) => { event.preventDefault(); requestClose(); }} className="fixed inset-0 z-[90] m-0 h-[100dvh] max-h-none w-full max-w-none overflow-y-auto border-0 bg-black/75 p-0 text-left backdrop-blur-sm">
+      <div className="flex min-h-full items-start justify-center pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:items-center">
+      <form onSubmit={onSubmit} style={{ maxHeight: 'calc(100dvh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))' }} className="flex w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#101115] shadow-2xl">
+        <header className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4 sm:px-6"><div><h2 id="agent-editor-title" className="text-lg font-semibold text-white">{creating ? 'Create agent' : 'Edit agent'}</h2><p className="mt-1 text-xs text-zinc-400">Define the role, operating boundaries, and build plan.</p></div><button type="button" onClick={requestClose} disabled={editorLocked} className={`${FOCUS_RING} grid min-h-11 min-w-11 place-items-center rounded-lg p-2 text-zinc-400 hover:bg-white/5 hover:text-white`} aria-label="Close agent editor"><X size={18} /></button></header>
+        <fieldset disabled={editorLocked} className="contents">
+        <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 sm:grid-cols-2 sm:p-6">
+          <label className={labelClass}>Name<input ref={nameInputRef} autoFocus required maxLength={80} value={form.name} onChange={(e) => field('name', e.target.value)} className={inputClass} placeholder="Maya" /></label>
+          <label className={labelClass}>Role<input required maxLength={120} value={form.role} onChange={(e) => field('role', e.target.value)} className={inputClass} placeholder="Content Director" /></label>
+          <label className={labelClass}>Icon or emoji<input required maxLength={8} value={form.emoji} onChange={(e) => field('emoji', e.target.value)} className={inputClass} /></label>
+          <label className={labelClass}>Department<input required maxLength={100} value={form.department} onChange={(e) => field('department', e.target.value)} className={inputClass} placeholder="Content" /></label>
+          {form.type === 'subagent' && <label className={`${labelClass} sm:col-span-2`}>Reports to<select required value={form.parent_id ?? ''} onChange={(e) => { const parent = coreAgents.find((item) => item.id === e.target.value); onChange({ ...form, parent_id: e.target.value, department: parent?.department ?? form.department }); }} className={inputClass}><option value="">Choose a core agent</option>{coreAgents.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.role}</option>)}</select></label>}
+          <label className={`${labelClass} sm:col-span-2`}>Mission<textarea required maxLength={1200} rows={3} value={form.mission} onChange={(e) => field('mission', e.target.value)} className={inputClass} placeholder="What outcome is this agent responsible for?" /></label>
+          <label className={`${labelClass} sm:col-span-2`}>Personality<textarea required maxLength={600} rows={2} value={form.personality} onChange={(e) => field('personality', e.target.value)} className={inputClass} placeholder="How should this agent think, communicate, and make decisions?" /></label>
+          <label className={labelClass}>Build status<select value={form.status} onChange={(e) => field('status', e.target.value as AgentStatus)} className={inputClass}>{AGENT_STATUSES.map((status) => <option key={status} value={status}>{STATUS_LABEL[status]}</option>)}</select></label>
+          <label className={labelClass}>Autonomy<select value={form.autonomy} onChange={(e) => field('autonomy', e.target.value as AgentAutonomy)} className={inputClass}>{AGENT_AUTONOMY.map((value) => <option key={value} value={value}>{AUTONOMY_LABEL[value]}</option>)}</select></label>
+          <label className={`${labelClass} sm:col-span-2`}>Build progress · {form.progress}%<input type="range" min="0" max="100" step="5" value={form.progress} onChange={(e) => field('progress', Number(e.target.value))} className={`mt-3 h-11 w-full accent-blue-500 ${FOCUS_RING}`} /></label>
+          <label className={labelClass}>Cadence<input maxLength={200} value={form.cadence} onChange={(e) => field('cadence', e.target.value)} className={inputClass} placeholder="Daily, weekly, or on demand" /></label>
+          <label className={labelClass}>Schedule<input maxLength={200} value={form.schedule} onChange={(e) => field('schedule', e.target.value)} className={inputClass} placeholder="Monday 6:00 AM PT" /></label>
+          <label className={`${labelClass} sm:col-span-2`}>Next milestone<input maxLength={300} value={form.next_milestone} onChange={(e) => field('next_milestone', e.target.value)} className={inputClass} placeholder="What must be built next?" /></label>
+          <label className={labelClass}>Capabilities<textarea rows={4} maxLength={4000} value={form.capabilities_text} onChange={(e) => field('capabilities_text', e.target.value)} className={inputClass} placeholder={'One per line\nResearch\nStrategy'} /></label>
+          <label className={labelClass}>Inputs<textarea rows={4} maxLength={4000} value={form.inputs_text} onChange={(e) => field('inputs_text', e.target.value)} className={inputClass} placeholder={'One per line\nSales calls\nAnalytics'} /></label>
+          <label className={`${labelClass} sm:col-span-2`}>Outputs<textarea rows={3} maxLength={4000} value={form.outputs_text} onChange={(e) => field('outputs_text', e.target.value)} className={inputClass} placeholder={'One per line\nResearch brief\nApproval-ready draft'} /></label>
+        </div>
+        </fieldset>
+        {error && <div ref={alertRef} role="alert" tabIndex={-1} className="mx-5 mt-4 max-w-full break-words rounded-xl [overflow-wrap:anywhere] border border-rose-400/25 bg-rose-400/[0.08] px-4 py-3 text-sm text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 sm:mx-6">{error}</div>}
+        <footer className="flex flex-col-reverse gap-3 border-t border-white/[0.07] bg-black/15 px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 sm:flex-row sm:items-center sm:justify-end sm:px-6"><button type="button" onClick={requestClose} disabled={editorLocked} className={`${FOCUS_RING} min-h-11 rounded-lg border border-white/10 px-4 py-2 text-sm text-zinc-400 hover:text-white`}>Cancel</button><button type="submit" disabled={saving || recoveryOnly} className={`${FOCUS_RING} min-h-11 rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50`}>{recoveryOnly ? 'Recovery only' : cleanupPending ? 'Retry cleanup' : saving ? 'Saving…' : 'Save agent'}</button></footer>
+      </form>
+      </div>
+    </dialog>
+  );
+}
+
+export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: { view: WorkforceView; ownerId: string; onEditorOpenChange?: (open: boolean) => void }) {
+  const [document, setDocument] = useState<AgentWorkforceDocument | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [draftWarning, setDraftWarning] = useState('');
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<'all' | AgentStatus>('all');
+  const [selected, setSelected] = useState<AgentDefinition | null>(null);
+  const [form, setForm] = useState<FormAgent | null>(null);
+  const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create');
+  const [saving, setSaving] = useState(false);
+  const [restoredDraft, setRestoredDraft] = useState(false);
+  const [recoveryOnlyDraft, setRecoveryOnlyDraft] = useState(false);
+  const [cleanupPending, setCleanupPending] = useState(false);
+  const savingRef = useRef(false);
+  const [draftReadyRevision, setDraftReadyRevision] = useState<string | null>(null);
+  const editorBaselineRef = useRef<FormAgent | null>(null);
+  const detailOpenerRef = useRef<HTMLElement | null>(null);
+  const editorReturnFocusRef = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const draftStorageRevisionRef = useRef<string | null>(null);
+  const pendingSavedDocumentRef = useRef<AgentWorkforceDocument | null>(null);
+
+  useEffect(() => { onEditorOpenChange?.(Boolean(form)); }, [form, onEditorOpenChange]);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const response = await fetch('/api/agent-workforce', { cache: 'no-store' });
+      const data = await response.json() as { document?: AgentWorkforceDocument; error?: string };
+      if (!response.ok || !data.document) throw new Error(data.error || 'The AI workforce could not be loaded.');
+      setDocument(data.document);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'The AI workforce could not be loaded.'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/agent-workforce', { cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json() as { document?: AgentWorkforceDocument; error?: string };
+        if (!response.ok || !data.document) throw new Error(data.error || 'The AI workforce could not be loaded.');
+        return data.document;
+      })
+      .then((next) => { if (!cancelled) setDocument(next); })
+      .catch((caught: unknown) => { if (!cancelled) setError(caught instanceof Error ? caught.message : 'The AI workforce could not be loaded.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!document || draftReadyRevision === document.revision) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      let restored: FormAgent | null = null;
+      let recoveryOnly = false;
+      try {
+        const raw = window.sessionStorage.getItem(agentWorkforceDraftKey(ownerId, view));
+        const candidate = raw ? parseAgentWorkforceDraft(raw, null, ownerId, view) : null;
+        const exact = raw ? parseAgentWorkforceDraft(raw, document.revision, ownerId, view) : null;
+        if (candidate) {
+          const savedAgent = document.agents.find((item) => item.id === candidate.id);
+          if (exact || !savedAgent) restored = candidate;
+          else if (sameAgentDefinition(savedAgent, formAgentToDefinition(candidate))) {
+            const cleared = persistAgentWorkforceDraft(window.sessionStorage, document.revision, ownerId, view, null);
+            setDraftWarning(cleared.ok ? 'Your agent save completed before the previous response was lost.' : cleared.warning);
+          } else {
+            restored = candidate;
+            recoveryOnly = true;
+            setDraftWarning('This stale edit differs from the latest saved agent. It is open for inspection and manual recovery only; saving is blocked.');
+          }
+        }
+      } catch { /* Storage can be unavailable in hardened browser modes. */ }
+      if (cancelled) return;
+      if (restored) {
+        editorReturnFocusRef.current = null;
+        const baselineAgent = document.agents.find((item) => item.id === restored.id);
+        editorBaselineRef.current = recoveryOnly ? null : baselineAgent ? toForm(baselineAgent) : null;
+        setEditorMode(recoveryOnly || baselineAgent ? 'edit' : 'create');
+        setRecoveryOnlyDraft(recoveryOnly);
+        setForm(restored);
+        setRestoredDraft(true);
+        setSaveError(recoveryOnly ? 'Recovery-only draft: copy the values you need, then close it and edit the latest saved agent. This stale snapshot cannot be saved.' : baselineAgent ? 'Your unsaved edit draft was restored.' : 'Your stable create draft was restored against the latest workforce version; review it, then save again.');
+      }
+      setDraftReadyRevision(document.revision);
+    });
+    return () => { cancelled = true; };
+  }, [document, draftReadyRevision, ownerId, view]);
+
+  useEffect(() => {
+    if (!document || draftReadyRevision !== document.revision || recoveryOnlyDraft) return;
+    const result = persistAgentWorkforceDraft(window.sessionStorage, document.revision, ownerId, view, form);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        if (result.ok && form) draftStorageRevisionRef.current = document.revision;
+        setDraftWarning(result.ok ? '' : result.warning);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [document, draftReadyRevision, form, ownerId, recoveryOnlyDraft, view]);
+
+  const coreAgents = useMemo(() => document?.agents.filter((agent) => agent.type === 'core') ?? [], [document]);
+  const agents = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return (document?.agents ?? []).filter((agent) => agent.type === view)
+      .filter((agent) => status === 'all' || agent.status === status)
+      .filter((agent) => !query || [agent.name, agent.role, agent.department, agent.mission, agent.personality].some((value) => value.toLowerCase().includes(query)));
+  }, [document, search, status, view]);
+  const liveCount = document?.agents.filter((agent) => agent.status === 'live').length ?? 0;
+  const buildingCount = document?.agents.filter((agent) => agent.status === 'building' || agent.status === 'testing').length ?? 0;
+  const overallProgress = document?.agents.length ? Math.round(document.agents.reduce((sum, agent) => sum + agent.progress, 0) / document.agents.length) : 0;
+
+  const openCreate = (opener: HTMLElement, parent?: AgentDefinition) => { pendingSavedDocumentRef.current = null; setCleanupPending(false); setSaveError(''); setRestoredDraft(false); setRecoveryOnlyDraft(false); setEditorMode('create'); editorReturnFocusRef.current = opener; editorBaselineRef.current = null; setForm(newAgent(view, parent)); };
+  const openEdit = (agent: AgentDefinition, returnFocus: HTMLElement | null) => { pendingSavedDocumentRef.current = null; setCleanupPending(false); setSaveError(''); setRestoredDraft(false); setRecoveryOnlyDraft(false); setEditorMode('edit'); editorReturnFocusRef.current = returnFocus; setSelected(null); editorBaselineRef.current = toForm(agent); setForm(toForm(agent)); };
+
+  const finalizeSavedDocument = (savedDocument: AgentWorkforceDocument): boolean => {
+    const storageRevision = draftStorageRevisionRef.current ?? document?.revision;
+    const cleared = storageRevision ? persistAgentWorkforceDraft(window.sessionStorage, storageRevision, ownerId, view, null) : { ok: true as const, warning: '' };
+    if (!cleared.ok) {
+      pendingSavedDocumentRef.current = savedDocument;
+      setCleanupPending(true);
+      setDraftWarning(cleared.warning);
+      setSaveError('The agent was saved, but its recovery snapshot could not be cleared. Keep this editor open and select Save agent again to retry cleanup.');
+      return false;
+    }
+    pendingSavedDocumentRef.current = null;
+    setCleanupPending(false);
+    draftStorageRevisionRef.current = null;
+    setDraftReadyRevision(savedDocument.revision);
+    setDocument(savedDocument);
+    setRestoredDraft(false);
+    setDraftWarning('');
+    editorBaselineRef.current = null;
+    setEditorMode('create');
+    setForm(null);
+    return true;
+  };
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!document || !form || savingRef.current) return;
+    if (pendingSavedDocumentRef.current) { finalizeSavedDocument(pendingSavedDocumentRef.current); return; }
+    if (recoveryOnlyDraft) { setSaveError('This is a recovery-only snapshot. Copy the needed values, close it, then edit the latest saved agent.'); return; }
+    setSaveError('');
+    const existing = editorBaselineRef.current && form.id ? document.agents.find((agent) => agent.id === form.id) : undefined;
+    const desiredId = existing?.id ?? (form.id || slugifyAgentId(form.name, form.role));
+    const id = existing?.id ?? (form.id || uniqueAgentId(desiredId, document.agents.map((agent) => agent.id)));
+    const capabilities = textToList(form.capabilities_text);
+    const inputs = textToList(form.inputs_text);
+    const outputs = textToList(form.outputs_text);
+    if ([capabilities, inputs, outputs].some((items) => items.length > 20)) {
+      setSaveError('Capabilities, inputs, and outputs are limited to 20 items each.');
+      return;
+    }
+    const normalized = formAgentToDefinition({ ...form, id, capabilities_text: capabilities.join('\n'), inputs_text: inputs.join('\n'), outputs_text: outputs.join('\n') });
+    if (!editorBaselineRef.current) {
+      const requestDraft = toForm(normalized);
+      const persisted = persistAgentWorkforceDraft(window.sessionStorage, document.revision, ownerId, view, requestDraft);
+      if (!persisted.ok) { setDraftWarning(persisted.warning); setSaveError('The create request was blocked because its stable recovery identity could not be saved in this tab.'); return; }
+      draftStorageRevisionRef.current = document.revision;
+      setForm(requestDraft);
+    }
+    const nextAgents = existing ? document.agents.map((agent) => agent.id === existing.id ? normalized : agent) : [...document.agents, normalized];
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const response = await fetch('/api/agent-workforce', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agents: nextAgents, expected_revision: document.revision }) });
+      const data = await response.json() as { document?: AgentWorkforceDocument; error?: string };
+      if (response.status === 409) {
+        const reloadResponse = await fetch('/api/agent-workforce', { cache: 'no-store' });
+        const reloadData = await reloadResponse.json() as { document?: AgentWorkforceDocument; error?: string };
+        if (reloadResponse.ok && reloadData.document) {
+          let reconciled = form;
+          let resolution = 'Your changes were safely reapplied to the latest version.';
+          const latestAgent = reloadData.document.agents.find((agent) => agent.id === form.id);
+          if (!editorBaselineRef.current) {
+            if (latestAgent) {
+              if (!sameAgentDefinition(latestAgent, normalized)) throw new Error('This create ID now belongs to different agent data. Your draft is preserved; close and reload before continuing.');
+              finalizeSavedDocument(reloadData.document);
+              return;
+            }
+            setDocument(reloadData.document);
+            setSaveError('Another tab changed the workforce. Your stable create request is preserved; review it, then save again.');
+            return;
+          }
+          if (!latestAgent) throw new Error('The latest agent could not be safely reconciled. Your revision-bound draft is preserved; close and reload before continuing.');
+          if (latestAgent && editorBaselineRef.current) {
+            const latestForm = toForm(latestAgent);
+            const result = reconcileAgentWorkforceDraft(editorBaselineRef.current, form, latestForm);
+            reconciled = result.form;
+            if (result.conflicts.length > 0) {
+              const labels = result.conflicts.join(', ');
+              const details = result.conflicts.map((key) => `${key}: your draft ${JSON.stringify(form[key])}; latest ${JSON.stringify(latestForm[key])}`).join('\n');
+              const keepDraft = window.confirm(`Another tab also changed these fields:\n${details}\n\nPress OK to keep your draft values, or Cancel to use the latest saved values.`);
+              if (!keepDraft) {
+                reconciled = { ...reconciled };
+                for (const key of result.conflicts) Object.assign(reconciled, { [key]: latestForm[key] });
+              }
+              resolution = keepDraft ? `You chose your draft values for: ${labels}.` : `You chose the latest saved values for: ${labels}.`;
+            }
+            editorBaselineRef.current = toForm(latestAgent);
+          }
+          setDraftReadyRevision(reloadData.document.revision);
+          setDocument(reloadData.document);
+          setForm(reconciled);
+          setSaveError(`Another tab changed the workforce. ${resolution} Review the merged draft, then save again.`);
+          return;
+        }
+        throw new Error(reloadData.error || data.error || 'The workforce changed, but the latest version could not be loaded. Your draft is still preserved.');
+      }
+      if (!response.ok || !data.document) throw new Error(data.error || 'The agent could not be saved.');
+      finalizeSavedDocument(data.document);
+    } catch (caught) { setSaveError(caught instanceof Error ? caught.message : 'The agent could not be saved.'); }
+    finally { savingRef.current = false; setSaving(false); }
+  };
+
+  if (loading) return <div className="grid min-h-[480px] place-items-center rounded-2xl border border-white/[0.07] bg-[#0b0c0f]"><div className="flex items-center gap-3 text-sm text-zinc-400"><span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-700 border-t-blue-400" /> Loading AI workforce…</div></div>;
+  if (!document) return <div role="alert" className="max-w-full break-words rounded-2xl border border-rose-400/20 [overflow-wrap:anywhere] bg-rose-400/5 p-6 text-sm text-rose-300"><p>{error || 'The AI workforce is unavailable.'}</p><button onClick={() => void load()} className="mt-4 min-h-11 rounded-lg border border-rose-400/20 px-3 py-2">Try again</button></div>;
+
+  return (
+    <div className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#090a0d] p-4 shadow-2xl sm:p-6">
+      <div className="pointer-events-none absolute left-1/3 top-0 h-72 w-72 rounded-full bg-blue-600/10 blur-[100px]" />
+      <div className="relative">
+        <header className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
+          <div><div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.2em] text-blue-300/70"><Sparkles size={13} /> AI Workforce</div><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{view === 'core' ? 'Core Agents' : 'Sub-agents'}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">{view === 'core' ? 'Department leaders that own outcomes, coordinate specialist workers, and report to Jarvis.' : 'Focused workers that research, create, monitor, verify, and prepare work for their department leader.'}</p></div>
+          <button onClick={(event) => openCreate(event.currentTarget)} className={`${FOCUS_RING} flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500`}><Plus size={16} /> Create agent</button>
+        </header>
+
+        <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[{ label: 'Core agents', value: coreAgents.length, icon: Users }, { label: 'Marked released', value: liveCount, icon: Activity }, { label: 'Building or testing', value: buildingCount, icon: Clock3 }, { label: 'Overall build', value: `${overallProgress}%`, icon: ShieldCheck }].map(({ label, value, icon: Icon }) => <div key={label} className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3.5 sm:p-4"><div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-zinc-400"><Icon size={13} />{label}</div><p className="mt-2 text-xl font-semibold text-zinc-100">{value}</p></div>)}
+        </div>
+
+        {error && <div role="alert" className="mt-5 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-rose-400/20 bg-rose-400/[0.06] px-4 py-3 text-xs text-rose-300"><span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{error}</span><button onClick={() => void load()} className={`${FOCUS_RING} min-h-11 shrink-0 rounded px-2 underline`}>Reload</button></div>}
+        {draftWarning && !form && <div role="alert" className="mt-5 max-w-full break-words rounded-xl border border-amber-300/40 bg-amber-300/10 px-4 py-3 text-sm text-amber-100 [overflow-wrap:anywhere]">{draftWarning}</div>}
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <label className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" /><span className="sr-only">Search agents</span><input ref={searchInputRef} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, role, department, or mission" className={`${FOCUS_RING} min-h-11 w-full rounded-xl border border-zinc-500 bg-[#18181b] pl-9 pr-3 text-base text-white placeholder:text-zinc-400 sm:text-sm focus:border-blue-400/40`} /></label>
+          <label><span className="sr-only">Filter by build status</span><select value={status} onChange={(e) => setStatus(e.target.value as 'all' | AgentStatus)} className={`${FOCUS_RING} min-h-11 w-full rounded-xl border border-zinc-500 bg-[#18181b] px-3 text-base text-zinc-300 sm:w-48 sm:text-sm`}><option value="all">All build statuses</option>{AGENT_STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABEL[item]}</option>)}</select></label>
+        </div>
+
+        {agents.length === 0 ? <div className="mt-6 rounded-2xl border border-dashed border-white/10 py-16 text-center"><Bot className="mx-auto text-zinc-400" /><p className="mt-3 text-sm text-zinc-400">No agents match this view.</p><button onClick={(event) => openCreate(event.currentTarget)} className={`${FOCUS_RING} mt-4 min-h-11 rounded px-2 text-sm text-blue-400`}>Create the first one</button></div> : (
+          <div className="mt-6 grid gap-4 xl:grid-cols-2">
+            {agents.map((agent) => <AgentCard key={agent.id} agent={agent} childCount={agent.type === 'core' ? document.agents.filter((item) => item.parent_id === agent.id).length : undefined} parentName={agent.parent_id ? coreAgents.find((item) => item.id === agent.parent_id)?.name : undefined} onEdit={(opener) => openEdit(agent, opener)} onOpen={(opener) => { detailOpenerRef.current = opener; setSelected(agent); }} />)}
+          </div>
+        )}
+
+        <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-xs leading-5 text-zinc-400">Status and progress above are manually maintained blueprint fields. Live Hermes schedules, runs, approvals, failures, and telemetry are not connected yet.</div>
+      </div>
+      {selected && <DetailPanel agent={selected} teamMembers={document.agents.filter((agent) => agent.parent_id === selected.id)} returnFocusRef={detailOpenerRef} fallbackFocusRef={searchInputRef} onClose={() => setSelected(null)} onEdit={() => openEdit(selected, detailOpenerRef.current)} />}
+      {form && <AgentEditor form={form} coreAgents={coreAgents} saving={saving} cleanupPending={cleanupPending} creating={editorMode === 'create'} recoveryOnly={recoveryOnlyDraft} error={[saveError, draftWarning].filter(Boolean).join(' ')} initiallyDirty={restoredDraft} returnFocusRef={editorReturnFocusRef} fallbackFocusRef={searchInputRef} onChange={setForm} onClose={() => { if (!saving) { setRestoredDraft(false); setRecoveryOnlyDraft(false); editorBaselineRef.current = null; setEditorMode('create'); setForm(null); } }} onSubmit={(event) => void save(event)} />}
+    </div>
+  );
+}

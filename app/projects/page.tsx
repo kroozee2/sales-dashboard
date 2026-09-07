@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { usePerson } from "@/lib/use-person";
 import { PersonSelect } from "@/components/sub-tabs";
+import { buildBoard, sortByImportance, monthLabel, isoDaysFromNow, type BoardSection } from "@/lib/project-board";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface Project {
@@ -50,7 +51,6 @@ const PRIORITIES: { key: Priority; label: string; emoji: string; chip: string; d
   { key: "low", label: "Low", emoji: "⚪", chip: "bg-zinc-600/25 text-zinc-300 border-zinc-600/50", dot: "bg-zinc-500" },
 ];
 const prio = (k?: string | null) => PRIORITIES.find((p) => p.key === k) ?? PRIORITIES[1];
-const PRIO_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
 // Which part of the business a project belongs to.
 const DEPARTMENTS: { key: string; label: string; emoji: string; chip: string }[] = [
@@ -69,11 +69,6 @@ function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-function monthLabel(s: string | null) {
-  if (!s) return "No date yet";
-  const [y, m] = s.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-}
 function fmtDue(s: string | null) {
   if (!s) return "";
   const [y, m, d] = s.split("-").map(Number);
@@ -89,14 +84,14 @@ function daysLeft(s: string | null) {
   now.setHours(0, 0, 0, 0);
   return Math.round((due.getTime() - now.getTime()) / 86400000);
 }
-// Most important first, then soonest due.
-function sortByImportance(items: Project[]) {
-  return [...items].sort((a, b) => {
-    const pr = (PRIO_RANK[a.priority] ?? 1) - (PRIO_RANK[b.priority] ?? 1);
-    if (pr !== 0) return pr;
-    return (a.due_date ?? "9999") < (b.due_date ?? "9999") ? -1 : 1;
-  });
-}
+// Tone drives how loudly a section header reads.
+type Section = BoardSection<Project>;
+const TONE: Record<Section["tone"], { title: string; pill: string; rule: string }> = {
+  rose: { title: "text-rose-300", pill: "bg-rose-500/15 text-rose-200 border-rose-500/40", rule: "bg-rose-500/25" },
+  amber: { title: "text-amber-300", pill: "bg-amber-500/15 text-amber-200 border-amber-500/40", rule: "bg-amber-500/25" },
+  zinc: { title: "text-white", pill: "bg-zinc-900 text-zinc-500 border-zinc-800", rule: "bg-zinc-800/70" },
+};
+
 
 // ─── Reusable inline chip-selects ─────────────────────────────────────────────
 function PrioritySelect({ value, onChange, className = "" }: { value: string; onChange: (v: string) => void; className?: string }) {
@@ -156,21 +151,24 @@ export default function ProjectsPage() {
 
   const filtered = useMemo(() => (projects ?? []).filter((p) => person === "all" || p.owner === person), [projects, person]);
 
-  // Group into month blocks (by due date), each sorted by importance. No-date block last.
-  const groups = useMemo(() => {
-    const map = new Map<string, { key: string; label: string; sortKey: string; items: Project[] }>();
-    for (const p of filtered) {
-      const key = p.due_date ? p.due_date.slice(0, 7) : "none";
-      if (!map.has(key)) map.set(key, { key, label: monthLabel(p.due_date), sortKey: key === "none" ? "9999-99" : key, items: [] });
-      map.get(key)!.items.push(p);
-    }
-    const arr = Array.from(map.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-    for (const g of arr) g.items = sortByImportance(g.items);
-    return arr;
-  }, [filtered]);
+  // ── The board's spine ──────────────────────────────────────────────────────
+  // The top of the board answers one question: what needs me now? Overdue
+  // first, then this week, then the months ahead. Finished work drops out of
+  // the flow entirely into a collapsed Completed section at the bottom.
+  const today = todayStr();
+  const in7 = useMemo(() => isoDaysFromNow(7), []);
+  const { sections, doneItems, counts } = useMemo(
+    () => buildBoard(filtered, today, in7),
+    [filtered, today, in7],
+  );
 
-  const active = filtered.filter((p) => p.stage !== "done").length;
   const [view, setView] = useState<"sheet" | "grid">("sheet");
+  const [showDone, setShowDone] = useState(false);
+
+  const renderItems = (items: Project[]) =>
+    view === "sheet"
+      ? <ProjectSheet projects={items} goals={goals} onPatch={patch} onRemove={remove} />
+      : <div className="grid gap-3 sm:grid-cols-2">{items.map((p) => <ProjectCard key={p.id} project={p} goals={goals} onPatch={patch} onRemove={remove} />)}</div>;
 
   return (
     <div className="w-full">
@@ -178,7 +176,7 @@ export default function ProjectsPage() {
       <div className="flex items-center justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-white flex items-center gap-2">🗂️ Projects</h1>
-          <p className="text-zinc-500 text-sm mt-0.5">{active} active · {filtered.length} total · grouped by month, most important first</p>
+          <p className="text-zinc-500 text-sm mt-0.5">What needs you first, up top. {counts.open} active · {counts.done} done</p>
         </div>
         <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
           {([["sheet", "▦ Sheet"], ["grid", "🗂️ Grid"]] as const).map(([k, l]) => (
@@ -187,6 +185,23 @@ export default function ProjectsPage() {
           ))}
         </div>
       </div>
+
+      {/* Focus strip — the whole board in four numbers */}
+      {projects && filtered.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+          {[
+            { n: counts.overdue, label: "Overdue", cls: counts.overdue > 0 ? "text-rose-400" : "text-zinc-600" },
+            { n: counts.week, label: "Due this week", cls: counts.week > 0 ? "text-amber-400" : "text-zinc-600" },
+            { n: counts.open, label: "Active", cls: "text-blue-400" },
+            { n: counts.done, label: "Completed", cls: "text-emerald-400" },
+          ].map((s) => (
+            <div key={s.label} className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-2.5">
+              <p className={`font-bold text-xl tabular-nums ${s.cls}`}>{s.n}</p>
+              <p className="text-zinc-500 text-[10px] uppercase tracking-wide mt-0.5">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       <QuickAddProject goals={goals} defaultOwner={person === "all" ? "Andrew" : person} onAdd={add} />
 
@@ -198,30 +213,44 @@ export default function ProjectsPage() {
         </p>
       ) : (
         <div className={`mt-5 space-y-7 ${view === "grid" ? "max-w-5xl" : ""}`}>
-          {groups.map((g) => (
-            <section key={g.key}>
-              {/* Month block header */}
-              <div className="flex items-center gap-2.5 mb-2.5">
-                <h2 className="text-white font-bold text-sm">📆 {g.label}</h2>
-                <span className="text-[11px] text-zinc-500 bg-zinc-900 border border-zinc-800 rounded-full px-2 py-0.5">{g.items.length}</span>
+          {sections.length === 0 && (
+            <p className="text-zinc-600 text-center py-10">🎉 Nothing open. Everything is done.</p>
+          )}
+          {sections.map((sec) => {
+            const t = TONE[sec.tone];
+            return (
+              <section key={sec.key}>
+                <div className="flex items-center gap-2.5 mb-2.5">
+                  <h2 className={`font-bold text-sm ${t.title}`}>{sec.emoji} {sec.label}</h2>
+                  <span className={`text-[11px] rounded-full border px-2 py-0.5 ${t.pill}`}>{sec.items.length}</span>
+                  <div className={`flex-1 h-px ${t.rule}`} />
+                </div>
+                {renderItems(sec.items)}
+              </section>
+            );
+          })}
+
+          {/* Completed — out of the way, one click to check */}
+          {doneItems.length > 0 && (
+            <section>
+              <button onClick={() => setShowDone((v) => !v)}
+                className="flex items-center gap-2.5 w-full text-left group mb-2.5">
+                <h2 className="font-bold text-sm text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                  {showDone ? "▾" : "▸"} ✅ Completed
+                </h2>
+                <span className="text-[11px] rounded-full border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500">{doneItems.length}</span>
                 <div className="flex-1 h-px bg-zinc-800/70" />
-              </div>
-              {view === "sheet"
-                ? <ProjectSheet projects={g.items} goals={goals} onPatch={patch} onRemove={remove} />
-                : (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {g.items.map((p) => <ProjectCard key={p.id} project={p} goals={goals} onPatch={patch} onRemove={remove} />)}
-                  </div>
-                )}
+              </button>
+              {showDone && <div className="opacity-70">{renderItems(doneItems)}</div>}
             </section>
-          ))}
+          )}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Project spreadsheet (one month block) ────────────────────────────────────
+// ─── Project spreadsheet (one board section) ────────────────────────────────────
 // Rows come in pre-sorted by importance. Every field is editable in place.
 function ProjectSheet({ projects, goals, onPatch, onRemove }: {
   projects: Project[]; goals: Goal[];

@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { InstagramPerformanceSpreadsheet } from "@/components/instagram-performance-grid";
 import type { InstagramPostedContent } from "@/lib/instagram-performance";
 
-type Tab = "performance" | "calendar" | "competitors";
+type Tab = "ideas" | "performance" | "calendar" | "competitors";
 const INSTAGRAM_SYNC_KEY = "instagram-sync-runs";
 
 function hasPendingInstagramSync(): boolean {
@@ -112,94 +112,185 @@ interface InstagramContentItem {
   updated_at: string;
 }
 
-function ReelIdeaList({
-  type,
+type IdeaSort = "date" | "type" | "stage" | "title";
+
+// Every Reel idea in one running list. Deliberately NOT split into per-type
+// cards side by side — a sheet is scanned top to bottom, not across columns.
+function ReelIdeaSheet({
   items,
   onStage,
   onDate,
   busyIds,
   errors,
 }: {
-  type: (typeof REEL_IDEA_TYPES)[number];
   items: InstagramContentItem[];
   onStage: (item: InstagramContentItem, stage: ReelStage) => void;
   onDate: (item: InstagramContentItem, date: string) => void;
   busyIds: Set<string>;
   errors: Record<string, string>;
 }) {
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [stageFilter, setStageFilter] = useState<ReelStage | null>(null);
+  const [sort, setSort] = useState<IdeaSort>("date");
+
+  const q = query.trim().toLowerCase();
+  const typeMeta = (key: string) => REEL_IDEA_TYPES.find((t) => t.key === key);
+
+  const rows = items
+    .filter((i) => !typeFilter || i.category === typeFilter)
+    .filter((i) => !stageFilter || getReelStage(i) === stageFilter)
+    .filter((i) => !q || i.title.toLowerCase().includes(q))
+    .sort((a, b) => {
+      if (sort === "title") return a.title.localeCompare(b.title);
+      if (sort === "type") return (a.category ?? "").localeCompare(b.category ?? "");
+      if (sort === "stage") {
+        const order: ReelStage[] = ["idea", "shot", "posted"];
+        return order.indexOf(getReelStage(a)) - order.indexOf(getReelStage(b));
+      }
+      // Soonest shoot first; undated ideas sink to the bottom.
+      return (a.scheduled_date || "9999-12-31").localeCompare(b.scheduled_date || "9999-12-31");
+    });
+
+  const counts = {
+    idea: items.filter((i) => getReelStage(i) === "idea").length,
+    shot: items.filter((i) => getReelStage(i) === "shot").length,
+    posted: items.filter((i) => getReelStage(i) === "posted").length,
+  };
+
+  const COLS = "md:grid md:grid-cols-[40px_minmax(0,1fr)_150px_180px_145px] md:items-center md:gap-3";
+
+  const SortBtn = ({ k, label }: { k: IdeaSort; label: string }) => (
+    <button
+      type="button"
+      onClick={() => setSort(k)}
+      className={cn("text-left text-[10px] font-bold uppercase tracking-wide transition-colors", sort === k ? "text-pink-300" : "text-zinc-500 hover:text-zinc-300")}
+    >
+      {label}{sort === k ? " \u2193" : ""}
+    </button>
+  );
+
   return (
-    <section className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-black text-white">{type.emoji} {type.label}</h3>
-        <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-bold text-zinc-400">{items.length}</span>
+    <section className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/70">
+      <div className="border-b border-zinc-800 p-3 sm:p-4">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-base font-black text-white">Reel ideas</h2>
+          <span className="text-xs font-bold text-zinc-400">{counts.idea} idea · {counts.shot} shot · {counts.posted} posted</span>
+        </div>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search ideas…"
+          aria-label="Search Reel ideas"
+          className="mb-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-pink-500 focus:outline-none"
+        />
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" onClick={() => { setTypeFilter(null); setStageFilter(null); }}
+            className={cn("rounded-full border px-3 py-1 text-[11px] font-bold transition-colors", !typeFilter && !stageFilter ? "border-pink-500 bg-pink-500/20 text-pink-100" : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-white")}>
+            All {items.length}
+          </button>
+          {REEL_IDEA_TYPES.map((t) => (
+            <button key={t.key} type="button" onClick={() => setTypeFilter(typeFilter === t.key ? null : t.key)}
+              className={cn("rounded-full border px-3 py-1 text-[11px] font-bold transition-colors", typeFilter === t.key ? "border-pink-500 bg-pink-500/20 text-pink-100" : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-white")}>
+              {t.emoji} {t.label} {items.filter((i) => i.category === t.key).length}
+            </button>
+          ))}
+          {(["idea", "shot", "posted"] as ReelStage[]).map((st) => (
+            <button key={st} type="button" onClick={() => setStageFilter(stageFilter === st ? null : st)}
+              className={cn("rounded-full border px-3 py-1 text-[11px] font-bold capitalize transition-colors", stageFilter === st ? "border-amber-400 bg-amber-400/20 text-amber-100" : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-white")}>
+              {st} {counts[st]}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="space-y-2">
-        {items.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-zinc-800 px-3 py-5 text-center text-xs text-zinc-400">No ideas yet</p>
-        ) : items.map((item) => {
-          const stage = getReelStage(item);
-          const busy = busyIds.has(item.id);
-          return (
-            <div key={item.id} className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-3">
-              <div className="flex items-start gap-2">
-                <button
-                  type="button"
-                  aria-label={`Mark ${item.title} as ${stage === "idea" ? "shot" : stage === "shot" ? "posted" : "an idea"}`}
-                  onClick={() => onStage(item, stage === "idea" ? "shot" : stage === "shot" ? "posted" : "idea")}
-                  disabled={busy}
-                  className={cn(
-                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-sm font-black disabled:opacity-50",
-                    stage === "idea" && "border-zinc-400 text-transparent hover:border-pink-500",
-                    stage === "shot" && "border-amber-400 bg-amber-400 text-zinc-950",
-                    stage === "posted" && "border-emerald-400 bg-emerald-400 text-zinc-950",
-                  )}
-                >
-                  {stage === "idea" ? "•" : "✓"}
-                </button>
-                <p className={cn("min-w-0 flex-1 break-words [overflow-wrap:anywhere] text-sm font-semibold text-zinc-100", stage === "posted" && "text-zinc-400 line-through")}>{item.title}</p>
-              </div>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex rounded-lg bg-zinc-950 p-0.5">
-                  {(["idea", "shot", "posted"] as ReelStage[]).map((choice) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      onClick={() => onStage(item, choice)}
-                      aria-pressed={stage === choice}
-                      disabled={busy}
-                      className={cn(
-                        "min-h-11 rounded-md px-3 py-2 text-xs font-bold capitalize text-zinc-400 disabled:opacity-50",
-                        stage === choice && choice === "idea" && "bg-zinc-700 text-white",
-                        stage === choice && choice === "shot" && "bg-amber-400/20 text-amber-300",
-                        stage === choice && choice === "posted" && "bg-emerald-400/20 text-emerald-300",
-                      )}
-                    >
-                      {choice === "idea" ? <>Idea</> : choice === "shot" ? <>Shot</> : <>Posted</>}
-                    </button>
-                  ))}
+
+      <div className={cn("hidden border-b border-zinc-800 bg-zinc-900/60 px-4 py-2", COLS)}>
+        <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Done</span>
+        <SortBtn k="title" label="Idea" />
+        <SortBtn k="type" label="Type" />
+        <SortBtn k="stage" label="Stage" />
+        <SortBtn k="date" label="Shoot date" />
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="px-4 py-12 text-center text-sm text-zinc-500">
+          {items.length === 0 ? "No ideas yet. Add one above \u2191" : "Nothing matches those filters."}
+        </p>
+      ) : (
+        <div className="divide-y divide-zinc-800/80">
+          {rows.map((item) => {
+            const stage = getReelStage(item);
+            const busy = busyIds.has(item.id);
+            const meta = typeMeta(item.category ?? "");
+            return (
+              <div key={item.id} className={cn("px-4 py-2.5 transition-colors hover:bg-zinc-900/50", COLS)}>
+                <div className="flex items-start gap-3 md:contents">
+                  <button
+                    type="button"
+                    aria-label={`Mark ${item.title} as ${stage === "idea" ? "shot" : stage === "shot" ? "posted" : "an idea"}`}
+                    onClick={() => onStage(item, stage === "idea" ? "shot" : stage === "shot" ? "posted" : "idea")}
+                    disabled={busy}
+                    className={cn(
+                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-xs font-black disabled:opacity-50",
+                      stage === "idea" && "border-zinc-600 text-transparent hover:border-pink-500",
+                      stage === "shot" && "border-amber-400 bg-amber-400 text-zinc-950",
+                      stage === "posted" && "border-emerald-400 bg-emerald-400 text-zinc-950",
+                    )}
+                  >
+                    {stage === "idea" ? "•" : "✓"}
+                  </button>
+                  <p className={cn("min-w-0 flex-1 break-words [overflow-wrap:anywhere] text-sm font-semibold text-zinc-100", stage === "posted" && "text-zinc-500 line-through")}>{item.title}</p>
                 </div>
-                <label className="flex items-center gap-2 text-xs font-bold text-zinc-400">
-                  Shoot date
+
+                <div className="mt-2 flex flex-wrap items-center gap-2 pl-11 md:mt-0 md:contents">
+                  <span className="rounded-full border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-[11px] font-bold text-zinc-400 md:justify-self-start">
+                    {meta ? `${meta.emoji} ${meta.label}` : "—"}
+                  </span>
+
+                  <div className="flex rounded-lg bg-zinc-950 p-0.5">
+                    {(["idea", "shot", "posted"] as ReelStage[]).map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => onStage(item, choice)}
+                        aria-pressed={stage === choice}
+                        disabled={busy}
+                        className={cn(
+                          "rounded-md px-2 py-1 text-[11px] font-bold capitalize text-zinc-500 disabled:opacity-50",
+                          stage === choice && choice === "idea" && "bg-zinc-700 text-white",
+                          stage === choice && choice === "shot" && "bg-amber-400/20 text-amber-300",
+                          stage === choice && choice === "posted" && "bg-emerald-400/20 text-emerald-300",
+                        )}
+                      >
+                        {choice}
+                      </button>
+                    ))}
+                  </div>
+
                   <input
                     type="date"
+                    aria-label={`Shoot date for ${item.title}`}
                     value={item.scheduled_date || ""}
                     onChange={(event) => onDate(item, event.target.value)}
                     disabled={busy}
-                    className="min-h-11 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-base text-zinc-300 disabled:opacity-50 [color-scheme:dark] sm:text-xs"
+                    className="min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-300 disabled:opacity-50 [color-scheme:dark] md:w-full md:text-xs"
                   />
-                </label>
+                </div>
+
+                {errors[item.id] && (
+                  <p role="alert" className="mt-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-200 md:col-span-5">{errors[item.id]}</p>
+                )}
               </div>
-              {errors[item.id] && <p role="alert" className="mt-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-200">{errors[item.id]}</p>}
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
 
 export default function InstagramPage() {
-  const [tab, setTab] = useState<Tab>("performance");
+  const [tab, setTab] = useState<Tab>("ideas");
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -546,8 +637,9 @@ export default function InstagramPage() {
         {/* Tab Selection */}
         <div className="flex items-center gap-2 mt-8 pt-4 border-t border-zinc-800/80">
           {[
-            { key: "performance", label: "📊 Performance" },
+            { key: "ideas", label: "💡 Ideas" },
             { key: "calendar", label: "📅 Calendar" },
+            { key: "performance", label: "📊 Performance" },
             { key: "competitors", label: "🔍 Competitor Reel Analysis" },
           ].map((t) => (
             <button
@@ -710,7 +802,8 @@ export default function InstagramPage() {
       )}
 
       {/* 📅 TAB 2: INSTAGRAM CONTENT CALENDAR */}
-      {tab === "calendar" && (
+      {/* 💡 TAB 1: REEL IDEAS — a single running sheet */}
+      {tab === "ideas" && (
         <div className="space-y-4">
           <div className="rounded-2xl border border-pink-500/25 bg-gradient-to-br from-pink-950/35 to-zinc-900 p-4 sm:p-5">
             <div className="mb-4">
@@ -770,29 +863,19 @@ export default function InstagramPage() {
             </div>
           </div>
 
-          <div>
-            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h2 className="text-base font-black text-white">Instagram Reel ideas</h2>
-                <p className="text-xs text-zinc-400">Tap the checkbox to move Idea → Shot → Posted.</p>
-              </div>
-              <span className="text-xs font-bold text-zinc-400">{reelIdeaItems.length} ideas</span>
-            </div>
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              {REEL_IDEA_TYPES.map((type) => (
-                <ReelIdeaList
-                  key={type.key}
-                  type={type}
-                  items={reelIdeaItems.filter((item) => item.category === type.key)}
-                  onStage={updateReelStage}
-                  onDate={updateReelShootDate}
-                  busyIds={updatingIds}
-                  errors={rowErrors}
-                />
-              ))}
-            </div>
-          </div>
+          <ReelIdeaSheet
+            items={reelIdeaItems}
+            onStage={updateReelStage}
+            onDate={updateReelShootDate}
+            busyIds={updatingIds}
+            errors={rowErrors}
+          />
+        </div>
+      )}
 
+      {/* 📅 TAB 2: INSTAGRAM CONTENT CALENDAR */}
+      {tab === "calendar" && (
+        <div className="space-y-4">
           {/* Month Calendar Grid */}
           <div className="overflow-hidden bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">

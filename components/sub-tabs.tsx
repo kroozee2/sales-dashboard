@@ -1,23 +1,22 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { usePerson, type Person } from "@/lib/use-person";
 
-type Tab = { href: string; label: string; emoji: string };
+// `tab` marks a link that differs from its siblings only by ?tab=.
+type Tab = { href: string; label: string; emoji: string; tab?: string };
 
 // Sub-navigation groups — a single sidebar entry expands into these pill tabs
 // at the top of each page so you can click straight across related sections.
 export const SUB_TAB_GROUPS: Record<string, Tab[]> = {
+  // Everything else in this group now lives in the sidebar; these two are the
+  // cross-links worth keeping at the top of the page.
   leads: [
-    { href: "/leads", label: "Leads", emoji: "🎯" },
-    { href: "/leads/sales-calls", label: "Sales Calls", emoji: "📞" },
-    { href: "/hot-leads", label: "Hot", emoji: "🔥" },
-    { href: "/messages", label: "Messages", emoji: "💬" },
-    { href: "/scripts", label: "Scripts", emoji: "💬" },
-    { href: "/signups", label: "Signups", emoji: "🆕" },
-    { href: "/applications", label: "Applications", emoji: "📝" },
+    { href: "/leads?tab=linksent", label: "Link Sent", emoji: "🔗", tab: "linksent" },
+    { href: "/hot-leads", label: "Hot Prospects", emoji: "🔥" },
   ],
   tasks: [
     { href: "/tasks", label: "Tasks", emoji: "📋" },
@@ -29,8 +28,9 @@ export const SUB_TAB_GROUPS: Record<string, Tab[]> = {
   ],
 };
 
-export function SubTabs({ group, className }: { group: keyof typeof SUB_TAB_GROUPS; className?: string }) {
+function SubTabsInner({ group, className }: { group: keyof typeof SUB_TAB_GROUPS; className?: string }) {
   const pathname = usePathname() ?? "";
+  const activeTab = useSearchParams().get("tab");
   const tabs = SUB_TAB_GROUPS[group];
   if (!tabs) return null;
   return (
@@ -39,7 +39,10 @@ export function SubTabs({ group, className }: { group: keyof typeof SUB_TAB_GROU
     <div className={cn("flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-5", className)}>
       <div className="flex items-center gap-1 overflow-x-auto no-scrollbar -mx-1 px-1">
         {tabs.map((t) => {
-          const active = pathname === t.href || pathname.startsWith(t.href + "/");
+          const hrefPath = t.href.split("?")[0];
+          const onPath = pathname === hrefPath || pathname.startsWith(hrefPath + "/");
+          // A ?tab= link is only active when that tab is the one open.
+          const active = t.tab ? onPath && activeTab === t.tab : onPath;
           return (
             <Link
               key={t.href}
@@ -87,5 +90,16 @@ export function PersonSelect() {
         </button>
       ))}
     </div>
+  );
+}
+
+// useSearchParams needs a Suspense boundary, and SubTabs is used on pages that
+// are otherwise prerendered — so the boundary lives here rather than in each of
+// them.
+export function SubTabs(props: { group: keyof typeof SUB_TAB_GROUPS; className?: string }) {
+  return (
+    <Suspense fallback={<div className="mb-5 h-10" />}>
+      <SubTabsInner {...props} />
+    </Suspense>
   );
 }

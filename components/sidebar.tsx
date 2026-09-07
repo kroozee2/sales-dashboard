@@ -19,11 +19,14 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/tasks", label: "Tasks", emoji: "📋", match: ["/winning-formula"], section: "Command" },
 
   { href: "/leads?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Leads" },
-  { href: "/leads", label: "Leads", emoji: "🎯", tab: "leads", tabDefault: true, match: ["/messages", "/scripts", "/signups", "/applications"], section: "Leads" },
+  { href: "/leads", label: "Leads", emoji: "🎯", tab: "leads", tabDefault: true, match: ["/scripts"], section: "Leads" },
+  { href: "/leads?tab=new", label: "New Leads", emoji: "🌱", tab: "new", section: "Leads" },
   { href: "/leads?tab=hotlist", label: "Hot List", emoji: "🔥", tab: "hotlist", section: "Leads" },
-  { href: "/hot-leads", label: "Hot Prospects", emoji: "✨", section: "Leads" },
-  { href: "/leads?tab=linksent", label: "Link Sent", emoji: "🔗", tab: "linksent", section: "Leads" },
+  { href: "/hot-leads", label: "AI Hot List", emoji: "🤖", match: ["/instagram-hot-leads"], section: "Leads" },
   { href: "/leads?tab=followup", label: "Follow-Up", emoji: "🔁", tab: "followup", section: "Leads" },
+  { href: "/messages", label: "Messages", emoji: "💬", section: "Leads" },
+  { href: "/signups", label: "Signups", emoji: "🆕", section: "Leads" },
+  { href: "/applications", label: "Applications", emoji: "📝", section: "Leads" },
 
   { href: "/calls?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Sales" },
   { href: "/calls", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Sales" },

@@ -1546,11 +1546,12 @@ function LeadsPageInner() {
   const searchParams = useSearchParams();
   const urlTab = searchParams.get('tab');
   const router = useRouter();
-  const mainTab: 'leads' | 'followup' | 'data' | 'hotlist' | 'linksent' =
-    urlTab === 'data' || urlTab === 'followup' || urlTab === 'hotlist' || urlTab === 'linksent' ? urlTab : 'leads';
-  // Hot List and Link Sent are the same spreadsheet, narrowed server-side.
-  const isGridView = mainTab === 'leads' || mainTab === 'hotlist' || mainTab === 'linksent';
-  const setMainTab = useCallback((t: 'leads' | 'followup' | 'data' | 'hotlist' | 'linksent') => {
+  const mainTab: 'leads' | 'followup' | 'data' | 'hotlist' | 'linksent' | 'new' =
+    urlTab === 'data' || urlTab === 'followup' || urlTab === 'hotlist' || urlTab === 'linksent' || urlTab === 'new' ? urlTab : 'leads';
+  // Hot List, Link Sent and New Leads are the same spreadsheet, narrowed or
+  // reordered server-side so they page and search like the full list.
+  const isGridView = mainTab === 'leads' || mainTab === 'hotlist' || mainTab === 'linksent' || mainTab === 'new';
+  const setMainTab = useCallback((t: 'leads' | 'followup' | 'data' | 'hotlist' | 'linksent' | 'new') => {
     router.replace(`/leads?tab=${t}`, { scroll: false });
   }, [router]);
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
@@ -1862,6 +1863,7 @@ function LeadsPageInner() {
       // The Hot List / Link Sent views pin their own filter; it wins over the
       // stage dropdown so the view always shows what its name promises.
       if (mainTab === 'hotlist') params.set('hot', '1');
+      if (mainTab === 'new') params.set('sort', 'new');
       if (mainTab === 'linksent') params.set('stage', '🔗 Pay Link Sent');
       else if (effectiveStage) params.set('stage', effectiveStage);
       if (filters.quality) params.set('quality', filters.quality);
@@ -2266,23 +2268,6 @@ function LeadsPageInner() {
           </div>
         )}
 
-        {/* ── Main tab switch: leads · follow-up next · data ─────────────────── */}
-        <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-2xl p-1">
-          {([
-            ['leads', '🎯 Leads'],
-            ['followup', '🔁 Follow-Up Next'],
-            ['data', '📊 Dashboard'],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setMainTab(key)}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${mainTab === key ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'text-zinc-400 hover:text-white'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
         {/* ── Follow-Up Next queue (own tab) ─────────────────────────────────── */}
         {mainTab === 'followup' && (
           <ConnectNextQueue
@@ -2521,12 +2506,14 @@ function LeadsPageInner() {
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <h2 className="text-base font-black text-white">
-                {mainTab === 'hotlist' ? '🔥 Hot List' : '🔗 Link Sent'}
+                {mainTab === 'hotlist' ? '🔥 Hot List' : mainTab === 'new' ? '🌱 New Leads' : '🔗 Link Sent'}
               </h2>
               <p className="text-xs text-zinc-400">
                 {mainTab === 'hotlist'
                   ? 'Everyone currently marked Hot. Tap the flame on a row to remove them.'
-                  : 'Everyone sitting at the 🔗 Pay Link Sent stage.'}
+                  : mainTab === 'new'
+                    ? 'Every lead by the date they came in, newest first.'
+                    : 'Everyone sitting at the 🔗 Pay Link Sent stage.'}
               </p>
             </div>
             <span className="text-xs font-bold text-zinc-400">{totalLeads} {totalLeads === 1 ? 'lead' : 'leads'}</span>

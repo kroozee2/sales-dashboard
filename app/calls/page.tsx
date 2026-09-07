@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import type { SalesCall, CallResult, CallType, FollowUpStatus, ProspectQuality } from "@/lib/supabase-calls";
 import type { FathomRecording } from "@/app/api/calls/route";
 import { ExtendedStatsBar, ResultsChart, SuccessPie, RevenueByMonth, BookingsByMonth, ResultsByMonth } from "@/components/calls-analytics";
+import { activateFathomBack, fathomAttendeeOmission, fathomPageDisclosure, fathomRecordingAccessibleLabel, fathomRecordingTimeLabel, selectFathomMeetingForPreview, type FathomPickerListState } from "@/lib/fathom-picker-state";
 
 // ─── Date range ───────────────────────────────────────────────────────────────
 type DateRange = "all" | "ytd" | "qtd" | "mtd" | "custom";
@@ -173,7 +174,7 @@ function PipelineView({ calls, onSelectCall }: { calls: SalesCall[]; onSelectCal
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const RESULT_OPTIONS: CallResult[] = ["✅ Sale", "📣 Follow Up", "🔜 Upcoming", "❌ Did Not Close", "👻 No Show"];
+const RESULT_OPTIONS: CallResult[] = ["✅ Sale", "📣 Follow Up", "🔜 Upcoming", "❌ Did Not Close", "👻 No Show", "➖ Other"];
 const TYPE_OPTIONS: CallType[] = ["📞 Sales Call", "🔍 Triage Call", "🤙 Connection Call", "🧑‍💼 Client Call", "🤝 Partnership Call", "🎓 Coaching Call", "🤝 JV Call", "👥 Group Call"];
 const QUALITY_OPTIONS: ProspectQuality[] = ["🔥 High", "👌 Medium", "❄️ Low"];
 const FOLLOW_UP_OPTIONS: FollowUpStatus[] = ["🚀 Rebook", "💳 Payment Link Sent", "📣 Sent Message", "✅ Closed", "❌ Lost"];
@@ -277,7 +278,7 @@ function StatCard({ label, value, color, sub }: { label: string; value: string |
 type Filter = "action" | "all" | "followup" | "sale" | "upcoming" | "lost";
 
 // A call needs action when: follow-up is due/overdue/undated, or the call happened but no outcome was logged
-export function needsAction(c: SalesCall): boolean {
+function needsAction(c: SalesCall): boolean {
   const today = new Date().toISOString().split("T")[0];
   if (c.result?.includes("Follow Up") && c.follow_up_status !== "✅ Closed" && c.follow_up_status !== "❌ Lost") {
     if (!c.follow_up_date || c.follow_up_date <= today) return true;
@@ -1062,6 +1063,7 @@ type FathomMeeting = {
   date: string | null;
   duration_min: number | null;
   attendees: string | null;
+  attendees_omitted: number;
   blurb: string | null;
   share_url: string | null;
 };
@@ -1085,9 +1087,10 @@ type FathomExtracted = {
   ai_summary?: string | null;
 };
 
+type FathomListState = FathomPickerListState<FathomMeeting>;
 type FathomState =
-  | { stage: "list"; meetings: FathomMeeting[] }
-  | { stage: "preview"; meeting: FathomMeeting; extracted: FathomExtracted }
+  | FathomListState
+  | { stage: "preview"; meeting: FathomMeeting; extracted: FathomExtracted; previousList: FathomListState }
   | { stage: "error"; message: string };
 
 // Searchable offer picker — type to filter the offer list, or enter a custom name.
@@ -1557,8 +1560,10 @@ function DetailPanel({
       const data = await res.json();
       if (!res.ok || data.error) {
         setFathomState({ stage: "error", message: data.error ?? "Could not load Fathom recordings" });
+      } else if (!Array.isArray(data.list) || data.list.length > 8 || !Number.isSafeInteger(data.omitted) || data.omitted < 0 || data.omitted > 92 || typeof data.more_available !== "boolean") {
+        setFathomState({ stage: "error", message: "Fathom returned an invalid list response" });
       } else {
-        setFathomState({ stage: "list", meetings: data.list ?? [] });
+        setFathomState({ stage: "list", meetings: data.list, omitted: data.omitted, more_available: data.more_available });
       }
     } catch (err: unknown) {
       setFathomState({ stage: "error", message: String(err) });
@@ -1568,6 +1573,9 @@ function DetailPanel({
   }
 
   async function selectFathomRecording(item: FathomMeeting) {
+    const previousList: FathomListState = fathomState?.stage === "list"
+      ? fathomState
+      : { stage: "list", meetings: [], omitted: 0, more_available: false };
     setFathomLoading(true);
     setFathomState(null);
     try {
@@ -1586,7 +1594,7 @@ function DetailPanel({
       if (!res.ok || data.error) {
         setFathomState({ stage: "error", message: data.error ?? "Unknown error" });
       } else {
-        setFathomState({ stage: "preview", meeting: item, extracted: data.extracted });
+        setFathomState(selectFathomMeetingForPreview(previousList, item, data.extracted));
       }
     } catch (err: unknown) {
       setFathomState({ stage: "error", message: String(err) });
@@ -2594,21 +2602,29 @@ function DetailPanel({
                   <p className="text-xs font-semibold text-zinc-400">Select a recording</p>
                   <button onClick={() => setFathomState(null)} className="text-zinc-600 hover:text-white text-xs">✕</button>
                 </div>
+                {(fathomState.omitted > 0 || fathomState.more_available) && (
+                  <p role="status" className="text-[11px] leading-5 text-amber-300 [overflow-wrap:anywhere]">
+                    {fathomPageDisclosure(fathomState)}
+                  </p>
+                )}
                 {fathomState.meetings.length === 0 ? (
                   <p className="text-xs text-zinc-500">No recent recordings found in Fathom.</p>
                 ) : fathomState.meetings.map((item) => (
                   <button
                     key={item.recording_id}
                     onClick={() => selectFathomRecording(item)}
+                    aria-label={fathomRecordingAccessibleLabel(item)}
                     className="w-full text-left p-3 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-violet-500/50 hover:bg-violet-500/5 transition-all group"
                   >
                     <p className="text-xs font-semibold text-white group-hover:text-violet-300">{item.title}</p>
                     <p className="text-[11px] text-zinc-500 mt-0.5">
-                      {item.date ? new Date(item.date).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
-                      {item.duration_min ? ` · ${item.duration_min}m` : ""}
+                      {fathomRecordingTimeLabel(item)}
                     </p>
                     {item.attendees && (
                       <p className="text-[11px] text-violet-400/70 mt-0.5 truncate">{item.attendees}</p>
+                    )}
+                    {item.attendees_omitted > 0 && (
+                      <p className="text-[11px] font-medium text-amber-300 mt-0.5 [overflow-wrap:anywhere]">{fathomAttendeeOmission(item.attendees_omitted)}</p>
                     )}
                     {item.blurb && (
                       <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed line-clamp-2">{item.blurb}</p>
@@ -2642,7 +2658,7 @@ function DetailPanel({
                     ✓ Apply All Fields
                   </button>
                   <button
-                    onClick={() => setFathomState({ stage: "list", meetings: [] })}
+                    onClick={() => setFathomState(activateFathomBack(fathomState))}
                     className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs transition-colors"
                   >
                     ← Back
@@ -3409,10 +3425,12 @@ export default function CallsPage() {
 
   async function handleSave(updated: Partial<SalesCall>) {
     if (!selected) return;
+    const { id: _id, created_at, updated_at, booked_view_moved_off, booked_view_revision, booked_view_error, ...mutableFields } = updated;
+    void _id; void created_at; void updated_at; void booked_view_moved_off; void booked_view_revision; void booked_view_error;
     const res = await fetch("/api/sales-calls", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: selected.id, ...updated }),
+      body: JSON.stringify({ id: selected.id, ...mutableFields }),
     });
     const data = await res.json();
     if (data.call) {

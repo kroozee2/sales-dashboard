@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Sidebar, BottomNav } from "@/components/sidebar";
@@ -32,7 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${inter.variable} dark`}>
       <body className="min-h-screen bg-zinc-950 text-foreground antialiased font-sans lg:flex">
         <ActivityTracker />
-        <Sidebar />
+        <Suspense fallback={null}>
+          <Sidebar />
+        </Suspense>
         <main className="flex-1 min-w-0">
           <div className="mx-auto w-full max-w-[1760px] px-4 sm:px-6 py-6 sm:py-8 pb-28 lg:pb-8">{children}</div>
         </main>

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, verifyPassword, signUser, USER_COOKIE, logActivity, type TeamMember } from "@/lib/team-auth";
+import { createHmac } from "node:crypto";
+import { db, verifyPassword, signUser, identitySigningConfiguredWithSettings, USER_COOKIE, logActivity, type TeamMember } from "@/lib/team-auth";
+import { parseJsonWithUniqueKeys } from "@/lib/agent-workforce";
 
 export const runtime = "nodejs";
 
@@ -33,28 +35,72 @@ function slowEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+async function readLoginBody(req: NextRequest): Promise<{ email: string; password: string }> {
+  if (!req.body) throw new Error("Bad request");
+  const reader = req.body.getReader(); const chunks: Uint8Array[] = []; let total = 0;
+  while (true) {
+    const { done, value } = await reader.read(); if (done) break;
+    total += value.byteLength;
+    if (total > 8_192) { await reader.cancel(); throw new Error("Bad request"); }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  const parsed = parseJsonWithUniqueKeys(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Bad request");
+  const input = parsed as Record<string, unknown>;
+  if (Object.keys(input).some((key) => key !== "email" && key !== "password")) throw new Error("Bad request");
+  const email = input.email === undefined ? "" : input.email;
+  if (typeof email !== "string" || email.length > 320 || /[\u0000-\u001f\u007f-\u009f]/.test(email)) throw new Error("Bad request");
+  if (typeof input.password !== "string" || !input.password || input.password.length > 1_024 || /[\u0000-\u001f\u007f-\u009f]/.test(input.password)) throw new Error("Bad request");
+  return { email: email.trim().toLowerCase(), password: input.password };
+}
+
+async function loginRateLimited(req: NextRequest, email: string, memberId: string | null): Promise<boolean> {
+  const secret = process.env.SALESOS_IDENTITY_SECRET!;
+  const source = (req.headers.get("x-vercel-forwarded-for") ?? req.headers.get("x-real-ip") ?? req.headers.get("x-forwarded-for") ?? "unknown").split(",")[0].trim();
+  const digest = (scope: string, value: string) => createHmac("sha256", secret).update(`${scope}:${value}`).digest("hex");
+  const paths = [`login:source:${digest("source", source)}`, `login:account:${digest("account", email || "<master>")}`];
+  if (memberId) paths.push(`login:member:${digest("member", memberId)}`);
+  const client = db();
+  const { error: insertError } = await client.from("team_activity").insert(paths.map((path) => ({ member_id: null, member_name: "Unknown", type: "login_attempt", summary: "Login attempt", path })));
+  if (insertError) throw new Error("Login protection unavailable");
+  const cutoff = new Date(Date.now() - 15 * 60_000).toISOString();
+  const counts = await Promise.all(paths.map((path) => client.from("team_activity").select("id", { count: "exact", head: true }).eq("type", "login_attempt").eq("path", path).gte("created_at", cutoff)));
+  if (counts.some((result) => result.error)) throw new Error("Login protection unavailable");
+  return counts.some((result) => (result.count ?? 0) > 10);
+}
+
 export async function POST(req: NextRequest) {
   const masterPassword = process.env.SALESOS_PASSWORD;
   const sessionToken = process.env.SALESOS_SESSION_TOKEN;
   if (!sessionToken) {
     return NextResponse.json({ error: "Server misconfigured: SALESOS_SESSION_TOKEN not set." }, { status: 503 });
   }
+  if (!await identitySigningConfiguredWithSettings()) {
+    return NextResponse.json({ error: "Server identity signing is not configured." }, { status: 503 });
+  }
 
   let email = "", password = "";
   try {
-    const body = await req.json();
-    email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-    password = typeof body?.password === "string" ? body.password : "";
+    ({ email, password } = await readLoginBody(req));
   } catch {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
-  if (!password) return NextResponse.json({ error: "Enter your password" }, { status: 400 });
-
-  // 1. Team account
+  let member: TeamMember | null = null;
   if (email) {
-    const { data } = await db().from("team_accounts").select("*").ilike("email", email).maybeSingle();
-    const member = data as TeamMember | null;
+    const { data, error } = await db().from("team_accounts").select("*").eq("email", email).maybeSingle();
+    if (error) return NextResponse.json({ error: "Login is temporarily unavailable." }, { status: 503 });
+    member = data as TeamMember | null;
+  }
+  try {
+    if (await loginRateLimited(req, email, member?.id ?? null)) return NextResponse.json({ error: "Too many login attempts. Try again in 15 minutes." }, { status: 429, headers: { "Retry-After": "900" } });
+  } catch {
+    return NextResponse.json({ error: "Login protection is temporarily unavailable." }, { status: 503 });
+  }
 
+  // 1. Team account, resolved by exact normalized email.
+  if (email) {
     if (member && member.active && verifyPassword(password, member.password_hash)) {
       await db().from("team_accounts").update({
         last_login_at: new Date().toISOString(),
@@ -71,10 +117,12 @@ export async function POST(req: NextRequest) {
       res.cookies.set({ name: USER_COOKIE, value: signUser(member.id), ...COOKIE_OPTS });
       return res;
     }
-    // Fall through to the master password — an email typo shouldn't hard-block.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return NextResponse.json({ error: "That email and password don't match." }, { status: 401 });
   }
 
-  // 2. Master password (owner fallback)
+  // 2. Master password (owner fallback). It is reachable only without an email,
+  // so every attempt shares the stable <master> account throttle bucket.
   if (masterPassword && slowEqual(password, masterPassword)) {
     const { data } = await db().from("team_accounts").select("*").eq("role", "owner").eq("active", true).limit(1).maybeSingle();
     const owner = data as TeamMember | null;

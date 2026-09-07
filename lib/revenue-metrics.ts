@@ -44,9 +44,47 @@ export function collectedManualPayments<T extends ManualPaymentRevenueRow>(
 }
 
 export function saleRevenueAmount(sale: SaleRevenueFields): number {
-  return Number(sale.new_revenue ?? 0)
-    || Number(sale.deal_amount ?? 0)
-    || Number(sale.cc_upfront ?? 0);
+  if (sale.new_revenue !== null && sale.new_revenue !== undefined) {
+    const explicitRevenue = Number(sale.new_revenue);
+    return Number.isFinite(explicitRevenue) ? explicitRevenue : 0;
+  }
+
+  const legacyDealAmount = Number(sale.deal_amount ?? 0);
+  if (Number.isFinite(legacyDealAmount) && legacyDealAmount !== 0) return legacyDealAmount;
+
+  const upfrontCash = Number(sale.cc_upfront ?? 0);
+  return Number.isFinite(upfrontCash) ? upfrontCash : 0;
+}
+
+export type DashboardSaleRevenueRow = SaleRevenueFields & {
+  name: string;
+  result?: string | null;
+  call_date?: string | null;
+  offer?: string | null;
+};
+
+export type DashboardBookedRevenueEvent = {
+  name: string;
+  amount: number;
+  date: string;
+  kind: "Sale";
+  offer: string | null;
+};
+
+export function dashboardBookedRevenueEvents(
+  sales: DashboardSaleRevenueRow[],
+): DashboardBookedRevenueEvent[] {
+  return sales.flatMap((sale) => {
+    const amount = saleRevenueAmount(sale);
+    if (sale.result !== "✅ Sale" || amount <= 0 || !sale.call_date) return [];
+    return [{
+      name: sale.name,
+      amount,
+      date: sale.call_date,
+      kind: "Sale" as const,
+      offer: sale.offer ?? null,
+    }];
+  });
 }
 
 export function netSucceededChargeCents(charge: StripeChargeRevenueFields): number {

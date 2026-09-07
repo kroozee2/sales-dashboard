@@ -12,7 +12,8 @@ type Tab = { href: string; label: string; emoji: string };
 export const SUB_TAB_GROUPS: Record<string, Tab[]> = {
   leads: [
     { href: "/leads", label: "Leads", emoji: "🎯" },
-    { href: "/instagram-hot-leads", label: "IG Hot Leads", emoji: "🔥" },
+    { href: "/leads/sales-calls", label: "Sales Calls", emoji: "📞" },
+    { href: "/hot-leads", label: "Hot", emoji: "🔥" },
     { href: "/messages", label: "Messages", emoji: "💬" },
     { href: "/scripts", label: "Scripts", emoji: "💬" },
     { href: "/signups", label: "Signups", emoji: "🆕" },
@@ -20,8 +21,7 @@ export const SUB_TAB_GROUPS: Record<string, Tab[]> = {
   ],
   tasks: [
     { href: "/tasks", label: "Tasks", emoji: "📋" },
-    { href: "/projects", label: "Projects", emoji: "🗂️" },
-    { href: "/winning-formula", label: "Winning", emoji: "🔥" },
+    { href: "/winning-formula", label: "Winning Formula", emoji: "🔥" },
   ],
   resources: [
     { href: "/resources", label: "Resources", emoji: "🎁" },
@@ -30,7 +30,7 @@ export const SUB_TAB_GROUPS: Record<string, Tab[]> = {
 };
 
 export function SubTabs({ group, className }: { group: keyof typeof SUB_TAB_GROUPS; className?: string }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const tabs = SUB_TAB_GROUPS[group];
   if (!tabs) return null;
   return (
@@ -63,7 +63,7 @@ export function SubTabs({ group, className }: { group: keyof typeof SUB_TAB_GROU
 }
 
 // Shared Both / Andrew / Jameson selector — drives Tasks, Winning Formula, KPIs.
-function PersonSelect() {
+export function PersonSelect() {
   const [person, setPerson] = usePerson();
   const OPTS: { k: Person; label: string; title: string }[] = [
     { k: "all", label: "Both", title: "Both" },

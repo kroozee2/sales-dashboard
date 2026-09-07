@@ -1,37 +1,54 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 // `match` lists extra route prefixes that keep this item highlighted — used
 // where one sidebar entry fronts a group of sub-tabbed pages.
-type NavItem = { href: string; label: string; emoji: string; match?: string[]; section?: string };
+type NavItem = { href: string; label: string; emoji: string; match?: string[]; section?: string; contentTab?: "dashboard" | "calendar" | "proof" };
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Dashboard", emoji: "🏠", section: "Command" },
-  { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Command" },
+  { href: "/morning-brief", label: "Brief", emoji: "☀️", section: "Command" },
   { href: "/goals", label: "Goals", emoji: "🏁", section: "Command" },
+  { href: "/projects", label: "Projects", emoji: "🗂️", section: "Command" },
+  { href: "/tasks", label: "Tasks", emoji: "📋", match: ["/winning-formula"], section: "Command" },
 
-  { href: "/content", label: "Content", emoji: "✍️", section: "Growth" },
-  { href: "/instagram", label: "Instagram", emoji: "📸", match: ["/instagram-hot-leads"], section: "Growth" },
-  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications", "/instagram-hot-leads"], section: "Growth" },
-  { href: "/calls", label: "Calls", emoji: "📞", section: "Growth" },
-  { href: "/revenue", label: "Revenue", emoji: "💰", section: "Growth" },
+  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications", "/hot-leads", "/instagram-hot-leads"], section: "Sales" },
+  { href: "/calls", label: "Sales Calls", emoji: "📞", section: "Sales" },
+  { href: "/revenue", label: "Revenue", emoji: "💰", section: "Sales" },
 
+  { href: "/content?tab=dashboard", label: "Dashboard", emoji: "📊", contentTab: "dashboard", section: "Marketing" },
+  { href: "/content", label: "Calendar", emoji: "🗓️", contentTab: "calendar", section: "Marketing" },
+  { href: "/instagram", label: "Instagram", emoji: "📸", section: "Marketing" },
+  { href: "/youtube", label: "YouTube", emoji: "▶️", section: "Marketing" },
+  { href: "/content?tab=proof", label: "Proof", emoji: "🏆", contentTab: "proof", section: "Marketing" },
+
+  { href: "/clients/dashboard", label: "Dashboard", emoji: "📊", section: "Clients" },
+  { href: "/clients/members", label: "Members", emoji: "👥", section: "Clients" },
+  { href: "/clients/calendar", label: "Calendar", emoji: "📅", section: "Clients" },
+
+  { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Backend" },
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
-  { href: "/tasks", label: "Execution", emoji: "⚡", match: ["/projects", "/winning-formula"], section: "Backend" },
   { href: "/team", label: "Team", emoji: "👥", section: "Backend" },
 
+  { href: "/messaging", label: "Messaging", emoji: "🧠", section: "Vault" },
   { href: "/playbook", label: "Playbook", emoji: "📋", section: "Vault" },
   { href: "/resources", label: "Resources", emoji: "🎁", match: ["/two-step"], section: "Vault" },
   { href: "/install", label: "Install App", emoji: "📲" },
 ];
 
 // Whether a nav item should show as active for the current path.
-function isActive(n: NavItem, pathname: string): boolean {
-  if (pathname === n.href || pathname.startsWith(n.href + "/")) return true;
+function isActive(n: NavItem, pathname: string, contentTab = "calendar"): boolean {
+  if (n.contentTab && pathname === "/content") {
+    if (n.contentTab === "dashboard") return contentTab === "dashboard";
+    if (n.contentTab === "proof") return contentTab === "proof";
+    return n.contentTab === "calendar" && contentTab !== "dashboard" && contentTab !== "proof";
+  }
+  const hrefPath = n.href.split("?")[0];
+  if (pathname === hrefPath || pathname.startsWith(hrefPath + "/")) return true;
   return (n.match ?? []).some((m) => pathname === m || pathname.startsWith(m + "/"));
 }
 
@@ -47,7 +64,7 @@ const BOTTOM_NAV: NavItem[] = [
 ];
 
 export function BottomNav() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   // The login screen renders before the visitor is authenticated — don't show
   // them the app's structure (or Andrew's name) on the way in.
   if (pathname === "/login") return null;
@@ -89,11 +106,13 @@ function Brand() {
   );
 }
 
-function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
-  const sections = ["Command", "Growth", "Backend", "Vault"];
+function NavList({ pathname, contentTab, onNavigate }: { pathname: string; contentTab: string; onNavigate?: () => void }) {
+  const sections = ["Command", "Sales", "Marketing", "Clients", "Backend", "Vault"];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Command: true,
-    Growth: true,
+    Sales: true,
+    Marketing: true,
+    Clients: true,
     Backend: true,
     Vault: true,
   });
@@ -108,7 +127,7 @@ function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () =
         const items = NAV_ITEMS.filter((n) => n.section === section);
         if (items.length === 0) return null;
         const isExpanded = expanded[section];
-        const hasActiveChild = items.some((n) => isActive(n, pathname));
+        const hasActiveChild = items.some((n) => isActive(n, pathname, contentTab));
 
         return (
           <div key={section} className="space-y-0.5">
@@ -121,10 +140,10 @@ function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () =
                 ▼
               </span>
             </button>
-            
+
             <div className={cn("space-y-0.5 overflow-hidden transition-all duration-200", isExpanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0")}>
               {items.map((n) => {
-                const active = isActive(n, pathname);
+                const active = isActive(n, pathname, contentTab);
                 return (
                   <Link
                     key={n.href}
@@ -142,18 +161,18 @@ function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () =
                 );
               })}
             </div>
-            
+
             {!isExpanded && hasActiveChild && (
               <div className="mx-3 h-0.5 rounded-full bg-blue-500/40 animate-pulse" />
             )}
           </div>
         );
       })}
-      
+
       {/* Unsectioned items */}
       <div className="space-y-0.5 pt-2">
         {NAV_ITEMS.filter((n) => !n.section).map((n) => {
-          const active = isActive(n, pathname);
+          const active = isActive(n, pathname, contentTab);
           return (
             <Link
               key={n.href}
@@ -204,7 +223,9 @@ function Footer({ pathname, onNavigate }: { pathname: string; onNavigate?: () =>
 }
 
 export function Sidebar() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
+  const contentTab = searchParams.get("tab") ?? "calendar";
   const [open, setOpen] = useState(false);
 
   // See BottomNav: no app chrome on the login screen.
@@ -215,7 +236,7 @@ export function Sidebar() {
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex flex-col w-60 shrink-0 h-screen sticky top-0 border-r border-zinc-800 bg-zinc-900/60 backdrop-blur">
         <Brand />
-        <NavList pathname={pathname} />
+        <NavList pathname={pathname} contentTab={contentTab} />
         <Footer pathname={pathname} />
       </aside>
 
@@ -241,7 +262,7 @@ export function Sidebar() {
               <Brand />
               <button onClick={() => setOpen(false)} className="text-zinc-500 hover:text-white text-2xl leading-none">×</button>
             </div>
-            <NavList pathname={pathname} onNavigate={() => setOpen(false)} />
+            <NavList pathname={pathname} contentTab={contentTab} onNavigate={() => setOpen(false)} />
             <Footer pathname={pathname} onNavigate={() => setOpen(false)} />
           </aside>
         </div>

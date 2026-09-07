@@ -14,15 +14,17 @@ export async function GET(request: NextRequest) {
   const stage = searchParams.get('stage') ?? '';
   const quality = searchParams.get('quality') ?? '';
   const source = searchParams.get('source') ?? '';
+  const summary = searchParams.get('summary') === 'true';
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
-  const limit = Math.min(500, Math.max(1, parseInt(searchParams.get('limit') ?? '100', 10)));
+  const maxLimit = summary ? 1000 : 500;
+  const limit = Math.min(maxLimit, Math.max(1, parseInt(searchParams.get('limit') ?? '100', 10)));
 
   const supabase = createLeadsAdminClient();
   const from = (page - 1) * limit;
 
   let query = supabase
     .from('leads')
-    .select('*', { count: 'exact' })
+    .select(summary ? 'id,full_name,prospect_stage' : '*', { count: 'exact' })
     .order('last_update', { ascending: false, nullsFirst: false })
     .range(from, from + limit - 1);
 

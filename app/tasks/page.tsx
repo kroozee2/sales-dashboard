@@ -102,7 +102,7 @@ export default function ExecutionPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [person] = usePerson();
   const [showDone, setShowDone] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("task"));
 
   useEffect(() => {
     fetch("/api/tasks").then((r) => r.json()).then((d) => setTasks(Array.isArray(d) ? d : []));
@@ -188,7 +188,7 @@ export default function ExecutionPage() {
         </button>
       </div>
 
-      <QuickAdd projects={projects} defaultOwner={person === "all" ? "Andrew" : person} onAdd={add} />
+      <QuickAdd key={person === "all" ? "Andrew" : person} projects={projects} defaultOwner={person === "all" ? "Andrew" : person} onAdd={add} />
 
       {!tasks ? (
         <p className="text-zinc-600 text-center py-16 animate-pulse">Loading…</p>
@@ -238,8 +238,6 @@ function QuickAdd({ projects, defaultOwner, onAdd }: { projects: Project[]; defa
   const [owner, setOwner] = useState<Owner>(defaultOwner);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { setOwner(defaultOwner); }, [defaultOwner]);
 
   function submit() {
     const n = name.trim();

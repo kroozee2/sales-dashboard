@@ -30,7 +30,7 @@ const HINTS = [
 ];
 
 export function AIAssistant() {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "";
   const [phase, setPhase] = useState<Phase>('closed');
   const [text, setText] = useState('');
   const [result, setResult] = useState<AssistantResult | null>(null);

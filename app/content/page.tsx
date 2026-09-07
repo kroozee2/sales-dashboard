@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   PLATFORMS, CATEGORIES, REEL_PILLARS, EVENT_TYPES, CONTENT_STATUSES,
   platformLabel, platformEmoji, platformChip, platformDot, categoryMeta, statusMeta,
@@ -9,6 +10,7 @@ import {
 import GraphicsStudio from "@/components/graphics-studio";
 import CompetitorResearch from "@/components/competitor-research";
 import ContentSpreadsheet from "@/components/content-spreadsheet";
+import { publishedSourcesOf } from "@/lib/content-published-sources";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ContentItem {
@@ -16,7 +18,7 @@ interface ContentItem {
   scheduled_date: string | null; platforms: string[]; drafts: Record<string, string>;
   posted_platforms: string[]; notes: string | null; meta: Record<string, unknown>;
   media_urls: string[]; creative_type: string | null; video_script: string | null;
-  event_id: string | null; created_at: string;
+  event_id: string | null; created_at: string; updated_at: string;
 }
 interface Idea {
   id: string; text: string | null; image_url: string | null; title: string | null;
@@ -30,10 +32,12 @@ interface CEvent {
 }
 
 const TABS = [
+  { key: "dashboard", label: "Dashboard", emoji: "📊" },
   { key: "calendar", label: "Calendar", emoji: "🗓️" },
   { key: "events", label: "Events", emoji: "🎟️" },
-  { key: "dashboard", label: "Dashboard", emoji: "📊" },
   { key: "posted", label: "Posted", emoji: "📣" },
+  { key: "youtube", label: "YouTube", emoji: "▶️" },
+  { key: "instagram", label: "Instagram", emoji: "📸" },
   { key: "ideas", label: "Ideas", emoji: "💡" },
   { key: "proof", label: "Proof", emoji: "🏆" },
   { key: "research", label: "Research", emoji: "🔎" },
@@ -45,12 +49,12 @@ const TABS = [
 interface Posted {
   id: string; platform: string; profile_name: string | null; profile_url: string | null;
   post_url: string | null; text: string | null; posted_at: string | null;
-  likes: number; comments: number; shares: number; reactions: number; views: number; media_type: string | null;
+  likes: number | null; comments: number | null; shares: number | null; reactions: number | null; views: number | null; media_type: string | null;
 }
 interface Proof {
   id: string; headline: string | null; proof_point: string | null; one_liner: string | null;
   story: string | null; image_url: string | null; source_url: string | null; video_url: string | null;
-  person_name: string | null; created_at: string | null;
+  person_name: string | null; proof_kind: string | null; created_at: string | null;
   generated_assets: { ring_the_bell?: { headline: string; body: string }; client_celebrations?: { label: string; body: string }[]; client_story?: { subject_line: string; body: string } } | null;
 }
 interface Story {
@@ -61,8 +65,13 @@ interface Story {
 function useVoice(onText: (t: string) => void) {
   const [listening, setListening] = useState(false);
   const recRef = useRef<{ stop: () => void } | null>(null);
-  const supported = typeof window !== "undefined" &&
-    !!((window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition);
+  // Resolved after mount: checking `window` during render makes the server and
+  // client disagree, and the resulting hydration mismatch throws away the whole
+  // tree (which was silently resetting the open tab).
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    setSupported(!!((window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition));
+  }, []);
   function toggle() {
     if (listening) { recRef.current?.stop(); setListening(false); return; }
     const SR = (window as unknown as { webkitSpeechRecognition?: new () => { continuous: boolean; interimResults: boolean; lang: string; onresult: (e: { resultIndex: number; results: { [i: number]: { isFinal: boolean; 0: { transcript: string } }; length: number } }) => void; onend: () => void; start: () => void; stop: () => void } }).webkitSpeechRecognition;
@@ -241,6 +250,7 @@ function ItemDrawer({ item, events, proof, onClose, onPatch, onDelete }: {
   onPatch: (id: string, patch: Partial<ContentItem>) => Promise<ContentItem | null>; onDelete: (id: string) => void;
 }) {
   const [local, setLocal] = useState<ContentItem>(item);
+  const publishedSources = publishedSourcesOf(local.meta);
   const [busy, setBusy] = useState(false);
   const [showDrafts, setShowDrafts] = useState(() => Object.keys(item.drafts || {}).length > 0);
   const m0 = (item.meta || {}) as Record<string, string>;
@@ -396,6 +406,24 @@ function ItemDrawer({ item, events, proof, onClose, onPatch, onDelete }: {
             </div>
           )}
         </div>
+
+        {publishedSources.length > 0 && (
+          <div className="px-5 py-4 space-y-2 border-b border-zinc-800">
+            <p className="text-zinc-400 text-xs uppercase tracking-wide">🔗 Published links</p>
+            {publishedSources.map((source) => (
+              <a
+                key={`${source.platform}:${source.external_id}`}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm hover:border-zinc-700"
+              >
+                <span className="text-zinc-200">{platformEmoji(source.platform)} {platformLabel(source.platform)}</span>
+                <span className="text-blue-400">Open →</span>
+              </a>
+            ))}
+          </div>
+        )}
 
         {/* Write it — the simple manual fields (headline, hook, details, CTA) */}
         <div className="px-5 py-4 space-y-3 flex-1">
@@ -861,33 +889,6 @@ function ProofThumb({ p, className = "w-16 h-16" }: { p: Proof; className?: stri
   return <div className={`${className} rounded-xl bg-gradient-to-br from-emerald-600/20 to-blue-600/20 border border-zinc-800 flex items-center justify-center text-2xl flex-shrink-0`}>🏆</div>;
 }
 
-function ProofCard({ p, onOpen, onDelete }: { p: Proof; onOpen: () => void; onDelete: () => void }) {
-  const posts = proofPosts(p);
-  const kind = proofKind(p);
-  const KIND = { video: "🎬", picture: "🖼️", spoken: "🎙️" }[kind];
-  return (
-    <button onClick={onOpen} className="group text-left bg-zinc-900 border border-zinc-800 hover:border-zinc-600 rounded-2xl p-4 transition-colors w-full">
-      <div className="flex gap-3">
-        <ProofThumb p={p} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-white text-sm font-semibold leading-snug">{proofName(p)}</p>
-            <span onClick={(e) => { e.stopPropagation(); onDelete(); }} role="button" tabIndex={-1} className="text-zinc-600 hover:text-rose-400 text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">🗑</span>
-          </div>
-          {p.proof_point && <p className="text-emerald-400 text-xs font-semibold mt-0.5">{p.proof_point}</p>}
-          {p.one_liner && <p className="text-zinc-400 text-xs mt-1 leading-relaxed line-clamp-2">{p.one_liner}</p>}
-          <div className="flex items-center gap-2 mt-2">
-            <span className="text-[10px] text-zinc-500">{KIND}</span>
-            {posts.length > 0 && <span className="text-[10px] text-zinc-600">· {posts.length} ready posts</span>}
-            <span className="ml-auto text-[11px] text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity">Edit →</span>
-          </div>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-// Editable slide-in for a single proof: name, point, one-liner, story, media, posts.
 function ProofDrawer({ p, onClose, onChanged, onDelete }: { p: Proof; onClose: () => void; onChanged: () => void; onDelete: () => void }) {
   const [local, setLocal] = useState<Proof>(p);
   const [busy, setBusy] = useState(false);
@@ -1012,32 +1013,61 @@ function ProofDrawer({ p, onClose, onChanged, onDelete }: { p: Proof; onClose: (
 }
 
 // Spreadsheet view — date added, name, thumbnail, type, proof point, posted-at link.
-function ProofTable({ proof, onOpen }: { proof: Proof[]; onOpen: (id: string) => void }) {
+// Who the proof is about — a client win, or one of Andrew's own.
+const isClientProof = (p: Proof) => (p.proof_kind ?? "client") !== "personal";
+const KIND_CHIP = {
+  client: { label: "Client", emoji: "🤝", chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+  personal: { label: "Personal", emoji: "🧔", chip: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
+} as const;
+const kindMeta = (p: Proof) => isClientProof(p) ? KIND_CHIP.client : KIND_CHIP.personal;
+
+function ProofTable({ proof, onOpen, onPatch }: { proof: Proof[]; onOpen: (id: string) => void; onPatch: (id: string, u: Partial<Proof>) => void }) {
   const fmt = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
   const TYPE = { video: { e: "🎬", label: "Video" }, picture: { e: "🖼️", label: "Picture" }, spoken: { e: "🎙️", label: "Spoken" } } as const;
   return (
     <div className="overflow-x-auto rounded-2xl border border-zinc-800">
-      <table className="w-full text-sm min-w-[660px]">
+      <table className="w-full text-sm min-w-[860px] border-collapse">
         <thead>
-          <tr className="bg-zinc-900/70 text-zinc-500 text-[11px] uppercase tracking-wide">
-            <th className="text-left font-semibold px-3 py-2.5">Added</th>
+          <tr className="bg-zinc-900/80 border-b border-zinc-800 text-zinc-400 text-[11px] uppercase tracking-wide">
             <th className="text-left font-semibold px-3 py-2.5 w-14">Media</th>
-            <th className="text-left font-semibold px-3 py-2.5">Name</th>
-            <th className="text-left font-semibold px-3 py-2.5">Type</th>
-            <th className="text-left font-semibold px-3 py-2.5">Proof point</th>
-            <th className="text-left font-semibold px-3 py-2.5">Posted at</th>
+            <th className="text-left font-semibold px-3 py-2.5">Who</th>
+            <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Source</th>
+            <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Format</th>
+            <th className="text-left font-semibold px-3 py-2.5">The win</th>
+            <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Added</th>
+            <th className="text-left font-semibold px-3 py-2.5 whitespace-nowrap">Link</th>
           </tr>
         </thead>
         <tbody>
-          {proof.map((p) => {
+          {proof.map((p, i) => {
             const t = TYPE[proofKind(p)];
+            const km = kindMeta(p);
             return (
-              <tr key={p.id} onClick={() => onOpen(p.id)} className="border-t border-zinc-800/70 hover:bg-zinc-800/30 cursor-pointer">
+              <tr key={p.id} className={`border-b border-zinc-800/60 hover:bg-zinc-800/30 transition-colors ${i % 2 ? "bg-zinc-900/30" : ""}`}>
+                <td className="px-3 py-2 align-middle cursor-pointer" onClick={() => onOpen(p.id)}><ProofThumb p={p} className="w-11 h-11" /></td>
+                {/* the person it's about — editable right here */}
+                <td className="px-2 py-2 align-middle min-w-[150px]">
+                  <input defaultValue={p.person_name ?? ""} placeholder="Add a name…"
+                    onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== p.person_name) onPatch(p.id, { person_name: v }); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                    className="w-full bg-transparent focus:bg-zinc-950 border border-transparent focus:border-blue-500/50 rounded-md px-2 py-1 text-sm text-white placeholder-zinc-600 focus:outline-none transition-colors" />
+                </td>
+                {/* client vs personal */}
+                <td className="px-3 py-2 align-middle whitespace-nowrap">
+                  <select value={isClientProof(p) ? "client" : "personal"} onChange={(e) => onPatch(p.id, { proof_kind: e.target.value })}
+                    className={`rounded-lg px-2 py-1 text-[11px] font-semibold border cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 ${km.chip}`}>
+                    <option value="client" className="bg-zinc-900 text-zinc-200">🤝 Client</option>
+                    <option value="personal" className="bg-zinc-900 text-zinc-200">🧔 Personal</option>
+                  </select>
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap align-middle cursor-pointer" onClick={() => onOpen(p.id)}>
+                  <span className="inline-flex items-center gap-1 text-xs text-zinc-300 bg-zinc-800/70 rounded-full px-2 py-0.5">{t.e} {t.label}</span>
+                </td>
+                <td className="px-3 py-2 align-middle max-w-[300px] cursor-pointer" onClick={() => onOpen(p.id)}>
+                  <span className="block text-white text-[13px] font-medium line-clamp-1">{proofName(p)}</span>
+                  {p.proof_point && <span className="block text-emerald-400 text-[11px] line-clamp-1 mt-0.5">{p.proof_point}</span>}
+                </td>
                 <td className="px-3 py-2 text-zinc-500 whitespace-nowrap text-xs align-middle">{fmt(p.created_at)}</td>
-                <td className="px-3 py-2 align-middle"><ProofThumb p={p} className="w-11 h-11" /></td>
-                <td className="px-3 py-2 text-white font-medium align-middle max-w-[280px]"><span className="line-clamp-2">{proofName(p)}</span></td>
-                <td className="px-3 py-2 whitespace-nowrap align-middle"><span className="inline-flex items-center gap-1 text-xs text-zinc-300 bg-zinc-800/70 rounded-full px-2 py-0.5">{t.e} {t.label}</span></td>
-                <td className="px-3 py-2 text-emerald-400 text-xs align-middle max-w-[220px]"><span className="line-clamp-2">{p.proof_point || ""}</span></td>
                 <td className="px-3 py-2 whitespace-nowrap align-middle">
                   {p.video_url
                     ? <a href={p.video_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-blue-400 hover:text-blue-300 text-xs underline">{videoHost(p.video_url)} ↗</a>
@@ -1048,6 +1078,155 @@ function ProofTable({ proof, onOpen }: { proof: Proof[]; onOpen: (id: string) =>
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ─── Proof dashboard — how much proof we've actually gathered ────────────────
+function ProofDashboard({ proof }: { proof: Proof[] }) {
+  const [range, setRange] = useState<"week" | "month" | "quarter" | "year" | "all">("month");
+
+  // Buckets sized to the range, so the shape of the chart always reads well:
+  // daily for a week, weekly for a month/quarter, monthly for a year and all-time.
+  const RANGES = [
+    { k: "week", label: "Week", days: 7 }, { k: "month", label: "Month", days: 30 },
+    { k: "quarter", label: "Quarter", days: 90 }, { k: "year", label: "Year", days: 365 },
+    { k: "all", label: "All time", days: null },
+  ] as const;
+  const days = RANGES.find((r) => r.k === range)!.days;
+
+  const dated = proof.filter((p) => p.created_at);
+  const earliest = dated.length ? Math.min(...dated.map((p) => Date.parse(p.created_at!))) : Date.now();
+  const cutoff = days ? Date.now() - days * 86400000 : earliest;
+  const inRange = dated.filter((p) => Date.parse(p.created_at!) >= cutoff);
+
+  const isVideoProof = (p: Proof) => proofKind(p) === "video";
+  const count = (arr: Proof[], f: (p: Proof) => boolean) => arr.filter(f).length;
+
+  const videos = count(inRange, isVideoProof);
+  const shots = count(inRange, (p) => proofKind(p) === "picture");
+  const clients = count(inRange, isClientProof);
+  const personal = inRange.length - clients;
+  const namedClients = new Set(inRange.filter((p) => isClientProof(p) && p.person_name).map((p) => p.person_name)).size;
+
+  // Chart buckets
+  type B = { label: string; start: number; end: number; video: number; picture: number; other: number };
+  const buckets: B[] = [];
+  const mk = (label: string, start: number, end: number): B => ({ label, start, end, video: 0, picture: 0, other: 0 });
+  const now = new Date();
+  if (range === "week") {
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
+      const e = new Date(d); e.setHours(23, 59, 59, 999);
+      buckets.push(mk(["S", "M", "T", "W", "T", "F", "S"][d.getDay()], d.getTime(), e.getTime()));
+    }
+  } else if (range === "month" || range === "quarter") {
+    const weeks = range === "month" ? 5 : 13;
+    for (let i = weeks - 1; i >= 0; i--) {
+      const e = new Date(now); e.setDate(e.getDate() - i * 7); e.setHours(23, 59, 59, 999);
+      const st = new Date(e); st.setDate(e.getDate() - 6); st.setHours(0, 0, 0, 0);
+      buckets.push(mk(`${st.getMonth() + 1}/${st.getDate()}`, st.getTime(), e.getTime()));
+    }
+  } else {
+    const months = range === "year" ? 12 : Math.min(24, Math.max(1, Math.round((Date.now() - earliest) / (30.4 * 86400000)) + 1));
+    for (let i = months - 1; i >= 0; i--) {
+      const st = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const e = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59, 999);
+      buckets.push(mk(st.toLocaleDateString("en-US", { month: "short" }), st.getTime(), e.getTime()));
+    }
+  }
+  for (const p of dated) {
+    const t = Date.parse(p.created_at!);
+    const b = buckets.find((x) => t >= x.start && t <= x.end);
+    if (!b) continue;
+    const k = proofKind(p);
+    if (k === "video") b.video++; else if (k === "picture") b.picture++; else b.other++;
+  }
+  const maxB = Math.max(1, ...buckets.map((b) => b.video + b.picture + b.other));
+
+  // Who has given us the most proof
+  const byPerson = Object.entries(
+    inRange.filter((p) => p.person_name).reduce<Record<string, number>>((a, p) => { a[p.person_name!] = (a[p.person_name!] ?? 0) + 1; return a; }, {})
+  ).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const maxPerson = Math.max(1, ...byPerson.map(([, n]) => n));
+
+  const KPIS = [
+    { label: "Total proof", value: inRange.length, tone: "text-white", sub: range === "all" ? "all time" : `this ${range}` },
+    { label: "🎬 Video", value: videos, tone: "text-rose-300", sub: "testimonials" },
+    { label: "🖼️ Screenshots", value: shots, tone: "text-sky-300", sub: "receipts" },
+    { label: "🤝 Client", value: clients, tone: "text-emerald-300", sub: `${namedClients} named` },
+    { label: "🧔 Personal", value: personal, tone: "text-blue-300", sub: "own wins" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-white font-semibold text-sm">📊 Proof gathered</p>
+        <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1 overflow-x-auto no-scrollbar">
+          {RANGES.map((r) => (
+            <button key={r.k} onClick={() => setRange(r.k)}
+              className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${range === r.k ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>{r.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        {KPIS.map((k) => (
+          <div key={k.label} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-3.5">
+            <p className={`text-2xl font-extrabold tabular-nums leading-none ${k.tone}`}>{k.value}</p>
+            <p className="text-[11px] text-zinc-400 mt-1.5 font-medium">{k.label}</p>
+            <p className="text-[10px] text-zinc-600 mt-0.5">{k.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-white font-semibold text-sm">Proof collected over time</p>
+          <div className="flex items-center gap-2.5 text-[10px] text-zinc-500">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-rose-500" />Video</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-sky-500" />Screenshot</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-zinc-600" />Written</span>
+          </div>
+        </div>
+        <div className="flex items-end justify-between gap-1 h-40">
+          {buckets.map((b, i) => {
+            const total = b.video + b.picture + b.other;
+            const h = (v: number) => `${(v / maxB) * 100}%`;
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0 group">
+                <div className="w-full flex flex-col justify-end h-32 relative">
+                  <span className="absolute -top-4 left-0 right-0 text-center text-[9px] text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity">{total || ""}</span>
+                  {b.other > 0 && <div className="w-full bg-zinc-600 rounded-t-sm" style={{ height: h(b.other) }} />}
+                  {b.picture > 0 && <div className="w-full bg-sky-500" style={{ height: h(b.picture) }} />}
+                  {b.video > 0 && <div className="w-full bg-rose-500 rounded-b-sm" style={{ height: h(b.video) }} />}
+                  {total === 0 && <div className="w-full h-0.5 bg-zinc-800 rounded-full" />}
+                </div>
+                <span className="text-[9px] text-zinc-600 truncate w-full text-center">{b.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {byPerson.length > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          <p className="text-white font-semibold text-sm mb-3">Most proof by person</p>
+          <div className="space-y-2.5">
+            {byPerson.map(([name, n]) => (
+              <div key={name}>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-zinc-200 font-medium truncate">{name}</span>
+                  <span className="text-zinc-500 tabular-nums flex-shrink-0 ml-2">{n}</span>
+                </div>
+                <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500" style={{ width: `${(n / maxPerson) * 100}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1090,17 +1269,24 @@ function ProofTab({ proof, onChanged }: { proof: Proof[]; onChanged: () => void 
     } finally { setBusy(false); }
   }
   async function del(id: string) { await fetch("/api/content/proof", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); setOpenId(null); onChanged(); }
+  // Inline edits from the spreadsheet (who it's about, client vs personal).
+  async function patch(id: string, updates: Partial<Proof>) {
+    await fetch("/api/content/proof", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...updates }) });
+    onChanged();
+  }
 
   // Search + media-type filter + view mode + open drawer
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"all" | "video" | "picture" | "spoken">("all");
-  const [view, setView] = useState<"table" | "grid" | "gallery">("table");
+  const [view, setView] = useState<"table" | "gallery" | "dashboard">("table");
+  const [who, setWho] = useState<"all" | "client" | "personal">("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const q = query.trim().toLowerCase();
   const filtered = proof.filter((p) => {
+    if (who !== "all" && (who === "client") !== isClientProof(p)) return false;
     if (kind !== "all" && proofKind(p) !== kind) return false;
     if (!q) return true;
-    return [p.headline, p.proof_point, p.one_liner, p.story].some((f) => (f ?? "").toLowerCase().includes(q));
+    return [p.headline, p.proof_point, p.one_liner, p.story, p.person_name].some((f) => (f ?? "").toLowerCase().includes(q));
   });
   const openProof = proof.find((p) => p.id === openId) ?? null;
   const KINDS: { k: typeof kind; label: string }[] = [
@@ -1144,18 +1330,23 @@ function ProofTab({ proof, onChanged }: { proof: Proof[]; onChanged: () => void 
               <button key={o.k} onClick={() => setKind(o.k)} className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${kind === o.k ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>{o.label}</button>
             ))}
           </div>
+          <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
+            {([["all", "All"], ["client", "🤝 Client"], ["personal", "🧔 Personal"]] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setWho(k)} className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${who === k ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>{l}</button>
+            ))}
+          </div>
           {/* View switcher — spreadsheet / grid / gallery */}
           <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
-            {([{ v: "table", icon: "📋", label: "Table" }, { v: "grid", icon: "▦", label: "Grid" }, { v: "gallery", icon: "🖼️", label: "Gallery" }] as const).map((o) => (
+            {([{ v: "table", icon: "📋", label: "Spreadsheet" }, { v: "gallery", icon: "🖼️", label: "Gallery" }, { v: "dashboard", icon: "📊", label: "Dashboard" }] as const).map((o) => (
               <button key={o.v} onClick={() => setView(o.v)} title={o.label} className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${view === o.v ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>{o.icon}</button>
             ))}
           </div>
         </div>
       )}
-      {proof.length === 0 ? <p className="text-zinc-600 text-sm text-center py-8">No proof yet. Add a client win above.</p> : filtered.length === 0 ? (
+      {proof.length === 0 ? <p className="text-zinc-600 text-sm text-center py-8">No proof yet. Add a client win above.</p> : (view !== "dashboard" && filtered.length === 0) ? (
         <p className="text-zinc-600 text-sm text-center py-8">No proof matches. Try a different search or filter.</p>
       ) : view === "table" ? (
-        <ProofTable proof={filtered} onOpen={setOpenId} />
+        <ProofTable proof={filtered} onOpen={setOpenId} onPatch={patch} />
       ) : view === "gallery" ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {filtered.map((p) => (
@@ -1169,9 +1360,7 @@ function ProofTab({ proof, onChanged }: { proof: Proof[]; onChanged: () => void 
           ))}
         </div>
       ) : (
-        <div className="grid lg:grid-cols-2 gap-3 items-start">
-          {filtered.map((p) => <ProofCard key={p.id} p={p} onOpen={() => setOpenId(p.id)} onDelete={() => void del(p.id)} />)}
-        </div>
+        <ProofDashboard proof={proof} />
       )}
       {openProof && <ProofDrawer p={openProof} onClose={() => setOpenId(null)} onChanged={onChanged} onDelete={() => void del(openProof.id)} />}
     </div>
@@ -1179,7 +1368,7 @@ function ProofTab({ proof, onChanged }: { proof: Proof[]; onChanged: () => void 
 }
 
 // ─── POSTED tab (what actually went out — pulled from the platforms) ──────────
-function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => void }) {
+function PostedTab({ posted, onChanged, lockPlatform }: { posted: Posted[]; onChanged: () => void; lockPlatform?: "youtube" | "instagram" | "facebook" }) {
   const [query, setQuery] = useState("");
   const [syncing, setSyncing] = useState<string | null>(null); // which platform is syncing
   const [msg, setMsg] = useState<string | null>(null);
@@ -1190,16 +1379,20 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
     if (syncing) return;
     setSyncing(platform); setMsg(`Pulling ${label}… this can take a couple minutes.`);
     try {
-      const started = await (await fetch("/api/content/posted/sync-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform }) })).json();
-      if (started.error || !started.runs) { setMsg(started.error || "Could not start sync."); return; }
-      const deadline = Date.now() + 8 * 60 * 1000; // give it up to 8 minutes
-      while (Date.now() < deadline) {
+      let started: { started?: boolean; pendingStart?: boolean; runs?: Array<{ runId: string; datasetId: string }>; error?: string } | null = null;
+      while (!started?.started && !started?.runs) {
+        const response = await fetch("/api/content/posted/sync-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform }) });
+        started = await response.json();
+        if (!response.ok && !started?.pendingStart) { setMsg(started?.error || "Could not start sync."); return; }
+        if (!started?.started && !started?.runs) await new Promise((resolve) => setTimeout(resolve, 2500));
+      }
+      while (true) {
         await new Promise((r) => setTimeout(r, 5000));
-        const poll = await (await fetch("/api/content/posted/sync-poll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform, runs: started.runs }) })).json();
+        const pollBody = platform === "facebook" ? { platform, runs: started.runs } : { platform };
+        const poll = await (await fetch("/api/content/posted/sync-poll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(pollBody) })).json();
         if (poll.error) { setMsg(poll.error); return; }
         if (poll.done) { setMsg(`${label}: pulled ${poll.synced} posts ✓`); onChanged(); return; }
       }
-      setMsg(`${label} is taking a while — it'll finish in the background. Refresh in a minute.`);
     } catch { setMsg("Sync failed. Try again."); } finally { setSyncing(null); }
   }
   const SYNCS: { k: "instagram" | "facebook" | "youtube"; label: string }[] = [
@@ -1209,7 +1402,9 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
   type SortKey = "posted_at" | "likes" | "comments" | "shares" | "reactions" | "views";
   const [sortKey, setSortKey] = useState<SortKey>("posted_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [plat, setPlat] = useState<"all" | "facebook" | "instagram" | "youtube">("all");
+  const [plat, setPlat] = useState<"all" | "facebook" | "instagram" | "youtube">(lockPlatform ?? "all");
+  // When this tab IS a platform (YouTube / Instagram), the switcher is redundant.
+  const locked = !!lockPlatform;
   const toggleSort = (k: SortKey) => { if (sortKey === k) setSortDir((d) => (d === "desc" ? "asc" : "desc")); else { setSortKey(k); setSortDir("desc"); } };
 
   const fbCount = posted.filter((p) => p.platform === "facebook").length;
@@ -1229,10 +1424,11 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
     .sort((a, b) => {
       let av: number, bv: number;
       if (sortKey === "posted_at") { av = a.posted_at ? Date.parse(a.posted_at) : 0; bv = b.posted_at ? Date.parse(b.posted_at) : 0; }
-      else { av = a[sortKey]; bv = b[sortKey]; }
+      else { av = a[sortKey] ?? -1; bv = b[sortKey] ?? -1; }
       return sortDir === "desc" ? bv - av : av - bv;
     });
-  const totals = posted.reduce((a, p) => ({ likes: a.likes + p.likes, comments: a.comments + p.comments, shares: a.shares + p.shares, views: a.views + p.views }), { likes: 0, comments: 0, shares: 0, views: 0 });
+  const scope = locked ? posted.filter((p) => p.platform === lockPlatform) : posted;
+  const totals = scope.reduce((a, p) => ({ likes: a.likes + (p.likes ?? 0), comments: a.comments + (p.comments ?? 0), shares: a.shares + (p.shares ?? 0), views: a.views + (p.views ?? 0) }), { likes: 0, comments: 0, shares: 0, views: 0 });
   const arrow = (k: SortKey) => (sortKey === k ? (sortDir === "desc" ? " ↓" : " ↑") : "");
 
   const Th = ({ k, label, className = "" }: { k: SortKey; label: string; className?: string }) => (
@@ -1245,8 +1441,15 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
-          <p className="text-white font-semibold text-sm">📣 Posted <span className="text-zinc-600 font-normal">({posted.length} posts)</span></p>
-          <p className="text-zinc-500 text-xs mt-0.5">Everything that actually went out — Instagram + Facebook (90d) &amp; YouTube (this year) — {totals.likes} likes · {totals.comments} comments · {totals.views.toLocaleString()} views.</p>
+          <p className="text-white font-semibold text-sm">
+            {locked ? `${lockPlatform === "youtube" ? "▶️ YouTube" : lockPlatform === "instagram" ? "📸 Instagram" : "👍 Facebook"}` : "📣 Posted"}
+            <span className="text-zinc-600 font-normal"> ({scope.length} posts)</span>
+          </p>
+          <p className="text-zinc-500 text-xs mt-0.5">
+            {locked
+              ? `${totals.views.toLocaleString()} views · ${totals.likes.toLocaleString()} likes · ${totals.comments.toLocaleString()} comments`
+              : `Everything that actually went out — Instagram + Facebook (90d) & YouTube (365d) — ${totals.likes} likes · ${totals.comments} comments · ${totals.views.toLocaleString()} views.`}
+          </p>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-zinc-600 text-[11px]">🔄 Sync:</span>
@@ -1262,13 +1465,15 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
 
       {posted.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
-            {PLATS.map((o) => (
-              <button key={o.k} onClick={() => setPlat(o.k)} className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${plat === o.k ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>
-                {o.label} <span className={plat === o.k ? "text-blue-200" : "text-zinc-600"}>{o.n}</span>
-              </button>
-            ))}
-          </div>
+          {!locked && (
+            <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
+              {PLATS.map((o) => (
+                <button key={o.k} onClick={() => setPlat(o.k)} className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${plat === o.k ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>
+                  {o.label} <span className={plat === o.k ? "text-blue-200" : "text-zinc-600"}>{o.n}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="relative flex-1 min-w-[180px]">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">🔍</span>
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your posts…"
@@ -1334,10 +1539,10 @@ function PostedTab({ posted, onChanged }: { posted: Posted[]; onChanged: () => v
                       <td className="px-3 py-2.5 text-zinc-300 align-top max-w-[360px]">
                         <span className="line-clamp-2 leading-snug">{p.text || <span className="text-zinc-600 italic">No caption</span>}</span>
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums align-top">{p.views > 0 ? <span className="text-zinc-200">{p.views.toLocaleString()}</span> : <span className="text-zinc-600">—</span>}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.likes}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.comments}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.shares}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums align-top">{p.views !== null && p.views > 0 ? <span className="text-zinc-200">{p.views.toLocaleString()}</span> : <span className="text-zinc-600">—</span>}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.likes ?? "—"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.comments ?? "—"}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300 align-top">{p.shares ?? "—"}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap align-top">
                         {p.post_url ? <a href={p.post_url} target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 font-medium text-xs">Open →</a> : <span className="text-zinc-600 text-xs">—</span>}
                       </td>
@@ -1565,7 +1770,7 @@ const PLAT_META: Record<string, { label: string; icon: string; bar: string; text
 };
 const fmtN = (n: number) => n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k" : String(Math.round(n));
 
-function PostingAnalytics({ posted, onGo }: { posted: Posted[]; onGo: (t: string) => void }) {
+function PostingAnalytics({ posted }: { posted: Posted[] }) {
   type Range = "all" | "year" | "quarter" | "month" | "week";
   const [range, setRange] = useState<Range>("all");
   const [plat, setPlat] = useState<"all" | "instagram" | "facebook" | "youtube">("all");
@@ -1636,7 +1841,7 @@ function PostingAnalytics({ posted, onGo }: { posted: Posted[]; onGo: (t: string
   }, [posted, range, now]);
   const maxBucket = Math.max(1, ...buckets.map((b) => b.instagram + b.facebook + b.youtube));
 
-  const topPosts = [...inRange].sort((a, b) => b.views - a.views || (b.likes + b.comments) - (a.likes + a.comments)).slice(0, 6);
+  const topPosts = [...inRange].sort((a, b) => (b.views ?? -1) - (a.views ?? -1) || ((b.likes ?? 0) + (b.comments ?? 0)) - ((a.likes ?? 0) + (a.comments ?? 0))).slice(0, 6);
 
   const KPIS = [
     { label: "Posts", value: fmtN(totals.posts), sub: platforms.length ? `${platforms.length} platforms` : "" },
@@ -1650,7 +1855,7 @@ function PostingAnalytics({ posted, onGo }: { posted: Posted[]; onGo: (t: string
     <div className="order-first flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-white font-bold text-base">📊 Posting analytics</p>
-        <button onClick={() => onGo("posted")} className="text-zinc-500 hover:text-white text-xs">See all posts →</button>
+        <button onClick={() => document.getElementById("posted-content")?.scrollIntoView({ behavior: "smooth" })} className="text-zinc-500 hover:text-white text-xs">See all posts →</button>
       </div>
 
       {/* Range + platform filters */}
@@ -1745,8 +1950,8 @@ function PostingAnalytics({ posted, onGo }: { posted: Posted[]; onGo: (t: string
                   <span className="text-sm flex-shrink-0" title={m?.label}>{m?.icon ?? "•"}</span>
                   {p.platform === "youtube" && <span className={`text-[8px] font-bold px-1 py-0.5 rounded flex-shrink-0 ${p.media_type === "short" ? "bg-amber-500/15 text-amber-400" : "bg-sky-500/15 text-sky-400"}`}>{p.media_type === "short" ? "SHORT" : "LONG"}</span>}
                   <span className="text-zinc-200 text-sm truncate flex-1">{p.text || "—"}</span>
-                  <span className="text-zinc-400 text-xs tabular-nums flex-shrink-0">👁 {fmtN(p.views)}</span>
-                  <span className="text-zinc-500 text-xs tabular-nums flex-shrink-0 hidden sm:inline">❤️ {fmtN(p.likes)}</span>
+                  <span className="text-zinc-400 text-xs tabular-nums flex-shrink-0">👁 {p.views === null ? "—" : fmtN(p.views)}</span>
+                  <span className="text-zinc-500 text-xs tabular-nums flex-shrink-0 hidden sm:inline">❤️ {p.likes === null ? "—" : fmtN(p.likes)}</span>
                 </a>
               );
             })}
@@ -1825,7 +2030,7 @@ function DashboardTab({ items, ideas, proof, stories, events, posted, onGo }: {
   return (
     <div className="flex flex-col gap-5">
       {/* Posting analytics — real numbers across every platform, leads the page */}
-      {posted.length > 0 && <PostingAnalytics posted={posted} onGo={onGo} />}
+      {posted.length > 0 && <PostingAnalytics posted={posted} />}
       {/* Event seat trackers */}
       {/* Numbers + streak — top on desktop, below the buttons on mobile */}
       <div className="order-2 lg:order-1 grid sm:grid-cols-[minmax(0,1fr)_auto] gap-3">
@@ -2177,9 +2382,151 @@ function EventDrawer({ event, onClose, onPatch }: { event: CEvent; onClose: () =
   );
 }
 
+function EventDateChip({ dateStr, accent }: { dateStr: string | null; accent: boolean }) {
+  if (!dateStr) {
+    return (
+      <div className="w-11 flex-shrink-0 rounded-xl border border-zinc-700/60 bg-zinc-800/50 py-1.5 text-center">
+        <p className="text-[9px] font-bold uppercase tracking-wide text-zinc-500 leading-none">TBD</p>
+        <p className="text-zinc-600 text-base font-extrabold leading-tight mt-0.5">–</p>
+      </div>
+    );
+  }
+  const dt = new Date(dateStr + "T12:00");
+  return (
+    <div className={`w-11 flex-shrink-0 rounded-xl border py-1.5 text-center ${accent ? "border-blue-500/40 bg-blue-600/20" : "border-zinc-700/60 bg-zinc-800/50"}`}>
+      <p className={`text-[9px] font-bold uppercase tracking-wide leading-none ${accent ? "text-blue-300" : "text-zinc-500"}`}>{dt.toLocaleDateString("en-US", { month: "short" })}</p>
+      <p className="text-white text-base font-extrabold leading-tight mt-0.5">{dt.getDate()}</p>
+    </div>
+  );
+}
+
+function EventRow({ ev, accent, onEdit, onBump }: { ev: CEvent; accent: boolean; onEdit: (id: string) => void; onBump: (id: string, next: number) => void }) {
+  const sp = eventSpots(ev);
+  const d = daysUntil(ev.start_date ?? ev.end_date);
+  const soldOut = sp.has && sp.remaining === 0;
+  const urgency =
+    d == null ? "text-zinc-600"
+      : d < 0 ? "text-zinc-600"
+        : d === 0 ? "text-rose-300"
+          : d <= 3 ? "text-rose-300"
+            : d <= 14 ? "text-amber-300"
+              : "text-zinc-500";
+
+  return (
+    <div className="group px-3 py-3 hover:bg-zinc-800/30 transition-colors">
+      <div className="flex items-start gap-2.5">
+        <EventDateChip dateStr={ev.start_date ?? ev.end_date} accent={accent} />
+        <button onClick={() => onEdit(ev.id)} className="min-w-0 flex-1 text-left">
+          <p className="text-white text-[13px] font-semibold leading-snug break-words group-hover:text-blue-200 transition-colors">{ev.title}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px]">
+            <span className="text-zinc-500">{EVENT_TYPES.find((t) => t.key === ev.event_type)?.label ?? "Event"}</span>
+            {d != null && <><span className="text-zinc-700">·</span><span className={`font-medium ${urgency}`}>{eventDayLabel(ev)}</span></>}
+            {soldOut && <span className="ml-0.5 rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">Sold out</span>}
+          </p>
+        </button>
+      </div>
+
+      {sp.has ? (
+        <div className="mt-2.5 pl-[54px]">
+          <button onClick={() => onEdit(ev.id)} className="w-full text-left">
+            <div className="mb-1 flex items-center justify-between text-[11px]">
+              <span className="font-semibold text-zinc-200">{sp.filled}/{sp.goal} <span className="font-normal text-zinc-500">· {sp.pct}%</span></span>
+              <span className="text-zinc-500">{sp.remaining} to fill</span>
+            </div>
+            <SpotsBar pct={sp.pct} />
+          </button>
+          <div className="mt-2 flex items-center gap-1.5">
+            <button onClick={() => onBump(ev.id, Math.max(0, sp.filled - 1))} disabled={sp.filled <= 0}
+              className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-800 text-sm font-bold leading-none text-zinc-300 transition-colors hover:bg-zinc-700 disabled:opacity-30">−</button>
+            <button onClick={() => onBump(ev.id, sp.filled + 1)}
+              className="flex h-6 flex-1 items-center justify-center rounded-md bg-gradient-to-r from-blue-600 to-violet-600 text-[11px] font-bold text-white transition-all hover:brightness-110">＋1 signup</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => onEdit(ev.id)} className="mt-1.5 pl-[54px] text-[11px] text-zinc-600 transition-colors hover:text-zinc-300">＋ Set a seat goal</button>
+      )}
+    </div>
+  );
+}
+
+function EventsRail({ events, onEdit, onBump, onChanged }: {
+  events: CEvent[]; onEdit: (id: string) => void; onBump: (id: string, next: number) => void; onChanged: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState("free_webinar");
+  const [date, setDate] = useState("");
+  const [showPast, setShowPast] = useState(false);
+
+  async function addEvent() {
+    if (!title.trim()) return;
+    await fetch("/api/content/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, event_type: type, start_date: date || null }) });
+    setTitle(""); setDate(""); setAdding(false); onChanged();
+  }
+
+  // One running list, soonest first; undated fall to the end, past collapses below.
+  const key = (e: CEvent) => e.start_date ?? e.end_date ?? "9999-99-99";
+  const upcoming = events.filter(isUpcomingEvent).sort((a, b) => key(a).localeCompare(key(b)));
+  const past = events.filter((e) => !isUpcomingEvent(e)).sort((a, b) => key(b).localeCompare(key(a)));
+
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60">
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-3.5 py-3">
+        <p className="text-sm font-bold text-white">🎟️ Events <span className="font-normal text-zinc-600">{upcoming.length}</span></p>
+        <button onClick={() => setAdding((v) => !v)} title="Add an event"
+          className="rounded-lg bg-zinc-800 px-2 py-1 text-xs font-bold text-zinc-200 transition-colors hover:bg-zinc-700">{adding ? "Cancel" : "＋ Add"}</button>
+      </div>
+
+      {adding && (
+        <div className="space-y-2 border-b border-zinc-800 bg-zinc-950/40 p-3">
+          <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus placeholder="Event name"
+            onKeyDown={(e) => { if (e.key === "Enter") void addEvent(); }}
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
+          <div className="grid grid-cols-2 gap-2">
+            <select value={type} onChange={(e) => setType(e.target.value)}
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 focus:border-blue-500 focus:outline-none">
+              {EVENT_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-200 focus:border-blue-500 focus:outline-none" />
+          </div>
+          <button onClick={() => void addEvent()} disabled={!title.trim()}
+            className="w-full rounded-lg bg-blue-600 py-1.5 text-xs font-bold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">Save event</button>
+        </div>
+      )}
+
+      {upcoming.length === 0 && past.length === 0 ? (
+        <p className="px-3.5 py-8 text-center text-xs text-zinc-600">No events yet.<br />Add your next launch ↑</p>
+      ) : (
+        <div className="divide-y divide-zinc-800/70">
+          {upcoming.map((ev, i) => <EventRow key={ev.id} ev={ev} accent={i === 0} onEdit={onEdit} onBump={onBump} />)}
+          {upcoming.length === 0 && <p className="px-3.5 py-6 text-center text-xs text-zinc-600">Nothing coming up.</p>}
+        </div>
+      )}
+
+      {past.length > 0 && (
+        <div className="border-t border-zinc-800">
+          <button onClick={() => setShowPast((v) => !v)}
+            className="w-full px-3.5 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-zinc-600 transition-colors hover:text-zinc-400">
+            {showPast ? "▾" : "▸"} Past ({past.length})
+          </button>
+          {showPast && (
+            <div className="divide-y divide-zinc-800/70 opacity-60">
+              {past.map((ev) => <EventRow key={ev.id} ev={ev} accent={false} onEdit={onEdit} onBump={onBump} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
-export default function ContentPage() {
-  const [tab, setTab] = useState<string>("calendar");
+function ContentWorkspace() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab = TABS.some((candidate) => candidate.key === requestedTab) ? requestedTab! : "calendar";
   const [items, setItems] = useState<ContentItem[]>([]);
   const [events, setEvents] = useState<CEvent[]>([]);
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -2200,11 +2547,33 @@ export default function ContentPage() {
   useEffect(() => { void loadPosted(); }, [loadPosted]);
   useEffect(() => { void load(); }, [load]);
 
+  const selectTab = useCallback((nextTab: string) => {
+    router.push(nextTab === "calendar" ? "/content" : `/content?tab=${nextTab}`, { scroll: false });
+  }, [router]);
+
   const patchItem = useCallback(async (id: string, patch: Partial<ContentItem>) => {
-    const j = await (await fetch("/api/content", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) })).json();
-    if (j.item) { setItems((prev) => prev.map((x) => (x.id === id ? j.item : x))); return j.item as ContentItem; }
+    const current = items.find((item) => item.id === id);
+    if (current?.meta?.reel_workflow === "idea_board") {
+      const keys = Object.keys(patch);
+      if (keys.some((key) => key !== "scheduled_date" && key !== "status")) return null;
+      const stage = patch.status === "idea" ? "idea" : patch.status === "drafted" ? "shot" : patch.status === "posted" ? "posted" : undefined;
+      if (patch.status !== undefined && !stage) return null;
+      const body = {
+        id,
+        expected_updated_at: current.updated_at,
+        ...(patch.scheduled_date !== undefined ? { scheduled_date: patch.scheduled_date } : {}),
+        ...(stage ? { stage } : {}),
+      };
+      const response = await fetch("/api/instagram/reel-ideas", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await response.json();
+      if (response.ok && j.item) { setItems((prev) => prev.map((x) => (x.id === id ? j.item : x))); return j.item as ContentItem; }
+      return null;
+    }
+    const response = await fetch("/api/content", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
+    const j = await response.json();
+    if (response.ok && j.item) { setItems((prev) => prev.map((x) => (x.id === id ? j.item : x))); return j.item as ContentItem; }
     return null;
-  }, []);
+  }, [items]);
   const delItem = useCallback(async (id: string) => {
     try {
       const response = await fetch("/api/content", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
@@ -2252,9 +2621,9 @@ export default function ContentPage() {
       <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
         {TABS.map((t) => {
           const active = tab === t.key;
-          const badge = t.key === "ideas" ? counts.ideas : t.key === "proof" ? counts.proof : t.key === "calendar" ? counts.calendar : t.key === "events" ? counts.events : t.key === "posted" ? posted.length : 0;
+          const badge = t.key === "ideas" ? counts.ideas : t.key === "proof" ? counts.proof : t.key === "calendar" ? counts.calendar : t.key === "events" ? counts.events : 0;
           return (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            <button key={t.key} onClick={() => selectTab(t.key)}
               className={`flex-shrink-0 px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${active ? "bg-blue-600/20 border-blue-500/40 text-blue-200" : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"}`}>
               {t.emoji} {t.label}
               {badge > 0 && <span className={`ml-1 ${active ? "text-blue-300" : "text-zinc-600"}`}>{badge}</span>}
@@ -2263,30 +2632,53 @@ export default function ContentPage() {
         })}
       </div>
 
-      {/* Main content */}
-      <div className="min-w-0">
-        {tab === "dashboard" && <DashboardTab items={items} ideas={ideas} proof={proof} stories={stories} events={events} posted={posted} onGo={setTab} />}
-        {tab === "calendar" && (
-          <div className="space-y-8">
-            <CalendarTab items={items} events={events} onOpen={(i) => setOpenId(i.id)} onQuickAdd={quickAdd} onCreateOn={createOn} onReschedule={(id, date) => void patchItem(id, { scheduled_date: date })} />
-            <div className="border-t border-zinc-800 pt-8">
-              <ContentSpreadsheet items={items} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} onDelete={delItem} />
+      {/* Main content and the always-visible event rail. */}
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-6 xl:items-start">
+        <div className="min-w-0">
+          {tab === "dashboard" && (
+            <div className="space-y-8">
+              <DashboardTab items={items} ideas={ideas} proof={proof} stories={stories} events={events} posted={posted} onGo={selectTab} />
+              <section id="posted-content" className="border-t border-zinc-800 pt-8 scroll-mt-6">
+                <PostedTab posted={posted} onChanged={loadPosted} />
+              </section>
             </div>
-          </div>
-        )}
-        {tab === "create" && <CreateTab events={events} onSaved={load} />}
-        {tab === "stories" && <StoriesTab stories={stories} onChanged={load} />}
-        {tab === "ideas" && <IdeasTab ideas={ideas} onChanged={load} />}
-        {tab === "remix" && <RemixTab onSaved={load} />}
-        {tab === "proof" && <ProofTab proof={proof} onChanged={load} />}
-        {tab === "research" && <CompetitorResearch onIdeaSaved={load} />}
-        {tab === "graphics" && <GraphicsStudio />}
-        {tab === "posted" && <PostedTab posted={posted} onChanged={loadPosted} />}
-        {tab === "events" && <EventsTab events={events} onChanged={load} onEditEvent={setEditEventId} onBumpEvent={bumpEvent} />}
+          )}
+          {tab === "calendar" && (
+            <div className="space-y-8">
+              <CalendarTab items={items} events={events} onOpen={(i) => setOpenId(i.id)} onQuickAdd={quickAdd} onCreateOn={createOn} onReschedule={(id, date) => void patchItem(id, { scheduled_date: date })} />
+              <div className="border-t border-zinc-800 pt-8">
+                <ContentSpreadsheet items={items} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} onDelete={delItem} />
+              </div>
+            </div>
+          )}
+          {tab === "create" && <CreateTab events={events} onSaved={load} />}
+          {tab === "stories" && <StoriesTab stories={stories} onChanged={load} />}
+          {tab === "ideas" && <IdeasTab ideas={ideas} onChanged={load} />}
+          {tab === "remix" && <RemixTab onSaved={load} />}
+          {tab === "proof" && <ProofTab proof={proof} onChanged={load} />}
+          {tab === "research" && <CompetitorResearch onIdeaSaved={load} />}
+          {tab === "graphics" && <GraphicsStudio />}
+          {tab === "events" && <EventsTab events={events} onChanged={load} onEditEvent={setEditEventId} onBumpEvent={bumpEvent} />}
+          {tab === "posted" && <PostedTab posted={posted} onChanged={loadPosted} />}
+          {tab === "youtube" && <PostedTab posted={posted} onChanged={loadPosted} lockPlatform="youtube" />}
+          {tab === "instagram" && <PostedTab posted={posted} onChanged={loadPosted} lockPlatform="instagram" />}
+        </div>
+
+        <aside className="mt-6 xl:mt-0 xl:sticky xl:top-6">
+          <EventsRail events={events} onEdit={setEditEventId} onBump={bumpEvent} onChanged={load} />
+        </aside>
       </div>
 
       {openItem && <ItemDrawer item={openItem} events={events} proof={proof} onClose={() => setOpenId(null)} onPatch={patchItem} onDelete={delItem} />}
       {openEvent && <EventDrawer event={openEvent} onClose={() => setEditEventId(null)} onPatch={patchEvent} />}
     </div>
+  );
+}
+
+export default function ContentPage() {
+  return (
+    <Suspense fallback={<div className="max-w-6xl mx-auto px-4 py-6 text-sm text-zinc-500">Loading content…</div>}>
+      <ContentWorkspace />
+    </Suspense>
   );
 }

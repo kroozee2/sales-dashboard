@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface Field {
   key: string;
@@ -90,6 +90,7 @@ interface CardState {
   saveStatus: Status;
   testStatus: Status;
   testMessage: string;
+  saveMessage: string;
 }
 
 function redact(val: string): string {
@@ -100,16 +101,22 @@ function redact(val: string): string {
 export default function SettingsPage() {
   const [cards, setCards] = useState<Record<string, CardState>>(() =>
     Object.fromEntries(
-      INTEGRATIONS.map((i) => [i.id, { values: {}, dirty: false, saveStatus: 'idle', testStatus: 'idle', testMessage: '' }])
+      INTEGRATIONS.map((i) => [i.id, { values: {}, dirty: false, saveStatus: 'idle', testStatus: 'idle', testMessage: '', saveMessage: '' }])
     )
   );
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const saveLocks = useRef(new Set<string>());
+  const testLocks = useRef(new Set<string>());
 
   useEffect(() => {
     fetch('/api/settings')
-      .then((r) => r.json())
-      .then((d: { settings?: Record<string, string> }) => {
-        const stored = d.settings ?? {};
+      .then(async (response) => {
+        const data = await response.json() as { settings?: Record<string, string>; error?: string };
+        if (!response.ok || !data.settings) throw new Error(data.error || 'Settings could not be loaded.');
+        return data.settings;
+      })
+      .then((stored) => {
         setCards((prev) => {
           const next = { ...prev };
           for (const intg of INTEGRATIONS) {
@@ -122,40 +129,51 @@ export default function SettingsPage() {
           return next;
         });
       })
+      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : 'Settings could not be loaded.'))
       .finally(() => setLoading(false));
   }, []);
 
   const updateField = (intgId: string, key: string, val: string) => {
     setCards((prev) => ({
       ...prev,
-      [intgId]: { ...prev[intgId], values: { ...prev[intgId].values, [key]: val }, dirty: true, saveStatus: 'idle' },
+      [intgId]: { ...prev[intgId], values: { ...prev[intgId].values, [key]: val }, dirty: true, saveStatus: 'idle', saveMessage: '', testStatus: 'idle', testMessage: '' },
     }));
   };
 
   const save = async (intg: Integration) => {
-    setCards((prev) => ({ ...prev, [intg.id]: { ...prev[intg.id], saveStatus: 'saving' } }));
-    const res = await fetch('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cards[intg.id].values),
-    });
-    const ok = res.ok;
-    setCards((prev) => ({ ...prev, [intg.id]: { ...prev[intg.id], saveStatus: ok ? 'ok' : 'error', dirty: false } }));
-    if (ok) setTimeout(() => setCards((prev) => ({ ...prev, [intg.id]: { ...prev[intg.id], saveStatus: 'idle' } })), 2000);
+    if (saveLocks.current.has(intg.id)) return;
+    saveLocks.current.add(intg.id);
+    const submitted = { ...cards[intg.id].values };
+    setCards((prev) => ({ ...prev, [intg.id]: { ...prev[intg.id], saveStatus: 'saving', saveMessage: '' } }));
+    try {
+      const response = await fetch('/api/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(submitted) });
+      const data = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || data.ok !== true) throw new Error(data.error || 'Settings could not be saved.');
+      setCards((prev) => ({ ...prev, [intg.id]: { ...prev[intg.id], saveStatus: 'ok', saveMessage: 'Settings saved.', dirty: JSON.stringify(prev[intg.id].values) !== JSON.stringify(submitted) } }));
+    } catch (error) {
+      setCards((prev) => ({ ...prev, [intg.id]: { ...prev[intg.id], saveStatus: 'error', saveMessage: error instanceof Error ? error.message : 'Settings could not be saved.', dirty: true } }));
+    } finally {
+      saveLocks.current.delete(intg.id);
+    }
   };
 
   const test = async (intg: Integration) => {
+    if (testLocks.current.has(intg.id)) return;
+    testLocks.current.add(intg.id);
+    const submitted = { ...cards[intg.id].values };
     setCards((prev) => ({ ...prev, [intg.id]: { ...prev[intg.id], testStatus: 'testing', testMessage: '' } }));
-    const res = await fetch('/api/settings/test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ integration: intg.id, values: cards[intg.id].values }),
-    });
-    const data = await res.json() as { ok: boolean; message: string };
-    setCards((prev) => ({
-      ...prev,
-      [intg.id]: { ...prev[intg.id], testStatus: data.ok ? 'ok' : 'error', testMessage: data.message },
-    }));
+    try {
+      const response = await fetch('/api/settings/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ integration: intg.id, values: submitted }) });
+      const data = await response.json() as { ok?: boolean; message?: string; error?: string };
+      if (!response.ok || typeof data.ok !== 'boolean' || typeof data.message !== 'string') throw new Error(data.error || 'Connection test failed.');
+      const testOk = data.ok;
+      const testMessage = data.message;
+      setCards((prev) => ({ ...prev, [intg.id]: { ...prev[intg.id], testStatus: testOk ? 'ok' : 'error', testMessage } }));
+    } catch (error) {
+      setCards((prev) => ({ ...prev, [intg.id]: { ...prev[intg.id], testStatus: 'error', testMessage: error instanceof Error ? error.message : 'Connection test failed.' } }));
+    } finally {
+      testLocks.current.delete(intg.id);
+    }
   };
 
   if (loading) {
@@ -166,6 +184,8 @@ export default function SettingsPage() {
       </div>
     );
   }
+
+  if (loadError) return <div role="alert" className="mx-auto max-w-2xl rounded-xl border border-red-800 bg-red-950/40 p-4 text-sm text-red-300">{loadError}</div>;
 
   return (
     <div className="max-w-2xl mx-auto py-4 flex flex-col gap-6">
@@ -179,15 +199,16 @@ export default function SettingsPage() {
       {INTEGRATIONS.map((intg) => {
         const card = cards[intg.id];
         const hasValues = Object.values(card.values).some((v) => v.trim());
+        const busy = card.saveStatus === 'saving' || card.testStatus === 'testing';
 
         return (
           <div key={intg.id} className="bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden">
             {/* Header */}
-            <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-zinc-800">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">{intg.emoji}</span>
+            <div className="flex min-w-0 flex-col items-stretch gap-3 px-5 py-4 border-b border-zinc-800 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <span aria-hidden="true" className="text-2xl">{intg.emoji}</span>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <h2 className="text-white font-semibold text-sm">{intg.name}</h2>
                     {hasValues && card.testStatus === 'ok' && (
                       <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-900/50 text-green-400 border border-green-800">✓ Connected</span>
@@ -205,7 +226,7 @@ export default function SettingsPage() {
                     href={intg.openUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors whitespace-nowrap"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center text-xs px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors whitespace-nowrap"
                   >
                     {intg.openLabel}
                   </a>
@@ -219,17 +240,19 @@ export default function SettingsPage() {
                 const val = card.values[field.key] ?? '';
                 return (
                   <div key={field.key} className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-zinc-400">{field.label}</label>
+                    <label htmlFor={`${intg.id}-${field.key}`} className="text-xs font-medium text-zinc-400">{field.label}</label>
                     <input
+                      id={`${intg.id}-${field.key}`}
+                      disabled={busy}
                       type={field.type === 'password' ? 'password' : 'text'}
                       value={val}
                       onChange={(e) => updateField(intg.id, field.key, e.target.value)}
                       placeholder={val ? redact(val) : field.placeholder}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 outline-none focus:border-blue-500 transition-colors font-mono"
+                      className="min-h-11 w-full bg-zinc-800 border border-zinc-500 rounded-lg px-3 py-2 text-base sm:text-sm text-white placeholder-zinc-400 outline-none focus:border-blue-500 transition-colors font-mono"
                       autoComplete="off"
                       data-1p-ignore
                     />
-                    {field.hint && <p className="text-xs text-zinc-500">{field.hint}</p>}
+                    {field.hint && <p className="text-xs text-zinc-400">{field.hint}</p>}
                   </div>
                 );
               })}
@@ -239,7 +262,7 @@ export default function SettingsPage() {
                   href={intg.docUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors self-start"
+                  className="inline-flex min-h-11 min-w-11 items-center px-2 text-xs text-blue-400 hover:text-blue-300 transition-colors self-start"
                 >
                   {intg.docLabel}
                 </a>
@@ -247,26 +270,23 @@ export default function SettingsPage() {
             </div>
 
             {/* Footer actions */}
-            <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-zinc-800 bg-zinc-950/30">
-              <div className="text-xs">
-                {card.testMessage && (
-                  <span className={card.testStatus === 'ok' ? 'text-green-400' : 'text-red-400'}>
-                    {card.testStatus === 'ok' ? '✓ ' : '✗ '}{card.testMessage}
-                  </span>
-                )}
+            <div className="flex min-w-0 flex-col items-stretch gap-3 px-5 py-3 border-t border-zinc-800 bg-zinc-950/30 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 space-y-1 text-xs break-words [overflow-wrap:anywhere]">
+                {card.testMessage && <span role={card.testStatus === 'error' ? 'alert' : 'status'} className={`block ${card.testStatus === 'ok' ? 'text-green-400' : 'text-red-400'}`}>{card.testStatus === 'ok' ? '✓ ' : '✗ '}{card.testMessage}</span>}
+                {card.saveMessage && <span role={card.saveStatus === 'error' ? 'alert' : 'status'} className={`block ${card.saveStatus === 'ok' ? 'text-green-400' : 'text-red-400'}`}>{card.saveStatus === 'ok' ? '✓ ' : '✗ '}{card.saveMessage}</span>}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-end gap-2 sm:shrink-0">
                 <button
                   onClick={() => void test(intg)}
-                  disabled={card.testStatus === 'testing' || !hasValues}
-                  className="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-300 text-xs font-medium transition-colors"
+                  disabled={busy || !hasValues}
+                  className="min-h-11 px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-300 text-xs font-medium transition-colors"
                 >
                   {card.testStatus === 'testing' ? 'Testing…' : 'Test connection'}
                 </button>
                 <button
                   onClick={() => void save(intg)}
-                  disabled={!card.dirty || card.saveStatus === 'saving'}
-                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+                  disabled={!card.dirty || busy}
+                  className="min-h-11 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
                 >
                   {card.saveStatus === 'saving' ? 'Saving…' : card.saveStatus === 'ok' ? '✓ Saved' : 'Save'}
                 </button>
@@ -276,7 +296,7 @@ export default function SettingsPage() {
         );
       })}
 
-      <p className="text-xs text-zinc-600 text-center pb-4">
+      <p className="text-xs text-zinc-400 text-center pb-4">
         Keys are stored in your Supabase database and never shared. Env variables are used as fallback if no key is saved here.
       </p>
     </div>

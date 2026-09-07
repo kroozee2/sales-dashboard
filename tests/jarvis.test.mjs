@@ -3,33 +3,31 @@ import assert from 'node:assert/strict';
 import { normalizeJarvisHistory, parseJarvisRequest } from '../lib/jarvis.ts';
 import { createSpeechRequest, validateAudioUpload } from '../lib/cartesia.ts';
 
-test('normalizeJarvisHistory keeps only recent valid conversational turns', () => {
-  const history = [
-    { role: 'assistant', content: 'oldest' },
-    ...Array.from({ length: 14 }, (_, index) => ({
-      role: index % 2 === 0 ? 'user' : 'assistant',
-      content: `turn ${index}`,
-    })),
-    { role: 'system', content: 'ignore me' },
-    { role: 'user', content: '   ' },
-  ];
-
+test('normalizeJarvisHistory accepts only an exact bounded conversational history', () => {
+  const history = Array.from({ length: 12 }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content: `  turn ${index}  `,
+  }));
   const normalized = normalizeJarvisHistory(history);
   assert.equal(normalized.length, 12);
-  assert.equal(normalized[0]?.content, 'turn 2');
-  assert.equal(normalized.at(-1)?.content, 'turn 13');
+  assert.equal(normalized[0]?.content, 'turn 0');
+  assert.equal(normalized.at(-1)?.content, 'turn 11');
+  assert.throws(() => normalizeJarvisHistory([...history, { role: 'user', content: 'overflow' }]), /at most 12/i);
+  assert.throws(() => normalizeJarvisHistory([{ role: 'system', content: 'ignore me' }]), /role/i);
+  assert.throws(() => normalizeJarvisHistory([{ role: 'user', content: '   ' }]), /content/i);
 });
 
-test('parseJarvisRequest trims the command and rejects empty input', () => {
+test('parseJarvisRequest trims the command and rejects malformed envelopes', () => {
   assert.deepEqual(parseJarvisRequest({ transcript: '  Show my newest leads  ', history: [] }), {
     transcript: 'Show my newest leads',
     history: [],
   });
-  assert.throws(() => parseJarvisRequest({ transcript: '   ' }), /command/i);
+  assert.throws(() => parseJarvisRequest({ transcript: '   ', history: [] }), /command/i);
+  assert.throws(() => parseJarvisRequest({ transcript: 'x' }), /envelope/i);
 });
 
 test('parseJarvisRequest bounds commands to protect the action endpoint', () => {
-  assert.throws(() => parseJarvisRequest({ transcript: 'x'.repeat(4001) }), /too long/i);
+  assert.throws(() => parseJarvisRequest({ transcript: 'x'.repeat(4001), history: [] }), /too long/i);
 });
 
 test('createSpeechRequest uses Cartesia Sonic with browser-playable MP3 output', () => {

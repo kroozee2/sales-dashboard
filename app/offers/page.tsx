@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import OfferOneSheets from '@/components/OfferOneSheets';
 import OfferPagesLibrary from '@/components/OfferPagesLibrary';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1271,7 +1272,7 @@ export default function OffersPage() {
   const [selected, setSelected] = useState<Offer | null>(null);
   const [showBrainDump, setShowBrainDump] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
-  const [view, setView] = useState<'pages' | 'grid' | 'current' | 'data'>('grid');
+  const [view, setView] = useState<'one-sheets' | 'pages' | 'grid' | 'current' | 'data'>('one-sheets');
   const [typeTab, setTypeTab] = useState<string>('all');
 
   const [liveStats, setLiveStats] = useState<Record<string, { revenue: number; count: number }>>({});
@@ -1372,10 +1373,10 @@ export default function OffersPage() {
           <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">Offers</h1>
           <div className="flex items-center gap-2 flex-wrap">
             {/* View switch */}
-            <div className="flex bg-zinc-800 border border-zinc-700 rounded-lg p-0.5 gap-0.5">
-              {([['pages', '🌐 Pages'], ['grid', '🔲 Grid'], ['current', '📋 Current'], ['data', '📊 Data']] as const).map(([k, lbl]) => (
+            <div className="flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-zinc-700 bg-zinc-800 p-0.5 no-scrollbar">
+              {([['one-sheets', '📄 One-Sheets'], ['pages', '🌐 Pages'], ['grid', '🔲 Grid'], ['current', '📋 Current'], ['data', '📊 Data']] as const).map(([k, lbl]) => (
                 <button key={k} onClick={() => setView(k)}
-                  className={`px-3 py-1.5 text-xs rounded font-medium transition-colors ${view === k ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
+                  className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs rounded font-medium transition-colors ${view === k ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
                   {lbl}
                 </button>
               ))}
@@ -1392,7 +1393,7 @@ export default function OffersPage() {
                 </button>
               </div>
             )}
-            {view !== 'pages' && (
+            {view !== 'pages' && view !== 'one-sheets' && (
               <>
                 <button onClick={() => setShowBrainDump(true)}
                   className="px-3 py-2 text-sm bg-white text-zinc-900 font-bold rounded-lg hover:bg-zinc-100 transition-colors flex items-center gap-1.5">
@@ -1457,7 +1458,9 @@ export default function OffersPage() {
         )}
 
         {/* Content */}
-        {view === 'pages' ? (
+        {view === 'one-sheets' ? (
+          <OfferOneSheets />
+        ) : view === 'pages' ? (
           <OfferPagesLibrary />
         ) : loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -3,6 +3,8 @@ type ApiKeys = {
   workerKey?: string;
 };
 
+const LEAD_ID_RE = /^[A-Za-z0-9][A-Za-z0-9:._@+\-]{0,199}$/;
+
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -14,10 +16,12 @@ function safeEqual(a: string, b: string): boolean {
 
 function exactWorkerMemberPatch(method: string, pathname: string): boolean {
   if (method !== "PATCH") return false;
-  const match = pathname.match(/^\/api\/instagram-hot-leads\/([^/]+)$/);
-  if (!match) return false;
+  const legacy = pathname.match(/^\/api\/instagram-hot-leads\/([^/]+)$/);
+  const hotLead = pathname.match(/^\/api\/hot-leads\/current\/([^/]+)$/);
   try {
-    return /^[A-Za-z0-9._]{1,30}$/.test(decodeURIComponent(match[1]));
+    if (legacy) return /^[A-Za-z0-9._]{1,30}$/.test(decodeURIComponent(legacy[1]));
+    if (hotLead) return LEAD_ID_RE.test(decodeURIComponent(hotLead[1]));
+    return false;
   } catch {
     return false;
   }

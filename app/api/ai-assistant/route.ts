@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { createLeadsAdminClient } from '@/lib/supabase-leads';
 import { callsDb } from '@/lib/supabase-calls';
-import { parseJarvisRequest } from '@/lib/jarvis';
+import { parseJarvisRequest, readBoundedJarvisBody } from '@/lib/jarvis';
+import { boundedText, buildBoundedObservationBody, serializeValidatedReadToolResult, summarizeReadResult } from '@/lib/jarvis-observations';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const GHL_BASE = 'https://services.leadconnectorhq.com';
@@ -14,61 +15,17 @@ function ghlHeaders() {
 
 const TOOLS: Anthropic.Tool[] = [
   {
+    name: 'list_recent_leads',
+    description: 'List the 8 most recently created leads in descending creation order.',
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
     name: 'search_leads',
     description: 'Search existing leads in the dashboard by name, email, or phone number.',
     input_schema: {
       type: 'object' as const,
       properties: { query: { type: 'string', description: 'Name, email, or phone to search' } },
       required: ['query'],
-    },
-  },
-  {
-    name: 'create_lead',
-    description: 'Create a new lead record in the dashboard.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        full_name: { type: 'string' },
-        email: { type: 'string' },
-        phone: { type: 'string' },
-        prospect_stage: { type: 'string', description: 'One of: 👨 Prospect, 📣 Reached Out, 📞 Call Booked, 🔥 Hot Prospect, 🔗 Pay Link Sent, 🏦 Payment Received' },
-        quality: { type: 'string', description: 'One of: 🔥 Very High, ⭐️ High, 👌 Medium, 🤏 Low, ❌ Very Low, 🏝️ Event Lead' },
-        source: { type: 'string', description: 'Where the lead came from (e.g. Facebook Group, Instagram DM, Live Event, Referral, Skool)' },
-        notes: { type: 'string' },
-        ghl_contact_id: { type: 'string' },
-      },
-      required: ['full_name'],
-    },
-  },
-  {
-    name: 'update_lead',
-    description: 'Update fields on an existing lead record.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        id: { type: 'string', description: 'Lead database ID' },
-        full_name: { type: 'string' },
-        email: { type: 'string' },
-        phone: { type: 'string' },
-        prospect_stage: { type: 'string' },
-        quality: { type: 'string' },
-        source: { type: 'string' },
-        notes: { type: 'string' },
-        ghl_contact_id: { type: 'string' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'add_lead_note',
-    description: 'Add a timestamped note to a lead.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        lead_id: { type: 'string' },
-        text: { type: 'string' },
-      },
-      required: ['lead_id', 'text'],
     },
   },
   {
@@ -94,6 +51,11 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'list_recent_sales_calls',
+    description: 'List the 8 most recent sales calls in descending call-date order.',
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
     name: 'search_sales_calls',
     description: 'Search sales call records by prospect name.',
     input_schema: {
@@ -103,49 +65,9 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name: 'update_sales_call',
-    description: 'Update fields on a sales call record (result, deal amount, objections, notes, etc.).',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        id: { type: 'string', description: 'Sales call database ID' },
-        result: { type: 'string', description: 'One of: ✅ Sale, 📣 Follow Up, 🔜 Upcoming, ❌ Did Not Close, 👻 No Show' },
-        success: { type: 'boolean' },
-        deal_amount: { type: 'number' },
-        cc_upfront: { type: 'number' },
-        monthly_revenue: { type: 'number' },
-        objections: { type: 'array', items: { type: 'string' } },
-        objections_notes: { type: 'string' },
-        call_notes: { type: 'string' },
-        follow_up_notes: { type: 'string' },
-        fathom_url: { type: 'string' },
-        enrollment_date: { type: 'string' },
-        follow_up_date: { type: 'string' },
-        offer_made: { type: 'boolean' },
-        offer: { type: 'string' },
-      },
-      required: ['id'],
-    },
-  },
-  {
     name: 'list_fathom_recordings',
     description: 'List the 8 most recent Fathom call recordings so you can match one to a sales call.',
     input_schema: { type: 'object' as const, properties: {} },
-  },
-  {
-    name: 'sync_fathom_to_call',
-    description: 'Pull a Fathom recording transcript and AI-extract all deal data, then save to a sales call record.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        call_id: { type: 'string', description: 'Sales call DB id to update' },
-        recording_id: { type: 'number' },
-        title: { type: 'string' },
-        date: { type: 'string' },
-        share_url: { type: 'string' },
-      },
-      required: ['call_id', 'recording_id'],
-    },
   },
   {
     name: 'generate_message',
@@ -165,6 +87,13 @@ const TOOLS: Anthropic.Tool[] = [
 
 type ActionLog = { tool: string; label: string; detail?: string; ok?: boolean };
 
+const READ_ONLY_NOTICE = 'Read-only result. No SalesOS records were changed.';
+function safeGeneratedContent(items: { type: string; label: string; content: string }[]) {
+  const valid = items.filter((item) => item?.type === 'message_draft' && typeof item.content === 'string')
+    .map((item) => ({ type: 'message_draft' as const, label: 'AI-generated message draft, not sent' as const, content: boundedText(item.content, 4000) }));
+  return { items: valid.slice(0, 10), omitted: Math.max(0, valid.length - 10) };
+}
+
 // A tool call succeeded unless its result or label signals failure
 function toolSucceeded(result: string, label: string): boolean {
   if (/^(Error|DB error|Fathom error|Fathom error:|Unknown tool)/i.test(result.trim())) return false;
@@ -172,14 +101,41 @@ function toolSucceeded(result: string, label: string): boolean {
   return true;
 }
 
-async function executeTool(name: string, input: Record<string, unknown>): Promise<{ result: string; log: ActionLog }> {
+async function readBoundedJson(response: Response, maxBytes = 1_000_000): Promise<unknown> {
+  if (!response.body) throw new Error('empty response');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) { await reader.cancel(); throw new Error('response too large'); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(total); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+}
+
+async function executeTool(name: string, input: Record<string, unknown>, sameOriginHeaders: Record<string, string>, sameOriginBase: string): Promise<{ result: string; log: ActionLog }> {
+  if (WRITE_TOOLS.has(name)) return { result: 'Error: Jarvis data changes are disabled until durable idempotency and approval controls are available.', log: { tool: name, label: `Blocked write tool: ${name}`, detail: 'Read-only release' } };
   const supabaseLeads = createLeadsAdminClient();
 
   switch (name) {
+    case 'list_recent_leads': {
+      const { data, error } = await supabaseLeads.from('leads').select('id, full_name, prospect_stage, quality, source, notes, ghl_contact_id, created_at').order('created_at', { ascending: false }).limit(8);
+      if (error) return { result: `Error: lead source unavailable`, log: { tool: name, label: 'Recent lead lookup failed' } };
+      return { result: serializeValidatedReadToolResult(name, data ?? []), log: { tool: name, label: 'Listed newest leads', detail: `${data?.length ?? 0} found` } };
+    }
+
     case 'search_leads': {
       const q = input.query as string;
-      const { data } = await supabaseLeads.from('leads').select('id, full_name, email, phone, prospect_stage, quality, source, notes, ghl_contact_id').or(`full_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`).limit(5);
-      return { result: JSON.stringify(data ?? []), log: { tool: name, label: `Searched leads for "${q}"`, detail: `${data?.length ?? 0} found` } };
+      const { data, error } = await supabaseLeads.from('leads').select('id, full_name, email, phone, prospect_stage, quality, source, notes, ghl_contact_id').or(`full_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`).limit(5);
+      if (error) return { result: `Error: lead source unavailable`, log: { tool: name, label: 'Lead search failed' } };
+      return { result: serializeValidatedReadToolResult(name, data ?? []), log: { tool: name, label: `Searched leads for "${q}"`, detail: `${data?.length ?? 0} found` } };
     }
 
     case 'create_lead': {
@@ -207,16 +163,10 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       const q = input.query as string;
       try {
         const res = await fetch(`${GHL_BASE}/contacts/?locationId=${LOCATION_ID}&query=${encodeURIComponent(q)}&limit=5`, { headers: ghlHeaders() });
-        const data = await res.json() as { contacts?: Record<string, unknown>[] };
-        const toTitle = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
-        const contacts = (data.contacts ?? []).map((c) => ({
-          id: c.id,
-          name: toTitle(`${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() || (c.name as string ?? '')),
-          email: c.email,
-          phone: c.phone,
-          tags: c.tags,
-        }));
-        return { result: JSON.stringify(contacts), log: { tool: name, label: `Searched GHL for "${q}"`, detail: `${contacts.length} found` } };
+        if (!res.ok) return { result: 'Error: GHL source unavailable', log: { tool: name, label: 'GHL search failed', detail: `HTTP ${res.status}` } };
+        const data = await readBoundedJson(res) as { contacts?: unknown };
+        if (!data || !Array.isArray(data.contacts)) return { result: 'Error: invalid GHL response', log: { tool: name, label: 'GHL search failed', detail: 'Invalid response' } };
+        return { result: serializeValidatedReadToolResult(name, data.contacts), log: { tool: name, label: `Searched GHL for "${q}"`, detail: `${Math.min(data.contacts.length, 5)} found` } };
       } catch (err) {
         return { result: `Error: ${String(err)}`, log: { tool: name, label: 'GHL search failed' } };
       }
@@ -224,21 +174,31 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 
     case 'find_socials': {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/leads/find-socials`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const res = await fetch(new URL('/api/leads/find-socials', sameOriginBase), {
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...sameOriginHeaders }, redirect: 'error',
           body: JSON.stringify({ name: input.name, email: input.email, phone: input.phone }),
         });
-        const data = await res.json() as Record<string, string>;
-        return { result: JSON.stringify(data), log: { tool: name, label: `Found social profiles for ${input.name as string}`, detail: Object.entries(data).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none found' } };
+        if (!res.ok) return { result: 'Error: social lookup unavailable', log: { tool: name, label: 'Social search failed', detail: `HTTP ${res.status}` } };
+        const raw = await readBoundedJson(res);
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { result: 'Error: invalid social response', log: { tool: name, label: 'Social search failed', detail: 'Invalid response' } };
+        const source = raw as Record<string, unknown>;
+        return { result: serializeValidatedReadToolResult(name, source), log: { tool: name, label: `Found social profiles for ${input.name as string}`, detail: ['facebook_url', 'instagram_url', 'linkedin_url'].filter((key) => typeof source[key] === 'string' && source[key]).join(', ') || 'none found' } };
       } catch (err) {
         return { result: `Error: ${String(err)}`, log: { tool: name, label: 'Social search failed' } };
       }
     }
 
+    case 'list_recent_sales_calls': {
+      const { data, error } = await callsDb.from('sales_calls').select('id, name, call_date, result, deal_amount, objections, objections_notes, call_notes, recording_url, offer').order('call_date', { ascending: false }).limit(8);
+      if (error) return { result: 'Error: sales call source unavailable', log: { tool: name, label: 'Recent sales-call lookup failed' } };
+      return { result: serializeValidatedReadToolResult(name, data ?? []), log: { tool: name, label: 'Listed recent sales calls', detail: `${data?.length ?? 0} found` } };
+    }
+
     case 'search_sales_calls': {
       const q = (input.query as string).toLowerCase();
-      const { data } = await callsDb.from('sales_calls').select('id, name, call_date, result, deal_amount, objections, call_notes, fathom_url, offer').ilike('name', `%${q}%`).limit(5);
-      return { result: JSON.stringify(data ?? []), log: { tool: name, label: `Searched calls for "${input.query as string}"`, detail: `${data?.length ?? 0} found` } };
+      const { data, error } = await callsDb.from('sales_calls').select('id, name, call_date, result, deal_amount, objections, objections_notes, call_notes, recording_url, offer').ilike('name', `%${q}%`).limit(5);
+      if (error) return { result: 'Error: sales call source unavailable', log: { tool: name, label: 'Sales-call search failed' } };
+      return { result: serializeValidatedReadToolResult(name, data ?? []), log: { tool: name, label: `Searched calls for "${input.query as string}"`, detail: `${data?.length ?? 0} found` } };
     }
 
     case 'update_sales_call': {
@@ -250,9 +210,13 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 
     case 'list_fathom_recordings': {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/fathom/list`);
-        const data = await res.json() as { list?: unknown[] };
-        return { result: JSON.stringify(data.list ?? []), log: { tool: name, label: 'Listed recent Fathom recordings', detail: `${data.list?.length ?? 0} recordings` } };
+        const res = await fetch(new URL('/api/fathom/list', sameOriginBase), { headers: sameOriginHeaders, redirect: 'error' });
+        if (!res.ok) return { result: 'Error: Fathom source unavailable', log: { tool: name, label: 'Fathom list failed', detail: `HTTP ${res.status}` } };
+        const data = await readBoundedJson(res);
+        if (!data || typeof data !== 'object' || Array.isArray(data)) return { result: 'Error: invalid Fathom response', log: { tool: name, label: 'Fathom list failed', detail: 'Invalid response' } };
+        const envelope = data as Record<string, unknown>;
+        if (Object.keys(envelope).sort().join(',') !== 'list,more_available,omitted' || !Array.isArray(envelope.list) || envelope.list.length > 8 || !Number.isSafeInteger(envelope.omitted) || Number(envelope.omitted) < 0 || Number(envelope.omitted) > 92 || typeof envelope.more_available !== 'boolean') return { result: 'Error: invalid Fathom response', log: { tool: name, label: 'Fathom list failed', detail: 'Invalid response' } };
+        return { result: serializeValidatedReadToolResult(name, { items: envelope.list, omitted: envelope.omitted, more_available: envelope.more_available }), log: { tool: name, label: 'Listed recent Fathom recordings', detail: `${envelope.list.length} shown${Number(envelope.omitted) ? `, ${String(envelope.omitted)} omitted from this page` : ''}${envelope.more_available ? ', later pages available' : ''}` } };
       } catch (err) {
         return { result: `Error: ${String(err)}`, log: { tool: name, label: 'Fathom list failed' } };
       }
@@ -285,7 +249,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         if (extracted.call_notes) callUpdates.call_notes = extracted.call_notes;
         if (extracted.follow_up_notes) callUpdates.follow_up_notes = extracted.follow_up_notes;
         if (extracted.ai_summary) callUpdates.ai_summary = extracted.ai_summary;
-        if (share_url) callUpdates.fathom_url = share_url;
+        if (share_url) callUpdates.recording_url = share_url;
 
         const { data, error } = await callsDb.from('sales_calls').update(callUpdates).eq('id', call_id).select().single();
         if (error) return { result: `DB error: ${error.message}`, log: { tool: name, label: 'Fathom synced but DB update failed', detail: error.message } };
@@ -323,20 +287,23 @@ Write ONLY the message text, nothing else.`,
 export async function POST(req: NextRequest) {
   let parsedRequest;
   try {
-    parsedRequest = parseJarvisRequest(await req.json());
+    parsedRequest = parseJarvisRequest(await readBoundedJarvisBody(req));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Invalid command.' }, { status: 400 });
   }
   const { transcript, history } = parsedRequest;
+  const cookie = req.headers.get('cookie');
+  const sameOriginHeaders: Record<string, string> = cookie ? { Cookie: cookie } : {};
+  const sameOriginBase = req.nextUrl.origin;
 
   const systemPrompt = `You are Jarvis, the AI operator inside Andrew Kroeze's 7-Figure CEO Sales OS. Andrew runs a coaching business — programs: BOARDROOM ($15K) and LAUNCH ($9K). His CRM is GoHighLevel, leads are tracked in a Supabase database, sales calls are recorded on Fathom.
 
-Your job: listen to Andrew's command, figure out exactly what he wants, and ACTUALLY DO IT using the tools. This is non-negotiable:
-- If the command implies a change (update, create, add note, set stage, log something, sync), you MUST call the tool that performs it. Never just describe what you would do. Never claim something is done without calling the tool that does it.
-- To act on an existing record, first search for it (search_leads / search_sales_calls / search_ghl) to get its real database id, THEN call the update tool with that id. Never invent an id.
-- Chain tools to fully complete the request in one go (e.g. search_leads → update_lead → add_lead_note).
-- Be decisive. Make your best reasonable guess rather than asking for confirmation.
-- If you genuinely cannot complete it (record not found, ambiguous), say so plainly in the summary instead of pretending.
+Your job in this release is read-only analysis, research, and drafting. Use search tools to ground every factual answer.
+- Never create, update, sync, or add notes to records. Write tools are intentionally unavailable until durable idempotency and approval controls are implemented.
+- If Andrew asks for a data change, inspect the relevant record when useful, then state clearly that no mutation was performed and describe the exact proposed change.
+- You may draft messages, but never send them.
+- Never invent an id or claim a change occurred.
+- If a record is missing or the request is ambiguous, say so plainly.
 
 Pipeline stages: 👨 Prospect, 📣 Reached Out, 📞 Call Booked, 🔥 Hot Prospect, 🔗 Pay Link Sent, 🏦 Payment Received
 Quality options: 🔥 Very High, ⭐️ High, 👌 Medium, 🤏 Low, ❌ Very Low, 🏝️ Event Lead
@@ -346,7 +313,7 @@ When someone says "Flow Mastermind" or "event" → source = "Live Event". When t
 
 After completing all actions, respond with ONLY a JSON object (no markdown, no prose before or after):
 {
-  "summary": "plain confirmation of what you actually changed, naming the record(s). e.g. 'Updated Sarah Kim's stage to Hot Prospect and added your note.' If nothing was changed, say why.",
+  "summary": "plain summary grounded in records you inspected. If Andrew requested a mutation, say that no change was made in this read-only release and describe the proposed change.",
   "generatedContent": [{ "type": "message_draft", "label": "Outreach message for Name", "content": "..." }]
 }
 Only include generatedContent when you generated a message or other copyable text. The summary must describe what the tools actually did, not intentions.`;
@@ -358,6 +325,8 @@ Only include generatedContent when you generated a message or other copyable tex
 
   const actionLog: ActionLog[] = [];
   const generatedContent: { type: string; label: string; content: string }[] = [];
+  const observations: string[] = [];
+  let omittedObservations = 0;
   let finalSummary = '';
   let iterations = 0;
 
@@ -378,13 +347,25 @@ Only include generatedContent when you generated a message or other copyable tex
 
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
         for (const block of toolUseBlocks) {
-          const { result, log } = await executeTool(block.name, block.input as Record<string, unknown>);
+          let result: string;
+          let log: ActionLog;
+          try {
+            ({ result, log } = await executeTool(block.name, block.input as Record<string, unknown>, sameOriginHeaders, sameOriginBase));
+          } catch (error) {
+            result = `Error: ${error instanceof Error ? error.message : 'read-tool result validation failed'}`;
+            log = { tool: block.name, label: `${block.name} failed`, detail: 'Result validation failed' };
+          }
           log.ok = toolSucceeded(result, log.label);
           actionLog.push(log);
+          const observation = log.ok ? summarizeReadResult(block.name, result) : null;
+          if (observation) {
+            if (observations.length < 10) observations.push(boundedText(observation, 2000));
+            else omittedObservations += 1;
+          }
           if (block.name === 'generate_message' && result && log.ok) {
             generatedContent.push({
               type: 'message_draft',
-              label: `Outreach message for ${(block.input as { name?: string }).name ?? 'lead'}`,
+              label: 'AI-generated message draft, not sent',
               content: result,
             });
           }
@@ -402,7 +383,7 @@ Only include generatedContent when you generated a message or other copyable tex
           if (match) {
             const parsed = JSON.parse(match[0]) as { summary?: string; generatedContent?: { type: string; label: string; content: string }[] };
             finalSummary = parsed.summary ?? '';
-            if (parsed.generatedContent) generatedContent.push(...parsed.generatedContent);
+            // Model-authored artifacts are never trusted; only server-created tool artifacts are returned.
           } else {
             finalSummary = textBlock.text.trim().slice(0, 300);
           }
@@ -414,30 +395,37 @@ Only include generatedContent when you generated a message or other copyable tex
     }
   } catch (err) {
     console.error('[ai-assistant] Agent request failed', err);
+    const safeDrafts = safeGeneratedContent(generatedContent);
     return NextResponse.json({
       status: 'error',
       actionLog,
-      summary: 'I could not reach the AI engine. Check the Anthropic configuration and try again.',
-      generatedContent,
-      changed: actionLog.filter((l) => l.ok && WRITE_TOOLS.has(l.tool)).length,
+      summary: `${READ_ONLY_NOTICE} I could not reach the AI engine. Check the Anthropic configuration and try again.`,
+      readOnly: true,
+      mutationNotice: READ_ONLY_NOTICE,
+      generatedContent: safeDrafts.items,
+      generatedContentOmitted: safeDrafts.omitted,
+      changed: 0,
       failed: Math.max(1, actionLog.filter((l) => l.ok === false).length),
     });
   }
 
   // Truth-based status — derived from what the tools actually did, not the model's claim
   const failed = actionLog.filter((l) => l.ok === false).length;
-  const changed = actionLog.filter((l) => l.ok && WRITE_TOOLS.has(l.tool)).length;
   const ranAny = actionLog.length > 0;
   const status: 'done' | 'partial' | 'nothing' | 'error' =
-    failed > 0 ? 'partial' : ranAny ? 'done' : 'nothing';
+    ranAny && failed === actionLog.length ? 'error' : failed > 0 ? 'partial' : ranAny ? 'done' : 'nothing';
 
-  if (!finalSummary) {
-    finalSummary = ranAny
-      ? actionLog.map((l) => `${l.ok === false ? '✗' : '✓'} ${l.label}`).join('\n')
-      : 'No action taken. Try rephrasing what you want done.';
-  }
+  const observationBody = buildBoundedObservationBody(observations, omittedObservations);
+  finalSummary = observations.length
+    ? `${READ_ONLY_NOTICE}\n\n${observationBody}`
+    : status === 'error'
+      ? `${READ_ONLY_NOTICE} The requested lookup failed, so no unverified result is displayed. See Completed activity for the failed source.`
+      : ranAny
+        ? `${READ_ONLY_NOTICE} Completed ${actionLog.length} read-only drafting step${actionLog.length === 1 ? '' : 's'}. Review any labelled draft below.`
+      : `${READ_ONLY_NOTICE} No validated read result or draft was produced. Try rephrasing the request.`;
 
-  return NextResponse.json({ status, changed, failed, actionLog, summary: finalSummary, generatedContent });
+  const safeDrafts = safeGeneratedContent(generatedContent);
+  return NextResponse.json({ status, changed: 0, failed, actionLog, summary: finalSummary, readOnly: true, mutationNotice: READ_ONLY_NOTICE, generatedContent: safeDrafts.items, generatedContentOmitted: safeDrafts.omitted });
 }
 
 // Tools that mutate data (used to count real changes for the "done" confirmation)

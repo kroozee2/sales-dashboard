@@ -20,7 +20,7 @@ function secondThursday(year: number, month: number): string {
 }
 
 /** The next party that hasn't happened yet (today counts until it starts). */
-export function nextParty(now = new Date()): { date: string; label: string } {
+function nextParty(now = new Date()): { date: string; label: string } {
   const y = now.getUTCFullYear(), m = now.getUTCMonth();
   let date = secondThursday(y, m);
   // 19:00Z is 3pm ET during daylight time; once it's past, roll to next month.

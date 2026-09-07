@@ -77,7 +77,7 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  const allowed = ["headline", "proof_point", "one_liner", "story", "image_url", "source_url", "video_url", "person_name"];
+  const allowed = ["headline", "proof_point", "one_liner", "story", "image_url", "source_url", "video_url", "person_name", "proof_kind"];
   const clean: Record<string, unknown> = {};
   for (const k of allowed) if (k in body) clean[k] = body[k];
   if (!Object.keys(clean).length) return NextResponse.json({ error: "nothing to update" }, { status: 400 });

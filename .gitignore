@@ -4,15 +4,13 @@
 # Next.js
 /.next
 /out
-
-# production
 /build
 
-# local environment files
+# local environment and secrets
 .env*
 !.env.example
 
-# Vercel
+# Vercel local linkage
 .vercel
 
 # logs
@@ -21,8 +19,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# macOS
-.DS_Store
-
 # test coverage
 /coverage
+
+# generated TypeScript state
+*.tsbuildinfo
+
+# macOS
+.DS_Store

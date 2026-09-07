@@ -159,6 +159,18 @@ export async function ghlSend(
   return res.ok ? { ok: true } : { ok: false, detail: j?.message || `send failed (${res.status})` };
 }
 
+export async function ghlContactIdentity(contactId: string): Promise<{ phone: string | null; email: string | null } | null> {
+  const res = await fetch(`${GHL}/contacts/${encodeURIComponent(contactId)}`, { headers: headers("2021-07-28"), cache: "no-store" });
+  if (!res.ok) return null;
+  const body = await res.json().catch(() => null);
+  const contact = body?.contact;
+  if (!contact || typeof contact !== "object") return null;
+  return {
+    phone: typeof contact.phone === "string" ? contact.phone : null,
+    email: typeof contact.email === "string" ? contact.email : null,
+  };
+}
+
 // Find or create a GHL contact so we can message a lead. On duplicate, GHL
 // returns the existing contact id in meta — so this is find-or-create.
 export async function ghlCreateContact(name: string, email: string | null, phone: string | null): Promise<string | null> {

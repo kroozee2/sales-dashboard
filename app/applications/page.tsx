@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { SubTabs } from "@/components/sub-tabs";
 
 interface Application {
   id: string;
@@ -216,7 +215,6 @@ export default function ApplicationsPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-      <SubTabs group="leads" />
 
       <div className="flex flex-wrap items-end justify-between gap-3 mb-5">
         <div>

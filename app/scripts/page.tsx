@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { SubTabs } from "@/components/sub-tabs";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -386,7 +385,6 @@ export default function ScriptsPage() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <SubTabs group="leads" />
       {/* Header */}
       <div className="flex items-center justify-between mb-6 gap-3">
         <div>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { SubTabs } from "@/components/sub-tabs";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 type SignupApp = "claude" | "skool" | "flow";
@@ -296,7 +295,6 @@ export default function SignupsPage() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <SubTabs group="leads" />
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-6">
         <div>

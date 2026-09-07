@@ -12,12 +12,6 @@ type Tab = { href: string; label: string; emoji: string; tab?: string };
 // Sub-navigation groups — a single sidebar entry expands into these pill tabs
 // at the top of each page so you can click straight across related sections.
 export const SUB_TAB_GROUPS: Record<string, Tab[]> = {
-  // Everything else in this group now lives in the sidebar; these two are the
-  // cross-links worth keeping at the top of the page.
-  leads: [
-    { href: "/leads?tab=linksent", label: "Link Sent", emoji: "🔗", tab: "linksent" },
-    { href: "/hot-leads", label: "Hot Prospects", emoji: "🔥" },
-  ],
   tasks: [
     { href: "/tasks", label: "Tasks", emoji: "📋" },
     { href: "/winning-formula", label: "Winning Formula", emoji: "🔥" },

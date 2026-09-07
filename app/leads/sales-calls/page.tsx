@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SubTabs } from "@/components/sub-tabs";
 import { callViewState, isBookedSalesCall, leadStageForCall, shouldOpenSalesCallRow } from "@/lib/sales-call-leads";
 import type { CallResult, SalesCall } from "@/lib/supabase-calls";
 
@@ -202,7 +201,6 @@ export default function LeadsSalesCallsPage() {
   return (
     <main className="min-h-screen bg-zinc-950 py-4 text-zinc-100">
       <div inert={selected ? true : undefined} aria-hidden={selected ? true : undefined}>
-      <SubTabs group="leads" />
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white">Sales Calls</h1>

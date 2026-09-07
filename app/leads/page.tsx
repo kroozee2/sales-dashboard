@@ -2209,7 +2209,6 @@ function LeadsPageInner() {
       {/* ── Top bar ─────────────────────────────────────────────────────────── */}
       <div className="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm px-4 md:px-6 py-4 sticky top-0 z-20">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <SubTabs group="leads" className="mb-0" />
           <div className="flex items-center gap-2 flex-wrap">
             {/* View toggle */}
             <div className="flex bg-zinc-800 border border-zinc-700 rounded-lg p-0.5 gap-0.5">

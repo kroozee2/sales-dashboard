@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { SubTabs } from "@/components/sub-tabs";
 import { buildHotLeadBrief } from "@/lib/hot-lead-brief";
 import type { PublicHotInstagramContext } from "@/lib/hot-leads";
 
@@ -146,7 +145,6 @@ export default function HotLeadsPage() {
   return (
     <main className="min-h-screen bg-zinc-950 px-4 py-5 text-zinc-100 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <SubTabs group="leads" />
         <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div><h1 className="text-2xl font-bold">🔥 Hot</h1><p className="mt-1 max-w-3xl text-sm text-zinc-400">Up to 50 priority prospects from your regular Leads list, including everyone marked Hot or in the Hot Prospect stage. Review Instagram history, message them, or remove them from Hot.</p></div>
           <div className="text-xs text-zinc-500">{data ? `${data.leads.length} shown · ${data.total} total` : "Loading…"}<br />{data?.instagram_synced_at.startsWith("1970-") ? "Instagram not synced yet" : `Instagram synced ${data ? formatTime(data.instagram_synced_at) : "—"}`}</div>

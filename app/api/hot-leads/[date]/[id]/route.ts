@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLeadsAdminClient } from "@/lib/supabase-leads";
 import { applyHotInstagramPatch, HOT_INSTAGRAM_MAX_BODY_BYTES, publicHotInstagramContext } from "@/lib/hot-leads";
-import { isHotLeadsOwner, isHotLeadsWorker } from "@/lib/hot-leads-auth";
+import { isHotLeadsWorker } from "@/lib/hot-leads-auth";
 import { HotLeadContextNotFoundError, HotLeadsStoreConflictError, mutateHotInstagram } from "@/lib/hot-leads-store";
 
 async function boundedJson(req: NextRequest): Promise<Record<string, unknown>> {
@@ -31,8 +31,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ date:
   try {
     const { date, id } = await context.params;
     if (date !== "current") return NextResponse.json({ error: "Hot Lead context not found" }, { status: 404 });
+    // Open to anyone signed in — the app-wide gate in proxy.ts still applies.
     const worker = isHotLeadsWorker(req);
-    if (!worker && !(await isHotLeadsOwner(req))) return NextResponse.json({ error: "Owner access required" }, { status: 403 });
     const patch = await boundedJson(req);
     const { data: lead, error: leadError } = await createLeadsAdminClient().from("leads").select("hot, prospect_stage").eq("id", id).maybeSingle();
     if (leadError || !lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });

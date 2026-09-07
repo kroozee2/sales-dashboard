@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ghlContactIdentity, ghlSend } from "@/lib/ghl-inbox";
-import { isHotLeadsOwner } from "@/lib/hot-leads-auth";
 import { createLeadsAdminClient } from "@/lib/supabase-leads";
 
 const CHANNELS = new Set(["SMS", "Email", "WhatsApp"]);
@@ -59,7 +58,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ date
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ date: string; id: string }> }) {
-  if (!(await isHotLeadsOwner(req))) return NextResponse.json({ error: "Owner access required" }, { status: 403 });
+  // Sending is open to the signed-in team, not just the owner. Everything here
+  // is still behind the app-wide gate in proxy.ts.
   const { date, id } = await params;
   if (date !== "current") return NextResponse.json({ error: "Only the current Hot list can send messages" }, { status: 404 });
 

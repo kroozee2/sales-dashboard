@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import type { SalesCall, CallResult, CallType, FollowUpStatus, ProspectQuality } from "@/lib/supabase-calls";
 import type { FathomRecording } from "@/app/api/calls/route";
 import { ExtendedStatsBar, ResultsChart, SuccessPie, RevenueByMonth, BookingsByMonth, ResultsByMonth } from "@/components/calls-analytics";
@@ -3334,14 +3335,19 @@ function FathomSection({ recordings }: { recordings: FathomRecording[] }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 type ViewMode = "list" | "calendar" | "pipeline";
 
-export default function CallsPage() {
+function CallsPageInner() {
   const [calls, setCalls] = useState<SalesCall[]>([]);
   const [recordings, setRecordings] = useState<FathomRecording[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>("list");
   const [filter, setFilter] = useState<Filter>("all");
-  const [mainTab, setMainTab] = useState<"calls" | "calendar" | "data">("calendar");
+  // Which view is open is driven by the sidebar (?tab=data|calendar|calls), so
+  // the URL is the source of truth and there's no in-page tab bar to keep in sync.
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get("tab");
+  const mainTab: "calls" | "calendar" | "data" =
+    urlTab === "data" || urlTab === "calls" || urlTab === "calendar" ? urlTab : "calendar";
   const [selected, setSelected] = useState<SalesCall | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>("mtd");
@@ -3522,23 +3528,6 @@ export default function CallsPage() {
               </div>
             )}
 
-            {/* Main tab switch: follow-up next · calls · data */}
-            <div className="flex gap-1 bg-zinc-900 border border-zinc-800 rounded-2xl p-1 mb-6">
-              {([
-                ["calls", "📞 Calls"],
-                ["calendar", "📅 Calendar"],
-                ["data", "📊 Dashboard"],
-              ] as const).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setMainTab(key)}
-                  className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${mainTab === key ? "bg-violet-600 text-white shadow-lg shadow-violet-500/20" : "text-zinc-400 hover:text-white"}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
             {mainTab === "calendar" && (
               <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4 items-start">
                 <div className="min-w-0">
@@ -3652,5 +3641,14 @@ export default function CallsPage() {
         />
       )}
     </div>
+  );
+}
+
+// useSearchParams needs a Suspense boundary at build time.
+export default function CallsPage() {
+  return (
+    <Suspense fallback={<p className="py-16 text-center text-zinc-600 animate-pulse">Loading…</p>}>
+      <CallsPageInner />
+    </Suspense>
   );
 }

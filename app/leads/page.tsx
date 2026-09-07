@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { Lead } from '@/lib/supabase-leads';
 import { smsHref, waHref } from '@/lib/utils';
 import { SubTabs } from '@/components/sub-tabs';
@@ -1519,7 +1520,7 @@ function ConnectNextQueue({ onOpenLead }: { onOpenLead: (leadId: string) => void
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
-export default function LeadsPage() {
+function LeadsPageInner() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [totalLeads, setTotalLeads] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -1540,7 +1541,16 @@ export default function LeadsPage() {
   const [sourceFilter, setSourceFilter] = useState('');
 
   // View state
-  const [mainTab, setMainTab] = useState<'leads' | 'followup' | 'data'>('leads');
+  // The sidebar links to ?tab=data|leads, so the URL is the source of truth.
+  // The in-page bar still switches views (and keeps Follow-Up Next reachable).
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get('tab');
+  const router = useRouter();
+  const mainTab: 'leads' | 'followup' | 'data' =
+    urlTab === 'data' || urlTab === 'followup' ? urlTab : 'leads';
+  const setMainTab = useCallback((t: 'leads' | 'followup' | 'data') => {
+    router.replace(`/leads?tab=${t}`, { scroll: false });
+  }, [router]);
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [showRecent, setShowRecent] = useState(false);
@@ -3521,5 +3531,14 @@ export default function LeadsPage() {
         </>
       )}
     </div>
+  );
+}
+
+// useSearchParams needs a Suspense boundary at build time.
+export default function LeadsPage() {
+  return (
+    <Suspense fallback={<p className="py-16 text-center text-zinc-600 animate-pulse">Loading…</p>}>
+      <LeadsPageInner />
+    </Suspense>
   );
 }

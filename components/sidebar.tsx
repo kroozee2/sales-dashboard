@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils";
 
 // `match` lists extra route prefixes that keep this item highlighted — used
 // where one sidebar entry fronts a group of sub-tabbed pages.
-type NavItem = { href: string; label: string; emoji: string; match?: string[]; section?: string; contentTab?: "dashboard" | "calendar" | "proof" };
+// `tab` marks entries that share a path and differ only by ?tab=. `tabDefault`
+// is the one that lights up when the URL carries no tab (or an unlisted one).
+type NavItem = { href: string; label: string; emoji: string; match?: string[]; section?: string; tab?: string; tabDefault?: boolean };
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Dashboard", emoji: "🏠", section: "Command" },
@@ -16,19 +18,23 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/projects", label: "Projects", emoji: "🗂️", section: "Command" },
   { href: "/tasks", label: "Tasks", emoji: "📋", match: ["/winning-formula"], section: "Command" },
 
-  { href: "/leads", label: "Leads", emoji: "🎯", match: ["/messages", "/scripts", "/signups", "/applications", "/hot-leads", "/instagram-hot-leads"], section: "Sales" },
-  { href: "/calls", label: "Sales Calls", emoji: "📞", section: "Sales" },
-  { href: "/revenue", label: "Revenue", emoji: "💰", section: "Sales" },
+  { href: "/leads?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Leads" },
+  { href: "/leads", label: "Leads", emoji: "🎯", tab: "leads", tabDefault: true, match: ["/messages", "/scripts", "/signups", "/applications", "/hot-leads", "/instagram-hot-leads"], section: "Leads" },
 
-  { href: "/content?tab=dashboard", label: "Dashboard", emoji: "📊", contentTab: "dashboard", section: "Marketing" },
-  { href: "/content", label: "Calendar", emoji: "🗓️", contentTab: "calendar", section: "Marketing" },
+  { href: "/calls?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Sales" },
+  { href: "/calls", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Sales" },
+  { href: "/calls?tab=calls", label: "List", emoji: "📋", tab: "calls", section: "Sales" },
+
+  { href: "/content?tab=dashboard", label: "Dashboard", emoji: "📊", tab: "dashboard", section: "Marketing" },
+  { href: "/content", label: "Calendar", emoji: "🗓️", tab: "calendar", tabDefault: true, section: "Marketing" },
   { href: "/instagram", label: "Instagram", emoji: "📸", section: "Marketing" },
   { href: "/youtube", label: "YouTube", emoji: "▶️", section: "Marketing" },
-  { href: "/content?tab=proof", label: "Proof", emoji: "🏆", contentTab: "proof", section: "Marketing" },
+  { href: "/content?tab=proof", label: "Proof", emoji: "🏆", tab: "proof", section: "Marketing" },
 
   { href: "/clients/dashboard", label: "Dashboard", emoji: "📊", section: "Clients" },
   { href: "/clients/members", label: "Members", emoji: "👥", section: "Clients" },
   { href: "/clients/calendar", label: "Calendar", emoji: "📅", section: "Clients" },
+  { href: "/revenue", label: "Finances", emoji: "💰", section: "Clients" },
 
   { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Backend" },
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
@@ -41,16 +47,21 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 // Whether a nav item should show as active for the current path.
-function isActive(n: NavItem, pathname: string, contentTab = "calendar"): boolean {
-  if (n.contentTab && pathname === "/content") {
-    if (n.contentTab === "dashboard") return contentTab === "dashboard";
-    if (n.contentTab === "proof") return contentTab === "proof";
-    return n.contentTab === "calendar" && contentTab !== "dashboard" && contentTab !== "proof";
-  }
+function isActive(n: NavItem, pathname: string, activeTab: string | null): boolean {
   const hrefPath = n.href.split("?")[0];
-  if (pathname === hrefPath || pathname.startsWith(hrefPath + "/")) return true;
+  const onPath = pathname === hrefPath || pathname.startsWith(hrefPath + "/");
+
+  if (onPath && n.tab) {
+    // Among entries sharing this path, the one matching ?tab= wins. If the URL
+    // carries no tab, or one nothing claims, the default entry lights up.
+    const siblings = NAV_ITEMS.filter((x) => x.href.split("?")[0] === hrefPath && x.tab);
+    if (activeTab && siblings.some((x) => x.tab === activeTab)) return n.tab === activeTab;
+    return !!n.tabDefault;
+  }
+  if (onPath) return true;
   return (n.match ?? []).some((m) => pathname === m || pathname.startsWith(m + "/"));
 }
+
 
 const SETTINGS: NavItem = { href: "/settings", label: "Settings", emoji: "⚙️" };
 
@@ -106,16 +117,14 @@ function Brand() {
   );
 }
 
-function NavList({ pathname, contentTab, onNavigate }: { pathname: string; contentTab: string; onNavigate?: () => void }) {
-  const sections = ["Command", "Sales", "Marketing", "Clients", "Backend", "Vault"];
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    Command: true,
-    Sales: true,
-    Marketing: true,
-    Clients: true,
-    Backend: true,
-    Vault: true,
-  });
+function NavList({ pathname, activeTab, onNavigate }: { pathname: string; activeTab: string | null; onNavigate?: () => void }) {
+  const sections = ["Command", "Leads", "Sales", "Marketing", "Clients", "Backend", "Vault"];
+  // Every section starts open — derived from the list so adding a section here
+  // can't silently leave it collapsed.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(sections.map((s) => [s, true])),
+  );
+
 
   const toggleSection = (section: string) => {
     setExpanded((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -127,7 +136,7 @@ function NavList({ pathname, contentTab, onNavigate }: { pathname: string; conte
         const items = NAV_ITEMS.filter((n) => n.section === section);
         if (items.length === 0) return null;
         const isExpanded = expanded[section];
-        const hasActiveChild = items.some((n) => isActive(n, pathname, contentTab));
+        const hasActiveChild = items.some((n) => isActive(n, pathname, activeTab));
 
         return (
           <div key={section} className="space-y-0.5">
@@ -143,7 +152,7 @@ function NavList({ pathname, contentTab, onNavigate }: { pathname: string; conte
 
             <div className={cn("space-y-0.5 overflow-hidden transition-all duration-200", isExpanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0")}>
               {items.map((n) => {
-                const active = isActive(n, pathname, contentTab);
+                const active = isActive(n, pathname, activeTab);
                 return (
                   <Link
                     key={n.href}
@@ -172,7 +181,7 @@ function NavList({ pathname, contentTab, onNavigate }: { pathname: string; conte
       {/* Unsectioned items */}
       <div className="space-y-0.5 pt-2">
         {NAV_ITEMS.filter((n) => !n.section).map((n) => {
-          const active = isActive(n, pathname, contentTab);
+          const active = isActive(n, pathname, activeTab);
           return (
             <Link
               key={n.href}
@@ -225,7 +234,7 @@ function Footer({ pathname, onNavigate }: { pathname: string; onNavigate?: () =>
 export function Sidebar() {
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
-  const contentTab = searchParams.get("tab") ?? "calendar";
+  const activeTab = searchParams.get("tab");
   const [open, setOpen] = useState(false);
 
   // See BottomNav: no app chrome on the login screen.
@@ -236,7 +245,7 @@ export function Sidebar() {
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex flex-col w-60 shrink-0 h-screen sticky top-0 border-r border-zinc-800 bg-zinc-900/60 backdrop-blur">
         <Brand />
-        <NavList pathname={pathname} contentTab={contentTab} />
+        <NavList pathname={pathname} activeTab={activeTab} />
         <Footer pathname={pathname} />
       </aside>
 
@@ -262,7 +271,7 @@ export function Sidebar() {
               <Brand />
               <button onClick={() => setOpen(false)} className="text-zinc-500 hover:text-white text-2xl leading-none">×</button>
             </div>
-            <NavList pathname={pathname} contentTab={contentTab} onNavigate={() => setOpen(false)} />
+            <NavList pathname={pathname} activeTab={activeTab} onNavigate={() => setOpen(false)} />
             <Footer pathname={pathname} onNavigate={() => setOpen(false)} />
           </aside>
         </div>

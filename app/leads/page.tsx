@@ -6,6 +6,7 @@ import type { Lead } from '@/lib/supabase-leads';
 import { smsHref, waHref } from '@/lib/utils';
 import { SubTabs } from '@/components/sub-tabs';
 import { LeadContextPanel, saveScreenshotContext } from '@/components/LeadContext';
+import { OptInFeed } from '@/components/optin-feed';
 
 // ─── Stage / quality config ────────────────────────────────────────────────
 
@@ -1550,7 +1551,7 @@ function LeadsPageInner() {
     urlTab === 'data' || urlTab === 'followup' || urlTab === 'hotlist' || urlTab === 'linksent' || urlTab === 'new' ? urlTab : 'leads';
   // Hot List, Link Sent and New Leads are the same spreadsheet, narrowed or
   // reordered server-side so they page and search like the full list.
-  const isGridView = mainTab === 'leads' || mainTab === 'hotlist' || mainTab === 'linksent' || mainTab === 'new';
+  const isGridView = mainTab === 'leads' || mainTab === 'hotlist' || mainTab === 'linksent';
   const setMainTab = useCallback((t: 'leads' | 'followup' | 'data' | 'hotlist' | 'linksent' | 'new') => {
     router.replace(`/leads?tab=${t}`, { scroll: false });
   }, [router]);
@@ -1863,7 +1864,6 @@ function LeadsPageInner() {
       // The Hot List / Link Sent views pin their own filter; it wins over the
       // stage dropdown so the view always shows what its name promises.
       if (mainTab === 'hotlist') params.set('hot', '1');
-      if (mainTab === 'new') params.set('sort', 'new');
       if (mainTab === 'linksent') params.set('stage', '🔗 Pay Link Sent');
       else if (effectiveStage) params.set('stage', effectiveStage);
       if (filters.quality) params.set('quality', filters.quality);
@@ -2500,19 +2500,19 @@ function LeadsPageInner() {
           </div>
         )}
 
+        {mainTab === 'new' && <OptInFeed />}
+
         {/* A narrowed view says so, so a short list never reads as missing data. */}
         {isGridView && mainTab !== 'leads' && (
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <h2 className="text-base font-black text-white">
-                {mainTab === 'hotlist' ? '🔥 Hot List' : mainTab === 'new' ? '🌱 New Leads' : '🔗 Link Sent'}
+                {mainTab === 'hotlist' ? '🔥 Hot List' : '🔗 Link Sent'}
               </h2>
               <p className="text-xs text-zinc-400">
                 {mainTab === 'hotlist'
                   ? 'Everyone currently marked Hot. Tap the flame on a row to remove them.'
-                  : mainTab === 'new'
-                    ? 'Every lead by the date they came in, newest first.'
-                    : 'Everyone sitting at the 🔗 Pay Link Sent stage.'}
+                  : 'Everyone sitting at the 🔗 Pay Link Sent stage.'}
               </p>
             </div>
             <span className="text-xs font-bold text-zinc-400">{totalLeads} {totalLeads === 1 ? 'lead' : 'leads'}</span>

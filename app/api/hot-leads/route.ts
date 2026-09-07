@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLeadsAdminClient } from "@/lib/supabase-leads";
 import { HOT_INSTAGRAM_MAX_BODY_BYTES, mergeHotInstagramSync, parseHotInstagramDocument, publicHotInstagramContext } from "@/lib/hot-leads";
-import { isHotLeadsAgent, isHotLeadsOwner } from "@/lib/hot-leads-auth";
+import { isHotLeadsAgent } from "@/lib/hot-leads-auth";
 import { HotLeadsStoreConflictError, mutateHotInstagram, readHotInstagram } from "@/lib/hot-leads-store";
 
 async function boundedJson(req: NextRequest): Promise<unknown> {
@@ -34,8 +34,10 @@ function errorResponse(error: unknown) {
 
 export async function GET(req: NextRequest) {
   try {
+    // Reading the Hot list is open to the whole team. Everything here is already
+    // behind the app-wide gate in proxy.ts, so this is "anyone signed in", not
+    // public. Writing the Instagram sync (PUT) still needs the agent key.
     const agent = isHotLeadsAgent(req);
-    if (!agent && !(await isHotLeadsOwner(req))) return NextResponse.json({ error: "Owner access required" }, { status: 403 });
     const db = createLeadsAdminClient();
     const [{ data, error, count }, instagram] = await Promise.all([
       db.from("leads")

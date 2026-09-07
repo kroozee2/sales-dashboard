@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
   const stage = searchParams.get('stage') ?? '';
   const quality = searchParams.get('quality') ?? '';
   const source = searchParams.get('source') ?? '';
+  // ?hot=1 narrows to the hot list itself, for the sidebar's Hot List view.
+  const hotOnly = searchParams.get('hot') === '1';
   const summary = searchParams.get('summary') === 'true';
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
   const maxLimit = summary ? 1000 : 500;
@@ -41,6 +43,9 @@ export async function GET(request: NextRequest) {
   }
   if (source) {
     query = query.eq('source', source);
+  }
+  if (hotOnly) {
+    query = query.eq('hot', true);
   }
 
   const { data, error, count } = await query;

@@ -1546,9 +1546,11 @@ function LeadsPageInner() {
   const searchParams = useSearchParams();
   const urlTab = searchParams.get('tab');
   const router = useRouter();
-  const mainTab: 'leads' | 'followup' | 'data' =
-    urlTab === 'data' || urlTab === 'followup' ? urlTab : 'leads';
-  const setMainTab = useCallback((t: 'leads' | 'followup' | 'data') => {
+  const mainTab: 'leads' | 'followup' | 'data' | 'hotlist' | 'linksent' =
+    urlTab === 'data' || urlTab === 'followup' || urlTab === 'hotlist' || urlTab === 'linksent' ? urlTab : 'leads';
+  // Hot List and Link Sent are the same spreadsheet, narrowed server-side.
+  const isGridView = mainTab === 'leads' || mainTab === 'hotlist' || mainTab === 'linksent';
+  const setMainTab = useCallback((t: 'leads' | 'followup' | 'data' | 'hotlist' | 'linksent') => {
     router.replace(`/leads?tab=${t}`, { scroll: false });
   }, [router]);
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
@@ -1857,7 +1859,11 @@ function LeadsPageInner() {
       const effectiveStage = kpiCard?.stageFilter ?? (kpiCard ? '' : (filters.stage ?? ''));
 
       if (filters.search) params.set('search', filters.search);
-      if (effectiveStage) params.set('stage', effectiveStage);
+      // The Hot List / Link Sent views pin their own filter; it wins over the
+      // stage dropdown so the view always shows what its name promises.
+      if (mainTab === 'hotlist') params.set('hot', '1');
+      if (mainTab === 'linksent') params.set('stage', '🔗 Pay Link Sent');
+      else if (effectiveStage) params.set('stage', effectiveStage);
       if (filters.quality) params.set('quality', filters.quality);
       if (filters.source) params.set('source', filters.source);
 
@@ -1882,7 +1888,7 @@ function LeadsPageInner() {
       setLoadingMore(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, stageFilter, qualityFilter, sourceFilter, activeKpi]);
+  }, [debouncedSearch, stageFilter, qualityFilter, sourceFilter, activeKpi, mainTab]);
 
   useEffect(() => {
     void fetchLeads(1, true);
@@ -2510,8 +2516,25 @@ function LeadsPageInner() {
           </div>
         )}
 
+        {/* A narrowed view says so, so a short list never reads as missing data. */}
+        {isGridView && mainTab !== 'leads' && (
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <h2 className="text-base font-black text-white">
+                {mainTab === 'hotlist' ? '🔥 Hot List' : '🔗 Link Sent'}
+              </h2>
+              <p className="text-xs text-zinc-400">
+                {mainTab === 'hotlist'
+                  ? 'Everyone currently marked Hot. Tap the flame on a row to remove them.'
+                  : 'Everyone sitting at the 🔗 Pay Link Sent stage.'}
+              </p>
+            </div>
+            <span className="text-xs font-bold text-zinc-400">{totalLeads} {totalLeads === 1 ? 'lead' : 'leads'}</span>
+          </div>
+        )}
+
         {/* ── Filter bar (leads tab) ─────────────────────────────────────────── */}
-        {mainTab === 'leads' && (
+        {isGridView && (
         <div className="flex flex-wrap gap-2 items-center">
           {/* Search */}
           <div className="relative flex-1 min-w-[180px] max-w-xs">
@@ -2576,7 +2599,7 @@ function LeadsPageInner() {
         )}
 
         {/* ── Main content (leads tab) ────────────────────────────────────────── */}
-        {mainTab === 'leads' && (loading ? (
+        {isGridView && (loading ? (
           <SkeletonRows />
         ) : viewMode === 'list' ? (
           <ListView
@@ -2610,7 +2633,7 @@ function LeadsPageInner() {
         ))}
 
         {/* Infinite scroll sentinel */}
-        {mainTab === 'leads' && <div ref={sentinelRef} className="h-8" />}
+        {isGridView && <div ref={sentinelRef} className="h-8" />}
         {loadingMore && <div className="text-center text-zinc-500 text-sm py-4">Loading more…</div>}
       </div>
 

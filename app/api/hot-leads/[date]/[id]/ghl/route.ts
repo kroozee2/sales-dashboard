@@ -44,7 +44,8 @@ async function currentHotLead(id: string) {
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ date: string; id: string }> }) {
-  if (!(await isHotLeadsOwner(req))) return NextResponse.json({ error: "Owner access required" }, { status: 403 });
+  // Reading a lead's GHL details is open to the team, like the Hot list itself.
+  // The POST below actually sends them a message, so that stays owner-only.
   const { date, id } = await params;
   if (date !== "current") return NextResponse.json({ error: "Only the current Hot list can open GoHighLevel" }, { status: 404 });
   const { data: lead, error } = await currentHotLead(id);

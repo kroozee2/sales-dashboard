@@ -3365,6 +3365,7 @@ function CallsPageInner({ lane }: { lane: CallLane }) {
   const [customEnd, setCustomEnd] = useState("");
   const [typeFilter, setTypeFilter] = useState<CallType | "all">("all");
   const [searchQ, setSearchQ] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -3470,6 +3471,7 @@ function CallsPageInner({ lane }: { lane: CallLane }) {
 
   // Inline edit straight from the grid row (optimistic)
   async function handleInlineUpdate(id: string, patch: Partial<SalesCall>) {
+    setSaveError(null);
     const before = calls.find((c) => c.id === id);
     setCalls((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     try {
@@ -3479,11 +3481,13 @@ function CallsPageInner({ lane }: { lane: CallLane }) {
         body: JSON.stringify({ id, ...pickMutableSalesCallFields(patch as Record<string, unknown>) }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.call) throw new Error("rejected");
+      if (!res.ok || !data?.call) throw new Error(data?.error ?? `Save failed (${res.status})`);
       setCalls((prev) => prev.map((c) => (c.id === id ? data.call : c)));
-    } catch {
-      // Don't leave a change on screen that the server refused.
+    } catch (e) {
+      // Don't leave a change on screen that the server refused — and say so,
+      // otherwise the row just springs back with no explanation.
       if (before) setCalls((prev) => prev.map((c) => (c.id === id ? before : c)));
+      setSaveError(e instanceof Error ? e.message : "Could not save that change");
     }
   }
 
@@ -3643,7 +3647,14 @@ function CallsPageInner({ lane }: { lane: CallLane }) {
                     <p className="text-sm">Click &ldquo;Add Call&rdquo; to get started</p>
                   </div>
                 ) : (
-                  <GroupedCallList calls={filteredCalls} onSelect={setSelected} onUpdate={handleInlineUpdate} />
+                  <>
+                    {saveError && (
+                      <p role="alert" className="mb-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-200">
+                        {saveError} — the row was put back to what the server has.
+                      </p>
+                    )}
+                    <GroupedCallList calls={filteredCalls} onSelect={setSelected} onUpdate={handleInlineUpdate} />
+                  </>
                 )}
               </>
             )}

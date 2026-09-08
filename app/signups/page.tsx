@@ -1,5 +1,7 @@
 "use client";
 
+import { SignupsTable } from "@/components/signups-table";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
@@ -294,7 +296,7 @@ export default function SignupsPage() {
   const newCount = filtered.filter((s) => !s.already_lead).length;
 
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-6">
         <div>
@@ -360,74 +362,7 @@ export default function SignupsPage() {
           <p>No signups yet.</p>
         </div>
       ) : (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-          {/* Column header */}
-          <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b border-zinc-800 text-[10px] font-semibold uppercase tracking-wide text-zinc-600">
-            <span className="w-9 flex-shrink-0" />
-            <span style={{ flex: "1.4 1 0%" }}>Person</span>
-            <span className="hidden sm:block" style={{ flex: "1.6 1 0%" }}>Email</span>
-            <span className="hidden md:block w-[140px] flex-shrink-0">Phone</span>
-            <span className="w-[110px] flex-shrink-0">Signed up</span>
-            <span className="hidden lg:block w-[110px] flex-shrink-0">Last login</span>
-            <span className="w-[130px] flex-shrink-0 text-right">Action</span>
-          </div>
-          <div className="divide-y divide-zinc-800/50">
-            {filtered.map((s) => {
-              const tel = telHref(s.phone);
-              return (
-                <div key={s.id} className="flex items-center gap-3 px-4 py-3 hover:bg-zinc-800/40 transition-colors">
-                  <span className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                    {initials(s.name, s.email)}
-                  </span>
-                  <div className="min-w-0" style={{ flex: "1.4 1 0%" }}>
-                    <div className="flex items-center gap-2">
-                      <span className="text-white text-sm font-medium truncate">{s.name || (s.email ? s.email.split("@")[0] : "—")}</span>
-                      {appTab === "all" && (
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 border ${APP_META[s.app].badge}`}>
-                          {APP_META[s.app].emoji} {APP_META[s.app].label}
-                        </span>
-                      )}
-                      {(s.login_count ?? 0) > 1 && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex-shrink-0">{s.login_count}× logins</span>}
-                    </div>
-                    {/* email under name on mobile only (dedicated column on sm+) */}
-                    {s.email && <a href={`mailto:${s.email}`} className="sm:hidden text-zinc-500 text-xs truncate block hover:text-blue-300">{s.email}</a>}
-                  </div>
-                  {/* Email column */}
-                  <div className="hidden sm:flex items-center gap-1.5 min-w-0" style={{ flex: "1.6 1 0%" }}>
-                    {s.email ? (
-                      <>
-                        <a href={`mailto:${s.email}`} className="text-zinc-300 text-xs truncate hover:text-blue-300">{s.email}</a>
-                        <button
-                          onClick={() => { void navigator.clipboard.writeText(s.email!); setFlash(`Copied ${s.email}`); setTimeout(() => setFlash(null), 1500); }}
-                          title="Copy email"
-                          className="flex-shrink-0 text-zinc-600 hover:text-zinc-300 text-xs"
-                        >⧉</button>
-                      </>
-                    ) : <span className="text-zinc-700 text-xs">—</span>}
-                  </div>
-                  <div className="hidden md:block w-[140px] flex-shrink-0">
-                    {tel ? <a href={tel} className="text-zinc-300 text-xs hover:text-blue-300">{s.phone}</a> : <span className="text-zinc-700 text-xs">—</span>}
-                  </div>
-                  <span className="w-[110px] flex-shrink-0 text-zinc-400 text-xs">{fmtDate(s.created_at)}</span>
-                  <span className="hidden lg:block w-[110px] flex-shrink-0 text-zinc-400 text-xs">{fmtWhen(s.last_seen)}</span>
-                  <div className="w-[130px] flex-shrink-0 flex justify-end">
-                    {s.already_lead ? (
-                      <span className="text-emerald-400 text-xs font-medium">✓ In Leads</span>
-                    ) : (
-                      <button
-                        onClick={() => importOne(s)}
-                        disabled={busyId === s.id}
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
-                      >
-                        {busyId === s.id ? "Adding…" : "+ Add to Leads"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <SignupsTable rows={filtered} />
       )}
 
       <p className="text-zinc-600 text-xs mt-4">

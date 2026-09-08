@@ -1,6 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { PersonSelect } from "@/components/sub-tabs";
+import { usePerson } from "@/lib/use-person";
+import {
+  buildGoalBoard, daysUntil, goalStatus, isoDaysFromNow,
+  projectedTotal, sectionProgress, type GoalSection, type GoalStatus,
+} from "@/lib/goal-board";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -20,11 +26,24 @@ interface Goal {
   sort_order: number;
   archived: boolean;
   featured: boolean;
+  owner: Owner;
+  /** Does the number pile up through the period, or is it a level you hold? */
+  track_mode: "accumulates" | "level";
   created_at: string;
   updated_at: string;
 }
 
 type NewGoal = Omit<Goal, "id" | "created_at" | "updated_at" | "archived" | "sort_order" | "featured">;
+
+// Who's accountable. Same two people, same colours as Projects and Tasks, so a
+// blue chip means Andrew everywhere in the app.
+type Owner = "Andrew" | "Jameson";
+const OWNERS: Owner[] = ["Andrew", "Jameson"];
+const ownerEmoji = (o: string) => (o === "Jameson" ? "🧑" : "🧔");
+const OWNER_STYLE: Record<Owner, { chip: string; dot: string }> = {
+  Andrew: { chip: "bg-blue-500/15 text-blue-300 border-blue-500/30", dot: "bg-blue-400" },
+  Jameson: { chip: "bg-violet-500/15 text-violet-300 border-violet-500/30", dot: "bg-violet-400" },
+};
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -54,6 +73,8 @@ const PERIODS = [
 
 const CATEGORIES = [
   { key: "revenue", label: "Revenue", emoji: "💰" },
+  { key: "sales", label: "Sales", emoji: "🤝" },
+  { key: "leads", label: "Leads", emoji: "🎯" },
   { key: "signups", label: "Sign-ups", emoji: "✍️" },
   { key: "tickets", label: "Tickets", emoji: "🎟️" },
   { key: "other", label: "Other", emoji: "🏁" },
@@ -103,43 +124,6 @@ function countNoun(g: Goal) {
   return "";
 }
 
-// Fraction of the current period that has elapsed (0..1), for pace/status.
-function elapsedFraction(g: Goal): number | null {
-  const now = new Date();
-  let start: Date, end: Date;
-  const y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
-  switch (g.period) {
-    case "monthly":
-      start = new Date(y, m, 1); end = new Date(y, m + 1, 1); break;
-    case "quarterly": {
-      const q = Math.floor(m / 3);
-      start = new Date(y, q * 3, 1); end = new Date(y, q * 3 + 3, 1); break;
-    }
-    case "annual":
-      start = new Date(y, 0, 1); end = new Date(y + 1, 0, 1); break;
-    case "weekly": {
-      const dow = now.getDay() === 0 ? 6 : now.getDay() - 1; // Mon-based
-      start = new Date(y, m, d - dow); end = new Date(start.getTime() + 7 * 86400000); break;
-    }
-    case "one_time":
-      if (!g.target_date) return null;
-      start = new Date(g.created_at);
-      end = new Date(g.target_date + "T23:59:59");
-      break;
-    default:
-      return null;
-  }
-  const total = end.getTime() - start.getTime();
-  if (total <= 0) return null;
-  return Math.min(1, Math.max(0, (now.getTime() - start.getTime()) / total));
-}
-
-function daysUntil(dateStr: string): number {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const target = new Date(dateStr + "T12:00:00"); target.setHours(0, 0, 0, 0);
-  return Math.round((target.getTime() - today.getTime()) / 86400000);
-}
-
 function periodDateLabel(g: Goal): string {
   const now = new Date();
   const mo = now.toLocaleDateString("en-US", { month: "long" });
@@ -167,25 +151,27 @@ function currentValue(g: Goal, live: Record<string, number>): number {
   return base + (g.current_amount ?? 0);
 }
 
-function computeStatus(g: Goal, current: number): keyof typeof STATUS {
-  const target = g.target_amount || 0;
-  const progress = target > 0 ? current / target : 0;
-  if (progress >= 1) return "achieved";
-  const ef = elapsedFraction(g);
-  if (ef == null) return "ontrack";
-  // Overdue with target date and not achieved
-  if (g.target_date && daysUntil(g.target_date) < 0) return "behind";
-  const expected = ef;
-  if (progress >= expected) return "ontrack";
-  if (progress >= expected * 0.85) return "atrisk";
-  return "behind";
-}
+const computeStatus = (g: Goal, current: number): GoalStatus => goalStatus(g, current);
+const projected = (g: Goal, current: number) => projectedTotal(g, current);
 
-// Projected end-of-period value at current pace
-function projected(g: Goal, current: number): number | null {
-  const ef = elapsedFraction(g);
-  if (ef == null || ef <= 0.02) return null;
-  return current / ef;
+// ─── Shared controls ────────────────────────────────────────────────────────
+
+/** Who's accountable — the same control the Projects board uses. */
+function OwnerSelect({ value, onChange, className = "" }: { value: Owner; onChange: (v: Owner) => void; className?: string }) {
+  const style = OWNER_STYLE[value] ?? OWNER_STYLE.Andrew;
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as Owner)}
+      onClick={(e) => e.stopPropagation()}
+      title="Who's responsible"
+      className={`rounded-lg border px-2 py-1 text-[11px] font-semibold focus:outline-none ${style.chip} ${className}`}
+    >
+      {OWNERS.map((o) => (
+        <option key={o} value={o} className="bg-zinc-900 text-white">{ownerEmoji(o)} {o}</option>
+      ))}
+    </select>
+  );
 }
 
 // ─── Add / Edit Modal ───────────────────────────────────────────────────────
@@ -208,6 +194,8 @@ function GoalModal({ initial, onClose, onSave, onDelete }: {
   const [source, setSource] = useState(initial?.source ?? "");
   const [color, setColor] = useState(initial?.color ?? "blue");
   const [notes, setNotes] = useState(initial?.notes ?? "");
+  const [owner, setOwner] = useState<Owner>(initial?.owner ?? "Andrew");
+  const [trackMode, setTrackMode] = useState<"accumulates" | "level">(initial?.track_mode ?? "accumulates");
 
   const isCash = goalType === "cash";
 
@@ -226,6 +214,8 @@ function GoalModal({ initial, onClose, onSave, onDelete }: {
       source: isCash && source ? source : null,
       color,
       notes: notes.trim() || null,
+      owner,
+      track_mode: trackMode,
     }, initial?.id);
     setSaving(false);
   }
@@ -255,6 +245,19 @@ function GoalModal({ initial, onClose, onSave, onDelete }: {
               className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-xl px-2 py-2.5 text-lg focus:outline-none focus:border-blue-500" />
             <input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="Goal name"
               className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-zinc-600 focus:outline-none focus:border-blue-500" />
+          </div>
+
+          {/* Responsible */}
+          <div>
+            <label className="text-zinc-400 text-xs uppercase tracking-wide block mb-1.5">Responsible</label>
+            <div className="grid grid-cols-2 gap-2">
+              {OWNERS.map((o) => (
+                <button key={o} onClick={() => setOwner(o)}
+                  className={`py-2 rounded-xl text-sm font-medium border transition-colors ${owner === o ? "bg-blue-600/20 border-blue-500/40 text-blue-200" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"}`}>
+                  {ownerEmoji(o)} {o}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Category */}
@@ -290,6 +293,23 @@ function GoalModal({ initial, onClose, onSave, onDelete }: {
                 <input type="number" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="0"
                   className={`w-full bg-zinc-800 border border-zinc-700 rounded-xl py-2.5 pr-3 text-white text-sm placeholder:text-zinc-600 focus:outline-none focus:border-blue-500 ${isCash ? "pl-7" : "pl-3"}`} />
               </div>
+            </div>
+          </div>
+
+          {/* How the number behaves — this is what makes "on pace" meaningful */}
+          <div>
+            <label className="text-zinc-400 text-xs uppercase tracking-wide block mb-1.5">How it moves</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["accumulates", "📈 Adds up", "Cash collected, tickets sold"],
+                ["level", "📊 A level", "Active MRR, headcount"],
+              ] as const).map(([mode, label, hint]) => (
+                <button key={mode} onClick={() => setTrackMode(mode)}
+                  className={`rounded-xl border px-2 py-2 text-left transition-colors ${trackMode === mode ? "bg-blue-600/20 border-blue-500/40" : "bg-zinc-800 border-zinc-700 hover:border-zinc-600"}`}>
+                  <span className={`block text-xs font-semibold ${trackMode === mode ? "text-blue-200" : "text-zinc-300"}`}>{label}</span>
+                  <span className="block text-[10px] text-zinc-500 mt-0.5">{hint}</span>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -495,7 +515,7 @@ function GoalCard({ goal, live, onOpen, onPatch, onToggleFeature }: { goal: Goal
   };
 
   return (
-    <div className="relative bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-4 transition-colors">
+    <div className="relative min-w-0 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-4 transition-colors">
       {/* Star — feature this goal at the top */}
       <button onClick={(e) => { e.stopPropagation(); onToggleFeature(goal.id, !goal.featured); }}
         title={goal.featured ? "Featured at the top — click to unstar" : "Star to feature at the top"}
@@ -527,9 +547,15 @@ function GoalCard({ goal, live, onOpen, onPatch, onToggleFeature }: { goal: Goal
         </div>
       </button>
 
+      {/* Responsible + where this lands at today's rate */}
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        <OwnerSelect value={goal.owner ?? "Andrew"} onChange={(v) => void onPatch(goal.id, { owner: v })} />
+        <PaceNote goal={goal} current={current} />
+      </div>
+
       {/* Quick actual editor — shows the real number; type to set it, ± to nudge */}
       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-zinc-800/70">
-        <span className="text-zinc-600 text-[11px] uppercase tracking-wide flex-shrink-0">Actual</span>
+        <span className="hidden sm:inline text-zinc-600 text-[11px] uppercase tracking-wide flex-shrink-0">Actual</span>
         <button onClick={() => setActual(current - step)} title={`Subtract ${stepLabel}`}
           className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-base font-bold transition-colors flex-shrink-0">−</button>
         <div className="relative flex-1 min-w-0">
@@ -550,6 +576,40 @@ function GoalCard({ goal, live, onOpen, onPatch, onToggleFeature }: { goal: Goal
           className="h-8 px-3 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition-colors flex-shrink-0 flex items-center gap-1">+ {stepLabel}</button>
       </div>
     </div>
+  );
+}
+
+/**
+ * "On pace for X" is the line that turns a progress bar into a decision — the
+ * bar says where you are, this says where you land if nothing changes.
+ */
+function PaceNote({ goal, current }: { goal: Goal; current: number }) {
+  const target = goal.target_amount || 0;
+  const proj = projected(goal, current);
+  if (target <= 0) return null;
+  if (current >= target) {
+    return <span className="text-[11px] font-medium text-emerald-400">✓ Hit {fmtValShort(goal, target)}</span>;
+  }
+  if (goal.target_date && daysUntil(goal.target_date) < 0) {
+    const short = target - current;
+    return <span className="text-[11px] text-rose-300">Closed {fmtValShort(goal, short)} short</span>;
+  }
+  if (goal.track_mode === "level") {
+    const short = target - current;
+    return (
+      <span className="text-[11px] text-amber-300">
+        {fmtValShort(goal, short)} below <span className="text-zinc-600">{fmtValShort(goal, target)}</span>
+      </span>
+    );
+  }
+  if (current <= 0) return <span className="text-[11px] text-zinc-600">Nothing logged yet</span>;
+  if (proj == null) return <span className="text-[11px] text-zinc-600">Too early to call</span>;
+  const ahead = proj >= target;
+  return (
+    <span className={`text-[11px] ${ahead ? "text-emerald-400" : "text-amber-300"}`}>
+      On pace for {fmtValShort(goal, proj)}
+      <span className="text-zinc-600"> · {ahead ? "clears" : `${fmtValShort(goal, target - proj)} short of`} {fmtValShort(goal, target)}</span>
+    </span>
   );
 }
 
@@ -599,6 +659,126 @@ function FeaturedHero({ goal, live, summary, liveLoading, onOpen }: {
   );
 }
 
+// ─── Quick add ──────────────────────────────────────────────────────────────
+
+/**
+ * One line, four fields, Enter. The full modal is still there for colour,
+ * notes and live Stripe tracking — this is for the goal you thought of just now.
+ */
+function QuickAddGoal({ defaultOwner, onAdd }: { defaultOwner: Owner; onAdd: (g: NewGoal) => Promise<void> }) {
+  const [name, setName] = useState("");
+  const [goalType, setGoalType] = useState<"cash" | "count">("cash");
+  const [target, setTarget] = useState("");
+  const [date, setDate] = useState("");
+  const [owner, setOwner] = useState<Owner>(defaultOwner);
+  const [busy, setBusy] = useState(false);
+
+  const ready = name.trim().length > 0 && parseFloat(target) > 0;
+
+  async function submit() {
+    if (!ready || busy) return;
+    setBusy(true);
+    await onAdd({
+      name: name.trim(),
+      emoji: goalType === "cash" ? "💰" : "🎯",
+      goal_type: goalType,
+      category: goalType === "cash" ? "revenue" : "other",
+      target_amount: parseFloat(target) || 0,
+      current_amount: 0,
+      // A dated goal belongs to that month's block; an undated one is ongoing.
+      period: date ? "monthly" : "monthly",
+      target_date: date || null,
+      source: null,
+      color: goalType === "cash" ? "emerald" : "blue",
+      notes: null,
+      owner,
+      track_mode: "accumulates",
+    });
+    setName(""); setTarget(""); setDate("");
+    setBusy(false);
+  }
+
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+          placeholder="New goal — what are you going after?"
+          className="min-w-[180px] flex-1 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-blue-500 focus:outline-none"
+        />
+        <div className="flex gap-1 rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+          {([["cash", "💵"], ["count", "🔢"]] as const).map(([t, icon]) => (
+            <button key={t} onClick={() => setGoalType(t)} title={t === "cash" ? "Cash goal" : "Count goal"}
+              className={`rounded-lg px-2.5 py-1.5 text-sm transition-colors ${goalType === t ? "bg-blue-600 text-white" : "text-zinc-500 hover:text-white"}`}>
+              {icon}
+            </button>
+          ))}
+        </div>
+        <div className="relative w-28">
+          {goalType === "cash" && <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-zinc-500">$</span>}
+          <input
+            value={target}
+            onChange={(e) => setTarget(e.target.value.replace(/[^\d.]/g, ""))}
+            onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
+            inputMode="decimal"
+            placeholder="Target"
+            className={`w-full rounded-xl border border-zinc-800 bg-zinc-950 py-2 pr-2 text-sm text-white placeholder:text-zinc-600 focus:border-blue-500 focus:outline-none ${goalType === "cash" ? "pl-6" : "pl-3"}`}
+          />
+        </div>
+        <input
+          type="date" value={date} onChange={(e) => setDate(e.target.value)}
+          title="Target date — this is what files it under a month"
+          className="rounded-xl border border-zinc-800 bg-zinc-950 px-2 py-2 text-xs text-zinc-300 focus:border-blue-500 focus:outline-none"
+        />
+        <OwnerSelect value={owner} onChange={setOwner} className="py-2" />
+        <button onClick={() => void submit()} disabled={!ready || busy}
+          className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">
+          {busy ? "…" : "Add"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Board section ──────────────────────────────────────────────────────────
+
+const TONE: Record<GoalSection<Goal>["tone"], { title: string; pill: string; rule: string; bar: string }> = {
+  rose: { title: "text-rose-300", pill: "border-rose-500/30 bg-rose-500/10 text-rose-300", rule: "bg-rose-500/20", bar: "from-rose-500 to-rose-400" },
+  amber: { title: "text-amber-300", pill: "border-amber-500/30 bg-amber-500/10 text-amber-300", rule: "bg-amber-500/20", bar: "from-amber-500 to-yellow-400" },
+  zinc: { title: "text-zinc-300", pill: "border-zinc-700 bg-zinc-900 text-zinc-400", rule: "bg-zinc-800", bar: "from-blue-500 to-violet-500" },
+};
+
+/**
+ * A month heading that carries its own scoreboard: how many goals, how many
+ * landed, and one bar for the block. It's the thing that makes the board
+ * readable at arm's length — you see the month's shape before any single goal.
+ */
+function SectionHeader({ section, live }: { section: GoalSection<Goal>; live: Record<string, number> }) {
+  const t = TONE[section.tone];
+  const { pct, complete } = sectionProgress(
+    section.items,
+    (g) => currentValue(g, live),
+    (g) => g.target_amount || 0,
+  );
+  return (
+    <div className="mb-2.5">
+      <div className="flex items-center gap-2.5">
+        <h2 className={`text-sm font-bold ${t.title}`}>{section.emoji} {section.label}</h2>
+        <span className={`rounded-full border px-2 py-0.5 text-[11px] ${t.pill}`}>{section.items.length}</span>
+        <div className={`h-px flex-1 ${t.rule}`} />
+        <span className="flex-shrink-0 text-[11px] tabular-nums text-zinc-500">
+          {complete}/{section.items.length} hit · <span className="font-bold text-zinc-300">{Math.round(pct)}%</span>
+        </span>
+      </div>
+      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/70">
+        <div className={`h-full rounded-full bg-gradient-to-r ${t.bar} transition-all duration-500`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function GoalsPage() {
@@ -609,6 +789,8 @@ export default function GoalsPage() {
   const [filter, setFilter] = useState("all");
   const [modal, setModal] = useState<"new" | Goal | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [showAchieved, setShowAchieved] = useState(false);
+  const [person] = usePerson();
 
   const loadGoals = useCallback(async () => {
     const res = await fetch("/api/goals");
@@ -656,10 +838,12 @@ export default function GoalsPage() {
     await fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
   }, []);
 
-  // Star a goal to feature it at the top (only one at a time); unstar leaves none.
+  // Star any number of goals to pin them above the board. Starring used to
+  // clear every other star, which quietly hid goals Andrew had deliberately
+  // pinned — four were starred and only one was ever drawn.
   const toggleFeature = useCallback(async (id: string, on: boolean) => {
-    setGoals((prev) => prev.map((g) => ({ ...g, featured: on ? g.id === id : (g.id === id ? false : g.featured) })));
-    await fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, featured: on }) });
+    setGoals((prev) => prev.map((g) => (g.id === id ? { ...g, featured: on } : g)));
+    await fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, featured: on, keepOthersFeatured: true }) });
   }, []);
 
   const saveGoal = useCallback(async (g: NewGoal, id?: string) => {
@@ -686,9 +870,25 @@ export default function GoalsPage() {
   }, [goals]);
 
   const visible = useMemo(
-    () => (filter === "all" ? goals : goals.filter((g) => g.category === filter)),
-    [goals, filter]
+    () => goals.filter((g) =>
+      (filter === "all" || g.category === filter) &&
+      (person === "all" || (g.owner ?? "Andrew") === person)
+    ),
+    [goals, filter, person]
   );
+
+  // ── The board's spine ─────────────────────────────────────────────────────
+  // Same shape as the Projects board: what needs you now up top, then the
+  // months ahead, with everything you have already hit dropping out of the flow.
+  const statusOf = useCallback((g: Goal) => computeStatus(g, currentValue(g, live)), [live]);
+  const today = useMemo(() => isoDaysFromNow(0), []);
+  const in7 = useMemo(() => isoDaysFromNow(7), []);
+  const { sections, achievedItems, counts } = useMemo(
+    () => buildGoalBoard(visible, statusOf, today, in7),
+    [visible, statusOf, today, in7],
+  );
+
+  const pinned = useMemo(() => visible.filter((g) => g.featured), [visible]);
 
   // Summary across cash goals
   const summary = useMemo(() => {
@@ -706,82 +906,122 @@ export default function GoalsPage() {
   }, [goals, live]);
 
   const openGoal = goals.find((g) => g.id === openId) ?? null;
-  const featured = goals.find((g) => g.featured) ?? null;
+
+  const addGoal = useCallback(async (g: NewGoal) => {
+    await fetch("/api/goals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(g) });
+    await loadGoals();
+  }, [loadGoals]);
+
+  const renderCards = (items: Goal[]) => (
+    <div className="grid gap-3 lg:grid-cols-2">
+      {items.map((g) => (
+        <GoalCard key={g.id} goal={g} live={live} onOpen={() => setOpenId(g.id)} onPatch={patchGoal} onToggleFeature={toggleFeature} />
+      ))}
+    </div>
+  );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">Goals</h1>
-          <p className="text-zinc-500 text-sm mt-0.5">Targets for cash, sign-ups, tickets & more — tracked live.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">🏁 Goals</h1>
+          <p className="mt-0.5 text-sm text-zinc-500">
+            What needs you first, up top. {counts.open} in play · {counts.achieved} hit
+          </p>
         </div>
-        <button onClick={() => setModal("new")}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0">
-          <span className="text-base leading-none">+</span> Add goal
-        </button>
+        <div className="flex items-center gap-2">
+          <PersonSelect />
+          <button onClick={() => setModal("new")}
+            className="flex flex-shrink-0 items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500">
+            <span className="text-base leading-none">+</span> Add goal
+          </button>
+        </div>
       </div>
 
-      {/* Top tracker — the starred goal (falls back to the cash-toward-goals summary) */}
-      {featured ? (
-        <FeaturedHero goal={featured} live={live} summary={summary} liveLoading={liveLoading} onOpen={() => setOpenId(featured.id)} />
-      ) : (
-        <div className="bg-gradient-to-br from-zinc-900 to-zinc-900/40 border border-zinc-800 rounded-3xl p-5 sm:p-6">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-zinc-500 text-xs uppercase tracking-wide">Cash toward goals</p>
-              <p className="text-white font-extrabold text-3xl sm:text-4xl tracking-tight mt-1">
-                {fmtCashExact(summary.collected)}
-                <span className="text-zinc-600 font-semibold text-lg sm:text-xl"> / {fmtCash(summary.target)}</span>
-              </p>
-            </div>
-            <div className="flex gap-2.5">
-              {[
-                { n: summary.achieved, label: "Achieved", cls: "text-emerald-400" },
-                { n: summary.onTrack, label: "On track", cls: "text-blue-400" },
-                { n: summary.atRisk, label: "At risk", cls: "text-amber-400" },
-              ].map((s) => (
-                <div key={s.label} className="bg-zinc-900/70 border border-zinc-800 rounded-2xl px-4 py-2.5 text-center min-w-[84px]">
-                  <p className={`font-bold text-xl ${s.cls}`}>{s.n}</p>
-                  <p className="text-zinc-500 text-[10px] uppercase tracking-wide">{s.label}</p>
-                </div>
-              ))}
-            </div>
+      {/* Focus strip — the whole board in four numbers */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[
+          { n: counts.behind, label: "Past due", cls: counts.behind > 0 ? "text-rose-400" : "text-zinc-600" },
+          { n: counts.week, label: "Due this week", cls: counts.week > 0 ? "text-amber-400" : "text-zinc-600" },
+          { n: counts.open, label: "In play", cls: "text-blue-400" },
+          { n: counts.achieved, label: "Achieved", cls: "text-emerald-400" },
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-2.5">
+            <p className={`text-xl font-bold tabular-nums ${stat.cls}`}>{stat.n}</p>
+            <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-500">{stat.label}</p>
           </div>
-          <div className="mt-4 h-2.5 w-full rounded-full bg-zinc-800 overflow-hidden">
-            <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-blue-500 transition-all duration-500" style={{ width: `${summary.pct}%` }} />
-          </div>
-          {liveLoading && <p className="text-zinc-600 text-xs mt-2">Syncing live Stripe totals…</p>}
-        </div>
-      )}
+        ))}
+      </div>
 
-      {/* Filter chips */}
+      {/* Pinned — a single star reads as a hero, several as a row */}
+      {pinned.length === 1 ? (
+        <FeaturedHero goal={pinned[0]} live={live} summary={summary} liveLoading={liveLoading} onOpen={() => setOpenId(pinned[0].id)} />
+      ) : pinned.length > 1 ? (
+        <section>
+          <div className="mb-2.5 flex items-center gap-2.5">
+            <h2 className="text-sm font-bold text-amber-300">★ Pinned</h2>
+            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300">{pinned.length}</span>
+            <span className="text-[11px] text-zinc-600">also in their month below</span>
+            <div className="h-px flex-1 bg-amber-500/20" />
+            {liveLoading && <span className="text-[11px] text-zinc-600">Syncing Stripe…</span>}
+          </div>
+          {renderCards(pinned)}
+        </section>
+      ) : null}
+
+      {/* Category chips */}
       {presentCats.length > 1 && (
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2">
           {[{ key: "all", label: "All", emoji: "🏁" }, ...presentCats].map((c) => (
             <button key={c.key} onClick={() => setFilter(c.key)}
-              className={`px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors ${filter === c.key ? "bg-blue-600/20 border-blue-500/40 text-blue-200" : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"}`}>
+              className={`rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors ${filter === c.key ? "border-blue-500/40 bg-blue-600/20 text-blue-200" : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white"}`}>
               <span className="mr-1">{c.emoji}</span>{c.label}
             </button>
           ))}
         </div>
       )}
 
-      {/* Goal cards */}
+      <QuickAddGoal key={person} defaultOwner={person === "all" ? "Andrew" : person} onAdd={addGoal} />
+
+      {/* The board */}
       {loading ? (
-        <div className="text-zinc-600 text-sm py-12 text-center">Loading goals…</div>
-      ) : visible.length === 0 ? (
-        <div className="border border-dashed border-zinc-800 rounded-3xl py-16 text-center">
-          <p className="text-4xl mb-3">🏁</p>
-          <p className="text-zinc-300 font-medium">No goals yet</p>
-          <p className="text-zinc-600 text-sm mt-1">Add ticket sales, sign-ups, monthly or annual cash targets.</p>
-          <button onClick={() => setModal("new")} className="mt-4 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl transition-colors">+ Add your first goal</button>
+        <p className="animate-pulse py-16 text-center text-zinc-600">Loading goals…</p>
+      ) : goals.length === 0 ? (
+        <div className="rounded-3xl border border-dashed border-zinc-800 py-16 text-center">
+          <p className="mb-3 text-4xl">🏁</p>
+          <p className="font-medium text-zinc-300">No goals yet</p>
+          <p className="mt-1 text-sm text-zinc-600">Name one above and give it a target — that is the whole setup.</p>
         </div>
+      ) : visible.length === 0 ? (
+        <p className="py-16 text-center text-zinc-600">
+          Nothing here for {person === "all" ? "this filter" : person}. Add one above ↑
+        </p>
       ) : (
-        <div className="space-y-3">
-          {visible.map((g) => (
-            <GoalCard key={g.id} goal={g} live={live} onOpen={() => setOpenId(g.id)} onPatch={patchGoal} onToggleFeature={toggleFeature} />
+        <div className="space-y-7">
+          {sections.length === 0 && (
+            <p className="py-10 text-center text-zinc-600">🎉 Every goal in play has landed.</p>
+          )}
+          {sections.map((sec) => (
+            <section key={sec.key}>
+              <SectionHeader section={sec} live={live} />
+              {renderCards(sec.items)}
+            </section>
           ))}
+
+          {/* Achieved — out of the way, one click to check */}
+          {achievedItems.length > 0 && (
+            <section>
+              <button onClick={() => setShowAchieved((v) => !v)} className="group mb-2.5 flex w-full items-center gap-2.5 text-left">
+                <h2 className="text-sm font-bold text-zinc-500 transition-colors group-hover:text-zinc-300">
+                  {showAchieved ? "▾" : "▸"} ✅ Achieved
+                </h2>
+                <span className="rounded-full border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-500">{achievedItems.length}</span>
+                <div className="h-px flex-1 bg-zinc-800/70" />
+              </button>
+              {showAchieved && <div className="opacity-75">{renderCards(achievedItems)}</div>}
+            </section>
+          )}
         </div>
       )}
 

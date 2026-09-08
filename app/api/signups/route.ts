@@ -17,9 +17,25 @@ export interface Signup {
   last_seen: string | null;
   login_count: number | null;
   already_lead: boolean;
+  source: string | null;
+  // Anything else an app collects (monthly revenue, goals, niche...). Apps
+  // differ, so it is passed through rather than fixed to one schema, and the
+  // grid shows a column per key it actually finds.
+  extra: Record<string, string | number> | null;
 }
 
 // Claude for Founders — via its admin edge function (name, email, phone)
+const MAPPED = new Set(["id", "name", "email", "phone", "created_at", "createdAt", "last_seen", "lastSeen", "login_count", "loginCount", "source", "user_id", "updated_at"]);
+
+function extraFields(r: Record<string, unknown>): Record<string, string | number> | null {
+  const out: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(r)) {
+    if (MAPPED.has(k) || v === null || v === "" || typeof v === "object") continue;
+    if (typeof v === "string" || typeof v === "number") out[k] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 async function fetchClaude(): Promise<Omit<Signup, "already_lead">[]> {
   const pw = process.env.CFF_ADMIN_PASSWORD;
   if (!pw) return [];
@@ -40,6 +56,8 @@ async function fetchClaude(): Promise<Omit<Signup, "already_lead">[]> {
     created_at: (r.created_at as string) ?? null,
     last_seen: (r.last_seen as string) ?? null,
     login_count: (r.login_count as number) ?? null,
+    source: (r.source as string) ?? null,
+    extra: extraFields(r),
   }));
 }
 
@@ -59,6 +77,8 @@ async function fetchSkool(): Promise<Omit<Signup, "already_lead">[]> {
     created_at: (u.createdAt as string) ?? null,
     last_seen: (u.lastSeen as string) ?? null,
     login_count: (u.loginCount as number) ?? null,
+    source: (u.source as string) ?? null,
+    extra: extraFields(u),
   }));
 }
 
@@ -78,6 +98,8 @@ async function fetchFlow(): Promise<Omit<Signup, "already_lead">[]> {
     created_at: (u.createdAt as string) ?? null,
     last_seen: (u.lastSeen as string) ?? null,
     login_count: null,
+    source: (u.source as string) ?? null,
+    extra: extraFields(u),
   }));
 }
 

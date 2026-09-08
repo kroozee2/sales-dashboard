@@ -1547,6 +1547,7 @@ function LeadsPageInner() {
   // The in-page bar still switches views (and keeps Follow-Up Next reachable).
   const searchParams = useSearchParams();
   const urlTab = searchParams.get('tab');
+  const deepLeadId = searchParams.get('lead');
   const router = useRouter();
   const mainTab: 'leads' | 'followup' | 'data' | 'hotlist' | 'linksent' | 'new' =
     urlTab === 'data' || urlTab === 'followup' || urlTab === 'hotlist' || urlTab === 'linksent' || urlTab === 'new' ? urlTab : 'leads';
@@ -1562,6 +1563,18 @@ function LeadsPageInner() {
 
   // Slide-out panel state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  // Arriving from Signups or New Leads with ?lead=<id> opens that lead's drawer,
+  // so those pages reuse this one rather than growing a second copy of it.
+  useEffect(() => {
+    if (!deepLeadId) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch(`/api/leads?id=${encodeURIComponent(deepLeadId)}&limit=1`);
+      const j = (await res.json()) as { leads?: Lead[] };
+      if (!cancelled && j.leads?.[0]) setSelectedLead(j.leads[0]);
+    })();
+    return () => { cancelled = true; };
+  }, [deepLeadId]);
   const [offerBriefs, setOfferBriefs] = useState<{ id: string; name: string; emoji: string }[]>([]);
   const [panelTab, setPanelTab] = useState<'connect' | 'info' | 'context' | 'message' | 'notes' | 'ai'>('info');
 

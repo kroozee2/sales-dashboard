@@ -34,10 +34,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/calls", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Sales" },
   { href: "/calls?tab=calls", label: "List", emoji: "📋", tab: "calls", section: "Sales" },
 
-  { href: "/partners", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Partners" },
-  { href: "/partners?tab=calls", label: "List", emoji: "📋", tab: "calls", section: "Partners" },
-  { href: "/partners?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Partners" },
-
   { href: "/content?tab=dashboard", label: "Dashboard", emoji: "📊", tab: "dashboard", section: "Marketing" },
   { href: "/content?tab=events", label: "Events", emoji: "🎟️", tab: "events", section: "Marketing" },
   { href: "/content", label: "Calendar", emoji: "🗓️", tab: "calendar", tabDefault: true, section: "Marketing" },
@@ -51,7 +47,15 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/clients/members", label: "Members", emoji: "👥", section: "Clients" },
   { href: "/client-calls", label: "Client Calls", emoji: "🧑‍💼", section: "Clients" },
   { href: "/clients/calendar", label: "Calendar", emoji: "📅", section: "Clients" },
-  { href: "/revenue", label: "Finances", emoji: "💰", section: "Clients" },
+
+  { href: "/partners", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Partners" },
+  { href: "/partners?tab=calls", label: "List", emoji: "📋", tab: "calls", section: "Partners" },
+  { href: "/partners?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Partners" },
+
+  { href: "/revenue", label: "Dashboard", emoji: "📊", tab: "dashboard", tabDefault: true, section: "Finances" },
+  { href: "/revenue?tab=sales", label: "Recent Sales", emoji: "🧾", tab: "sales", section: "Finances" },
+  { href: "/revenue?tab=mrr", label: "MRR", emoji: "🔁", tab: "mrr", section: "Finances" },
+  { href: "/revenue?tab=low", label: "Low Ticket", emoji: "🎟", tab: "low", section: "Finances" },
 
   { href: "/jarvis", label: "Jarvis", emoji: "🤖", section: "Backend" },
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
@@ -78,7 +82,6 @@ function isActive(n: NavItem, pathname: string, activeTab: string | null): boole
   if (onPath) return true;
   return (n.match ?? []).some((m) => pathname === m || pathname.startsWith(m + "/"));
 }
-
 
 const SETTINGS: NavItem = { href: "/settings", label: "Settings", emoji: "⚙️" };
 
@@ -135,13 +138,12 @@ function Brand() {
 }
 
 function NavList({ pathname, activeTab, onNavigate }: { pathname: string; activeTab: string | null; onNavigate?: () => void }) {
-  const sections = ["Command", "Marketing", "Leads", "Sales", "Partners", "Clients", "Backend", "Vault"];
+  const sections = ["Command", "Marketing", "Leads", "Sales", "Clients", "Partners", "Finances", "Backend", "Vault"];
   // Every section starts open — derived from the list so adding a section here
   // can't silently leave it collapsed.
   const [expanded, setExpanded] = useState<Record<string, boolean>>(
     () => Object.fromEntries(sections.map((s) => [s, true])),
   );
-
 
   const toggleSection = (section: string) => {
     setExpanded((prev) => ({ ...prev, [section]: !prev[section] }));

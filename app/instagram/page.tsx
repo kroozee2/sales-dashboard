@@ -1,5 +1,7 @@
 "use client";
 
+import { InstagramModel } from "@/components/instagram-model";
+
 import { useEffect, useState, useMemo, useRef } from "react";
 import {
   REEL_IDEA_TYPES,
@@ -13,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { InstagramPerformanceSpreadsheet } from "@/components/instagram-performance-grid";
 import type { InstagramPostedContent } from "@/lib/instagram-performance";
 
-type Tab = "ideas" | "performance" | "calendar" | "competitors";
+type Tab = "ideas" | "performance" | "calendar" | "model";
 const INSTAGRAM_SYNC_KEY = "instagram-sync-runs";
 
 function hasPendingInstagramSync(): boolean {
@@ -640,7 +642,7 @@ export default function InstagramPage() {
             { key: "ideas", label: "💡 Ideas" },
             { key: "calendar", label: "📅 Calendar" },
             { key: "performance", label: "📊 Performance" },
-            { key: "competitors", label: "🔍 Competitor Reel Analysis" },
+            { key: "model", label: "🎯 Model" },
           ].map((t) => (
             <button
               key={t.key}
@@ -1016,79 +1018,9 @@ export default function InstagramPage() {
         </div>
       )}
 
-      {/* 🔍 TAB 3: COMPETITOR REEL ANALYSIS */}
-      {tab === "competitors" && (
-        <div className="space-y-6">
-          <div className="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-200 text-xs font-semibold">
-            💡 <strong>Instagram Reels Competitor Intelligence:</strong> Top creators to model Reels and Carousels for.
-          </div>
+      {/* 🎯 MODEL — who we model, which posts, hooks and angles */}
+      {tab === "model" && <InstagramModel />}
 
-          {/* Strategic Opportunities */}
-          {data?.gaps && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {data.gaps.map((g, idx) => (
-                <div key={idx} className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex items-start gap-3">
-                  <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[9px] font-bold uppercase">
-                    {g.tag}
-                  </span>
-                  <p className="text-xs text-zinc-300 font-medium">{g.text}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Competitors List */}
-          <div className="space-y-6">
-            {data?.competitors.map((comp) => (
-              <div key={comp.id} className="bg-zinc-900/60 border border-zinc-800 rounded-3xl p-6 space-y-4 hover:border-pink-500/30 transition-all">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-black text-white">{comp.name}</h3>
-                      <span className="text-xs font-bold text-pink-400">@{comp.handle}</span>
-                    </div>
-                    <p className="text-xs text-zinc-400 mt-1">{comp.summary}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="px-3 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-purple-300">
-                      👥 {comp.followers} followers
-                    </span>
-                    <span className="px-3 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-bold text-pink-300">
-                      👁 {comp.avgViews} avg views
-                    </span>
-                  </div>
-                </div>
-
-                {/* Top Competitor Posts */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                  {comp.posts.map((cp) => (
-                    <div key={cp.id} className="bg-zinc-950/80 border border-zinc-800 rounded-2xl p-4 space-y-3 flex flex-col justify-between">
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-black text-emerald-400">👁 {cp.views} views</span>
-                          <span className="text-[10px] text-zinc-500 uppercase font-bold">{cp.format}</span>
-                        </div>
-                        <h4 className="text-sm font-bold text-white mt-1">{cp.title}</h4>
-                        <p className="text-[11px] text-zinc-400 bg-zinc-900 p-2.5 rounded-xl border border-zinc-800 italic mt-2">
-                          &ldquo;{cp.hook}&rdquo;
-                        </p>
-                        <p className="text-[10px] text-zinc-400 mt-2">💡 <strong>Why it worked:</strong> {cp.why}</p>
-                      </div>
-
-                      <button
-                        onClick={() => createDraftItem(`Model Reel: ${cp.title}`, "reel", cp.hook, cp.cta)}
-                        className="w-full py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:brightness-110 text-white text-xs font-bold transition-all shadow-md shadow-purple-600/20"
-                      >
-                        ⚡ Model Into Andrew&apos;s Voice
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -20,11 +20,9 @@ export function MarketingDashboard({ overview, posted }: { overview: ReactNode; 
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-black tracking-tight text-white sm:text-2xl">📊 Marketing Dashboard</h2>
-          <p className="mt-0.5 text-sm text-zinc-500">Audience, output, and what actually landed.</p>
-        </div>
+      {/* The page header already names this view, so the tabs stand alone
+          rather than repeating the title underneath itself. */}
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex gap-1 rounded-xl bg-zinc-900 p-1">
           {TABS.map((t) => (
             <button

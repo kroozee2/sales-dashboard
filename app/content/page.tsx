@@ -37,6 +37,17 @@ interface CEvent {
 // Every view here is reached from the sidebar now, so this list only says which
 // ?tab= values are real. Research, Graphics, Create, Stories and Remix were
 // dropped at Andrew's request.
+// The header names the view you are on — this page serves six of them, so a
+// fixed "Content" title was wrong on five.
+const PAGE_TITLE: Record<string, { title: string; blurb: string }> = {
+  dashboard: { title: "📊 Dashboard", blurb: "Audience, output, and what actually landed." },
+  calendar: { title: "🗓️ Calendar", blurb: "One idea, every platform. Drop it on the calendar, draft it in your voice." },
+  events: { title: "🎟️ Events", blurb: "Launch runways and the seats still to fill." },
+  ideas: { title: "💡 Ideas", blurb: "Everything worth making, before it has a date." },
+  proof: { title: "🏆 Proof", blurb: "Client wins, ready to turn into content." },
+  posted: { title: "☑️ Posted", blurb: "Everything that actually went out, and how it did." },
+};
+
 const TABS = [
   { key: "dashboard", label: "Dashboard", emoji: "📊" },
   { key: "calendar", label: "Calendar", emoji: "🗓️" },
@@ -2423,8 +2434,8 @@ function ContentWorkspace() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8">
       <div className="mb-5">
-        <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">✍️ Content</h1>
-        <p className="text-zinc-500 text-sm mt-0.5">One idea, every platform. Drop it on the calendar, draft it in your voice.</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{PAGE_TITLE[tab]?.title ?? "Dashboard"}</h1>
+        <p className="text-zinc-500 text-sm mt-0.5">{PAGE_TITLE[tab]?.blurb ?? ""}</p>
       </div>
 
       <div>

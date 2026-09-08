@@ -141,6 +141,7 @@ test("identity secret collision coverage matches the independent credential inve
     "APIFY_TOKEN",
     "CARTESIA_API_KEY",
     "CFF_ADMIN_PASSWORD",
+    "CRON_SECRET",
     "FATHOM_API_KEY",
     "FIRECRAWL_API_KEY",
     "FLOW_ADMIN_SECRET",

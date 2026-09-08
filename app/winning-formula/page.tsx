@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { SubTabs } from "@/components/sub-tabs";
 import { usePerson } from "@/lib/use-person";
 import { FormulaBoard, Ring, type FormulaHandlers } from "@/components/winning-formula";
 import {
@@ -69,7 +68,6 @@ export default function WinningPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <SubTabs group="tasks" />
 
       {/* Scoreboard */}
       <div className={`bg-zinc-900 border rounded-2xl p-4 sm:p-5 mb-4 ${perfect ? "border-amber-500/60" : "border-zinc-800"}`}>

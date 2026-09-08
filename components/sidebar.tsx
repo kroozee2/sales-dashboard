@@ -16,7 +16,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/morning-brief", label: "Brief", emoji: "☀️", section: "Command" },
   { href: "/goals", label: "Goals", emoji: "🏁", section: "Command" },
   { href: "/projects", label: "Projects", emoji: "🗂️", section: "Command" },
-  { href: "/tasks", label: "Tasks", emoji: "📋", match: ["/winning-formula"], section: "Command" },
+  { href: "/tasks", label: "Tasks", emoji: "📋", section: "Command" },
+  { href: "/winning-formula", label: "Winning", emoji: "🔥", section: "Command" },
 
   { href: "/leads?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Leads" },
   { href: "/leads", label: "Leads", emoji: "🎯", tab: "leads", tabDefault: true, match: ["/scripts"], section: "Leads" },

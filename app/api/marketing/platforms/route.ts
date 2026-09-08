@@ -195,8 +195,10 @@ export async function GET(req: NextRequest) {
   });
 }
 
-// ── POST: capture today's numbers ───────────────────────────────────────────
-export async function POST() {
+// ── Capture today's numbers ─────────────────────────────────────────────────
+// Exported so the daily cron runs exactly what the button runs, rather than a
+// second copy that can drift.
+export async function captureSnapshot() {
   const captured: Record<string, unknown>[] = [];
   const failures: { platform: string; reason: string }[] = [];
 
@@ -235,7 +237,7 @@ export async function POST() {
   });
 
   if (captured.length === 0) {
-    return NextResponse.json({ error: "Could not read any platform.", failures }, { status: 502 });
+    return { ok: false as const, status: 502, body: { error: "Could not read any platform.", failures } };
   }
 
   const today = new Date().toISOString().slice(0, 10);
@@ -244,7 +246,12 @@ export async function POST() {
     captured.map((c) => ({ ...c, captured_on: today, captured_at: new Date().toISOString() })),
     { onConflict: "platform,captured_on" },
   );
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return { ok: false as const, status: 500, body: { error: error.message } };
 
-  return NextResponse.json({ ok: true, captured: captured.length, platforms: captured, failures });
+  return { ok: true as const, status: 200, body: { ok: true, captured: captured.length, platforms: captured, failures } };
+}
+
+export async function POST() {
+  const result = await captureSnapshot();
+  return NextResponse.json(result.body, { status: result.status });
 }

@@ -480,7 +480,7 @@ function CallRow({ call, onOpen, onUpdate }: { call: SalesCall; onOpen: () => vo
         {call.offer || <span className="text-zinc-700">—</span>}
       </button>
       {/* Call date — inline editable */}
-      <div className="hidden xl:block w-[150px] flex-shrink-0">
+      <div className="hidden sm:block w-[150px] flex-shrink-0">
         <input
           type="date"
           value={call.call_date ? call.call_date.split("T")[0] : ""}
@@ -508,33 +508,29 @@ function CallRow({ call, onOpen, onUpdate }: { call: SalesCall; onOpen: () => vo
 }
 
 function GroupedCallList({ calls, onSelect, onUpdate }: { calls: SalesCall[]; onSelect: (c: SalesCall) => void; onUpdate: (id: string, patch: Partial<SalesCall>) => void }) {
-  // Group by calendar date (most recent first), preserving the incoming sort within a day
+  // Grouped by month, newest month first: September, August, July and back.
+  // A day-per-heading turned a month of work into a wall of two-call groups.
   const groups: { key: string; label: string; items: SalesCall[]; total: number }[] = [];
   const byKey = new Map<string, SalesCall[]>();
   for (const c of calls) {
-    const key = c.call_date ? c.call_date.split("T")[0] : "no-date";
+    const key = c.call_date ? c.call_date.slice(0, 7) : "no-date";
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key)!.push(c);
   }
   for (const [key, items] of byKey) {
     const label = key === "no-date"
       ? "No date"
-      : new Date(key + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" });
+      : new Date(key + "-01T12:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    // Newest call first inside the month, so the heading is not the only ordering.
+    items.sort((a, b) => (b.call_date ?? "").localeCompare(a.call_date ?? ""));
     const total = items.reduce((s, c) => s + (c.deal_amount ?? c.new_revenue ?? 0), 0);
     groups.push({ key, label, items, total });
   }
 
-  // Order the day-groups by date: upcoming (today or later) soonest-first,
-  // then past days most-recent-first, then any without a date.
-  const today = new Date().toISOString().split("T")[0];
   groups.sort((a, b) => {
     if (a.key === "no-date") return 1;
     if (b.key === "no-date") return -1;
-    const aUp = a.key >= today;
-    const bUp = b.key >= today;
-    if (aUp !== bUp) return aUp ? -1 : 1;       // upcoming block first
-    return aUp ? a.key.localeCompare(b.key)     // upcoming: ascending (soonest first)
-               : b.key.localeCompare(a.key);    // past: descending (most recent first)
+    return b.key.localeCompare(a.key);
   });
 
   return (
@@ -546,7 +542,7 @@ function GroupedCallList({ calls, onSelect, onUpdate }: { calls: SalesCall[]; on
         <span className="w-[150px] flex-shrink-0">Result</span>
         <span className="hidden xl:block w-[140px] flex-shrink-0">Type</span>
         <span className="hidden lg:block" style={{ flex: "1.5 1 0%" }}>Offer</span>
-        <span className="hidden xl:block w-[150px] flex-shrink-0">Date</span>
+        <span className="hidden sm:block w-[150px] flex-shrink-0">Date</span>
         <span className="w-[100px] flex-shrink-0 text-right">Amount</span>
         <span className="w-4 flex-shrink-0" />
       </div>

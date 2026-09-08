@@ -29,10 +29,11 @@ export async function POST(req: NextRequest) {
 // PATCH — update goal
 export async function PATCH(req: NextRequest) {
   const body = await req.json();
-  const { id, ...updates } = body;
+  const { id, keepOthersFeatured, ...updates } = body;
   updates.updated_at = new Date().toISOString();
-  // Only one goal can be featured at the top — starring one clears the rest.
-  if (updates.featured === true) {
+  // Pinning is a set, not a radio button: the board draws every starred goal.
+  // Callers that still want exactly one at the top omit keepOthersFeatured.
+  if (updates.featured === true && !keepOthersFeatured) {
     await db.from("goals").update({ featured: false }).neq("id", id);
   }
   const { data, error } = await db.from("goals").update(updates).eq("id", id).select().single();

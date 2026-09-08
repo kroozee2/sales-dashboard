@@ -448,7 +448,8 @@ test("Jarvis becomes a three-tab AI workforce command center with interactive cr
   assert.match(page, /Sub-agents/);
   assert.match(page, /fetch\('\/api\/team'/);
   assert.match(page, /data\?\.me\?\.role === 'owner' && data\.me\.active === true && typeof data\.me\.id === 'string'/);
-  assert.match(page, /\.\.\.\(workforceOwner \?/);
+  assert.match(page, /\{ id: 'core', label: 'Core Agents'/);
+  assert.match(page, /function WorkforceLocked/);
   assert.match(page, /Create agent/);
   assert.match(page, /Edit agent/);
   assert.match(page, /\/api\/agent-workforce/);

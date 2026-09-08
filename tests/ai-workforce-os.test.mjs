@@ -424,3 +424,42 @@ test("the Jarvis tab presents the chief of staff and its internal workers", () =
   assert.match(workspace, /JARVIS_INTERNAL_WORKERS/);
   assert.match(workspace, /JARVIS_PROFILE/);
 });
+
+// ---------------------------------------------------------------------------
+// A visitor without owner access must be told why, not quietly redirected
+// ---------------------------------------------------------------------------
+
+test("the workforce tabs are always offered, matching the sidebar", () => {
+  const workspace = read("../app/jarvis/jarvis-workspace.tsx");
+  assert.match(workspace, /\{ id: 'core', label: 'Core Agents'/);
+  assert.match(workspace, /\{ id: 'subagent', label: 'Sub-agents'/);
+  assert.doesNotMatch(workspace, /workforceOwner \?/, "the tab row is no longer gated on ownership");
+});
+
+test("a non-owner keeps the workspace they asked for instead of being sent to Jarvis", () => {
+  const workspace = read("../app/jarvis/jarvis-workspace.tsx");
+  assert.match(workspace, /const workspaceTab: WorkspaceTab = desiredTab;/);
+  assert.doesNotMatch(
+    workspace,
+    /workforceChecked && workforceOwnerId === null \? 'jarvis'/,
+    "the silent fallback to the read-only Jarvis panel is gone",
+  );
+});
+
+test("the locked state names the reason and offers the way out", () => {
+  const workspace = read("../app/jarvis/jarvis-workspace.tsx");
+  assert.match(workspace, /function WorkforceLocked/);
+  assert.match(workspace, /needs an owner sign-in/);
+  assert.match(workspace, /not recognised as an owner account/);
+  assert.match(workspace, /\/login\?next=/, "it links to sign-in and returns to this tab");
+  assert.match(workspace, /Checking your access/, "it does not accuse anyone before the check finishes");
+  assert.match(workspace, /min-h-11/, "the action meets the mobile target size");
+});
+
+test("the Read-only badge belongs to the Jarvis assistant alone", () => {
+  const workspace = read("../app/jarvis/jarvis-workspace.tsx");
+  const jarvisPanel = workspace.slice(workspace.indexOf('id="workforce-panel-jarvis"'), workspace.indexOf('id="workforce-panel-core"'));
+  assert.match(jarvisPanel, /Read-only/, "the badge stays on the Jarvis panel");
+  const corePanel = workspace.slice(workspace.indexOf('id="workforce-panel-core"'));
+  assert.doesNotMatch(corePanel, /Read-only/, "it never appears on a workforce panel");
+});

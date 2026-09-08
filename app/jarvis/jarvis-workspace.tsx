@@ -49,6 +49,36 @@ const PHASE_LABEL: Record<Phase, string> = {
   error: 'Needs attention',
 };
 
+// Shown when the workforce cannot be loaded because this browser is not signed
+// in as an owner. It names the reason rather than quietly showing something
+// else, and points at the one action that resolves it.
+function WorkforceLocked({ checked, view }: { checked: boolean; view: 'core' | 'subagent' }) {
+  const label = view === 'core' ? 'Core Agents' : 'Sub-agents';
+  if (!checked) {
+    return (
+      <div role="status" className="rounded-3xl border border-white/[0.07] bg-[#090a0d] p-8 text-center text-sm text-zinc-400">
+        Checking your access to the AI workforce…
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-3xl border border-white/[0.07] bg-[#090a0d] p-8 text-center sm:p-10">
+      <div aria-hidden="true" className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-white/10 bg-white/[0.03] text-xl">🔒</div>
+      <h2 className="mt-5 text-lg font-semibold tracking-tight text-white">{label} needs an owner sign-in</h2>
+      <p className="mx-auto mt-3 max-w-md break-words text-sm leading-6 text-zinc-400 [overflow-wrap:anywhere]">
+        This browser is signed in to Sales OS but is not recognised as an owner account, so the agent definitions stay locked. Signing in again restores access.
+      </p>
+      <a
+        href={`/login?next=${encodeURIComponent(`/jarvis?tab=${view}`)}`}
+        className="mt-6 inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80"
+      >
+        Sign in to continue
+      </a>
+      <p className="mt-4 text-xs text-zinc-400">Jarvis stays available on its own tab either way.</p>
+    </div>
+  );
+}
+
 export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceTab }) {
   // The tab is derived, not mirrored. The route resolves it from the URL, so a
   // sidebar link lands on the right workspace. An in-page tab click records an
@@ -61,9 +91,11 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
   const [workforceEditorOpen, setWorkforceEditorOpen] = useState(false);
   // The workforce tabs exist only for an owner. Anyone else deep linking into
   // them lands back on Jarvis rather than on an empty panel.
-  const workspaceTab: WorkspaceTab = desiredTab !== 'jarvis' && workforceChecked && workforceOwnerId === null ? 'jarvis' : desiredTab;
+  // A visitor who is not a recognised owner still lands on the workspace they
+  // asked for. Sending them to the Jarvis assistant instead made a sidebar
+  // entry look broken: you clicked Core Agents and got a read-only chat.
+  const workspaceTab: WorkspaceTab = desiredTab;
   const [workspaceNotice, setWorkspaceNotice] = useState('');
-  const workforceOwner = workforceOwnerId !== null;
   const [phase, setPhase] = useState<Phase>('idle');
   const [commandInFlight, setCommandInFlight] = useState(false);
   const [input, setInput] = useState('');
@@ -508,10 +540,8 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
 
   const workspaceTabs: { id: WorkspaceTab; label: string; icon: typeof Bot }[] = [
     { id: 'jarvis', label: 'Jarvis', icon: Sparkles },
-    ...(workforceOwner ? [
-      { id: 'core' as const, label: 'Core Agents', icon: Network },
-      { id: 'subagent' as const, label: 'Sub-agents', icon: Bot },
-    ] : []),
+    { id: 'core', label: 'Core Agents', icon: Network },
+    { id: 'subagent', label: 'Sub-agents', icon: Bot },
   ];
 
   return (
@@ -722,12 +752,16 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
           </p>
         </section>
       </section>
-      {workforceOwnerId && <section role="tabpanel" id="workforce-panel-core" aria-labelledby="workforce-tab-core" hidden={workspaceTab !== 'core'}>
-        {workspaceTab === 'core' && <AgentWorkforceDashboard view="core" ownerId={workforceOwnerId} onEditorOpenChange={setWorkforceEditorOpen} />}
-      </section>}
-      {workforceOwnerId && <section role="tabpanel" id="workforce-panel-subagent" aria-labelledby="workforce-tab-subagent" hidden={workspaceTab !== 'subagent'}>
-        {workspaceTab === 'subagent' && <AgentWorkforceDashboard view="subagent" ownerId={workforceOwnerId} onEditorOpenChange={setWorkforceEditorOpen} />}
-      </section>}
+      <section role="tabpanel" id="workforce-panel-core" aria-labelledby="workforce-tab-core" hidden={workspaceTab !== 'core'}>
+        {workspaceTab === 'core' && (workforceOwnerId
+          ? <AgentWorkforceDashboard view="core" ownerId={workforceOwnerId} onEditorOpenChange={setWorkforceEditorOpen} />
+          : <WorkforceLocked checked={workforceChecked} view="core" />)}
+      </section>
+      <section role="tabpanel" id="workforce-panel-subagent" aria-labelledby="workforce-tab-subagent" hidden={workspaceTab !== 'subagent'}>
+        {workspaceTab === 'subagent' && (workforceOwnerId
+          ? <AgentWorkforceDashboard view="subagent" ownerId={workforceOwnerId} onEditorOpenChange={setWorkforceEditorOpen} />
+          : <WorkforceLocked checked={workforceChecked} view="subagent" />)}
+      </section>
     </div>
   );
 }

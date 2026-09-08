@@ -33,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/calls?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Sales" },
   { href: "/calls", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Sales" },
   { href: "/calls?tab=calls", label: "List", emoji: "📋", tab: "calls", section: "Sales" },
+  { href: "/follow-ups", label: "Follow-Ups", emoji: "🔥", section: "Sales" },
 
   { href: "/content?tab=dashboard", label: "Dashboard", emoji: "📊", tab: "dashboard", section: "Marketing" },
   { href: "/content?tab=events", label: "Events", emoji: "🎟️", tab: "events", section: "Marketing" },

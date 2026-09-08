@@ -2,7 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { Activity, Bot, ChevronRight, Clock3, Pencil, Plus, Search, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
-import { agentWorkforceDraftKey, parseAgentWorkforceDraft, persistAgentWorkforceDraft, reconcileAgentWorkforceDraft } from '@/lib/agent-workforce-draft';
+import { agentWorkforceDraftKey, parseAgentWorkforceDraft, persistAgentWorkforceDraft, reconcileAgentWorkforceDraft, type AgentWorkforceDraftForm } from '@/lib/agent-workforce-draft';
+import { filterWorkforceAgents, summarizeAgentWorkforce } from '@/lib/agent-workforce-view';
 import {
   AGENT_AUTONOMY,
   AGENT_STATUSES,
@@ -12,17 +13,14 @@ import {
   uniqueAgentId,
   type AgentAutonomy,
   type AgentDefinition,
+  type AgentInput,
   type AgentStatus,
   type AgentType,
   type AgentWorkforceDocument,
 } from '@/lib/agent-workforce';
 
 type WorkforceView = 'core' | 'subagent';
-type FormAgent = Omit<AgentDefinition, 'capabilities' | 'inputs' | 'outputs'> & {
-  capabilities_text: string;
-  inputs_text: string;
-  outputs_text: string;
-};
+type FormAgent = AgentWorkforceDraftForm;
 
 const STATUS_LABEL: Record<AgentStatus, string> = {
   planned: 'Planned',
@@ -48,17 +46,42 @@ const AUTONOMY_LABEL: Record<AgentAutonomy, string> = {
   approval_gated: 'Approval required',
 };
 
+// Dates are shown in Andrew's own timezone rather than raw UTC.
+function formatStamp(value: string): string {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return 'unknown';
+  return parsed.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 function listToText(items: string[]) { return items.join('\n'); }
 function textToList(value: string) {
   return value.split(/\n|,/).map((item) => item.trim()).filter(Boolean);
 }
 
-function toForm(agent: AgentDefinition): FormAgent {
+// The server owns created_at/updated_at, so everything sent back to it is
+// projected down to exactly the fields an editor is allowed to set.
+function toInput(agent: AgentInput): AgentInput {
   return {
-    ...agent,
+    id: agent.id, type: agent.type, parent_id: agent.parent_id, name: agent.name, emoji: agent.emoji,
+    role: agent.role, department: agent.department, mission: agent.mission, personality: agent.personality,
+    status: agent.status, progress: agent.progress, autonomy: agent.autonomy, cadence: agent.cadence,
+    schedule: agent.schedule, triggers: agent.triggers, responsibilities: agent.responsibilities,
+    capabilities: agent.capabilities, inputs: agent.inputs, outputs: agent.outputs,
+    next_milestone: agent.next_milestone, notes: agent.notes,
+  };
+}
+
+function toForm(agent: AgentInput): FormAgent {
+  return {
+    id: agent.id, type: agent.type, parent_id: agent.parent_id, name: agent.name, emoji: agent.emoji,
+    role: agent.role, department: agent.department, mission: agent.mission, personality: agent.personality,
+    status: agent.status, progress: agent.progress, autonomy: agent.autonomy, cadence: agent.cadence,
+    schedule: agent.schedule, next_milestone: agent.next_milestone, notes: agent.notes,
     capabilities_text: listToText(agent.capabilities),
     inputs_text: listToText(agent.inputs),
     outputs_text: listToText(agent.outputs),
+    responsibilities_text: listToText(agent.responsibilities),
+    triggers_text: listToText(agent.triggers),
   };
 }
 
@@ -79,18 +102,21 @@ function newAgent(type: AgentType, parent?: AgentDefinition): FormAgent {
     cadence: '',
     schedule: '',
     next_milestone: '',
+    notes: '',
     capabilities_text: '',
     inputs_text: '',
     outputs_text: '',
+    responsibilities_text: '',
+    triggers_text: '',
   };
 }
 
-function formAgentToDefinition(form: FormAgent): AgentDefinition {
-  return { id: form.id, type: form.type, parent_id: form.type === 'core' ? null : form.parent_id, name: form.name.trim(), emoji: form.emoji.trim(), role: form.role.trim(), department: form.department.trim(), mission: form.mission.trim(), personality: form.personality.trim(), status: form.status, progress: form.progress, autonomy: form.autonomy, cadence: form.cadence.trim(), schedule: form.schedule.trim(), capabilities: textToList(form.capabilities_text), inputs: textToList(form.inputs_text), outputs: textToList(form.outputs_text), next_milestone: form.next_milestone.trim() };
+function formAgentToDefinition(form: FormAgent): AgentInput {
+  return { id: form.id, type: form.type, parent_id: form.type === 'core' ? null : form.parent_id, name: form.name.trim(), emoji: form.emoji.trim(), role: form.role.trim(), department: form.department.trim(), mission: form.mission.trim(), personality: form.personality.trim(), status: form.status, progress: form.progress, autonomy: form.autonomy, cadence: form.cadence.trim(), schedule: form.schedule.trim(), triggers: textToList(form.triggers_text), responsibilities: textToList(form.responsibilities_text), capabilities: textToList(form.capabilities_text), inputs: textToList(form.inputs_text), outputs: textToList(form.outputs_text), next_milestone: form.next_milestone.trim(), notes: form.notes.trim() };
 }
 
-function sameAgentDefinition(left: AgentDefinition, right: AgentDefinition) {
-  return (Object.keys(left) as (keyof AgentDefinition)[]).every((key) => JSON.stringify(left[key]) === JSON.stringify(right[key]));
+function sameAgentDefinition(left: AgentInput, right: AgentInput) {
+  return (Object.keys(left) as (keyof AgentInput)[]).every((key) => JSON.stringify(left[key]) === JSON.stringify(right[key]));
 }
 
 function statusDot(status: AgentStatus) {
@@ -101,6 +127,7 @@ function statusDot(status: AgentStatus) {
 }
 
 const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-[#090a0d]';
+const SELECT_CLASS = `${FOCUS_RING} min-h-11 w-full rounded-xl border border-zinc-500 bg-[#18181b] px-3 text-base text-zinc-300 sm:w-44 sm:text-sm`;
 
 function useDialogLifecycle(containerRef: RefObject<HTMLElement | null>, requestClose: () => void, initialFocusRef?: RefObject<HTMLElement | null>, returnFocusRef?: RefObject<HTMLElement | null>, fallbackFocusRef?: RefObject<HTMLElement | null>) {
   const closeRef = useRef(requestClose);
@@ -187,7 +214,9 @@ function AgentCard({ agent, childCount, parentName, onEdit, onOpen }: { agent: A
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <span className={`rounded-full border px-2.5 py-1 text-[10px] font-medium ${STATUS_STYLE[agent.status]}`}>{STATUS_LABEL[agent.status]}</span>
+        <span className="max-w-full break-words rounded-full border border-white/[0.07] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400 [overflow-wrap:anywhere]">{agent.department}</span>
         <span className="rounded-full border border-white/[0.07] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400">{AUTONOMY_LABEL[agent.autonomy]}</span>
+        {agent.cadence && <span className="max-w-full break-words rounded-full border border-white/[0.07] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400 [overflow-wrap:anywhere]">{agent.cadence}</span>}
         {typeof childCount === 'number' && <span className="rounded-full border border-white/[0.07] bg-white/[0.025] px-2.5 py-1 text-[10px] text-zinc-400">{childCount} sub-agents</span>}
         {parentName && <span className="max-w-full break-words rounded-2xl border border-blue-400/15 bg-blue-400/[0.06] px-2.5 py-1 text-[10px] text-blue-300/80 [overflow-wrap:anywhere]">Reports to {parentName}</span>}
       </div>
@@ -232,12 +261,30 @@ function DetailPanel({ agent, teamMembers, returnFocusRef, fallbackFocusRef, onC
           <section className="min-w-0"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Next milestone</h3><p className="mt-2 break-words text-sm leading-6 text-zinc-300 [overflow-wrap:anywhere]">{agent.next_milestone || 'Not defined'}</p></section>
         </div>
 
-        {[['Capabilities', agent.capabilities], ['Inputs', agent.inputs], ['Outputs', agent.outputs]].map(([label, items]) => (
+        <section className="mt-7">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Responsibilities</h3>
+          {agent.responsibilities.length ? (
+            <ul className="mt-3 space-y-2">{agent.responsibilities.map((item) => <li key={item} className="min-w-0 break-words rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-2.5 text-sm leading-6 text-zinc-300 [overflow-wrap:anywhere]">{item}</li>)}</ul>
+          ) : <p className="mt-3 text-sm text-zinc-400">None defined</p>}
+        </section>
+
+        {[['Capabilities', agent.capabilities], ['Triggers', agent.triggers], ['Inputs', agent.inputs], ['Outputs', agent.outputs]].map(([label, items]) => (
           <section key={String(label)} className="mt-7">
             <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">{label}</h3>
             <div className="mt-3 flex flex-wrap gap-2">{(items as string[]).length ? (items as string[]).map((item) => <span key={item} className="max-w-full break-words rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-300 [overflow-wrap:anywhere]">{item}</span>) : <span className="text-sm text-zinc-400">None defined</span>}</div>
           </section>
         ))}
+
+        <section className="mt-7">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Notes</h3>
+          <p className="mt-3 min-w-0 whitespace-pre-wrap break-words text-sm leading-7 text-zinc-300 [overflow-wrap:anywhere]">{agent.notes || 'No notes yet.'}</p>
+        </section>
+
+        <section className="mt-7">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Definition history</h3>
+          <p className="mt-2 break-words text-xs leading-5 text-zinc-400 [overflow-wrap:anywhere]">Created {formatStamp(agent.created_at)} · Last edited {formatStamp(agent.updated_at)}</p>
+          <p className="mt-1 text-xs leading-5 text-zinc-400">These record edits to the definition. They are not run history.</p>
+        </section>
 
         {agent.type === 'core' && (
           <section className="mt-8"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Team</h3><div className="mt-3 space-y-2">{teamMembers.map((child) => <div key={child.id} className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] p-3"><span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden whitespace-nowrap text-ellipsis text-lg leading-none">{child.emoji}</span><div className="min-w-0"><p className="break-words text-sm text-zinc-200 [overflow-wrap:anywhere]">{child.name}</p><p className="break-words text-xs text-zinc-400 [overflow-wrap:anywhere]">{child.role}</p></div><span className="ml-auto font-mono text-[10px] text-zinc-400">{child.progress}%</span></div>)}</div></section>
@@ -345,6 +392,9 @@ function AgentEditor({ form, coreAgents, saving, cleanupPending, error, initiall
           <label className={labelClass}>Capabilities<textarea rows={4} maxLength={4000} value={form.capabilities_text} onChange={(e) => field('capabilities_text', e.target.value)} className={inputClass} placeholder={'One per line\nResearch\nStrategy'} /></label>
           <label className={labelClass}>Inputs<textarea rows={4} maxLength={4000} value={form.inputs_text} onChange={(e) => field('inputs_text', e.target.value)} className={inputClass} placeholder={'One per line\nSales calls\nAnalytics'} /></label>
           <label className={`${labelClass} sm:col-span-2`}>Outputs<textarea rows={3} maxLength={4000} value={form.outputs_text} onChange={(e) => field('outputs_text', e.target.value)} className={inputClass} placeholder={'One per line\nResearch brief\nApproval-ready draft'} /></label>
+          <label className={`${labelClass} sm:col-span-2`}>Responsibilities<textarea rows={4} maxLength={4000} value={form.responsibilities_text} onChange={(e) => field('responsibilities_text', e.target.value)} className={inputClass} placeholder={'One per line\nKeep the pipeline truthful\nHold outbound messages for approval'} /></label>
+          <label className={`${labelClass} sm:col-span-2`}>Triggers<textarea rows={3} maxLength={4000} value={form.triggers_text} onChange={(e) => field('triggers_text', e.target.value)} className={inputClass} placeholder={'One per line\nA new lead arrives\nThe daily 7:15 AM run'} /></label>
+          <label className={`${labelClass} sm:col-span-2`}>Notes<textarea rows={3} maxLength={2000} value={form.notes} onChange={(e) => field('notes', e.target.value)} className={inputClass} placeholder="Anything worth remembering about this agent" /></label>
         </div>
         </fieldset>
         {error && <div ref={alertRef} role="alert" tabIndex={-1} className="mx-5 mt-4 max-w-full break-words rounded-xl [overflow-wrap:anywhere] border border-rose-400/25 bg-rose-400/[0.08] px-4 py-3 text-sm text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 sm:mx-6">{error}</div>}
@@ -362,6 +412,8 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
   const [saveError, setSaveError] = useState('');
   const [draftWarning, setDraftWarning] = useState('');
   const [search, setSearch] = useState('');
+  const [autonomy, setAutonomy] = useState<'all' | AgentAutonomy>('all');
+  const [parent, setParent] = useState<string>('all');
   const [status, setStatus] = useState<'all' | AgentStatus>('all');
   const [selected, setSelected] = useState<AgentDefinition | null>(null);
   const [form, setForm] = useState<FormAgent | null>(null);
@@ -460,15 +512,11 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
   }, [document, draftReadyRevision, form, ownerId, recoveryOnlyDraft, view]);
 
   const coreAgents = useMemo(() => document?.agents.filter((agent) => agent.type === 'core') ?? [], [document]);
-  const agents = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return (document?.agents ?? []).filter((agent) => agent.type === view)
-      .filter((agent) => status === 'all' || agent.status === status)
-      .filter((agent) => !query || [agent.name, agent.role, agent.department, agent.mission, agent.personality].some((value) => value.toLowerCase().includes(query)));
-  }, [document, search, status, view]);
-  const liveCount = document?.agents.filter((agent) => agent.status === 'live').length ?? 0;
-  const buildingCount = document?.agents.filter((agent) => agent.status === 'building' || agent.status === 'testing').length ?? 0;
-  const overallProgress = document?.agents.length ? Math.round(document.agents.reduce((sum, agent) => sum + agent.progress, 0) / document.agents.length) : 0;
+  const agents = useMemo(
+    () => filterWorkforceAgents(document?.agents ?? [], { view, query: search, status, autonomy, parentId: parent }),
+    [autonomy, document, parent, search, status, view],
+  );
+  const summary = useMemo(() => summarizeAgentWorkforce(document?.agents ?? []), [document]);
 
   const openCreate = (opener: HTMLElement, parent?: AgentDefinition) => { pendingSavedDocumentRef.current = null; setCleanupPending(false); setSaveError(''); setRestoredDraft(false); setRecoveryOnlyDraft(false); setEditorMode('create'); editorReturnFocusRef.current = opener; editorBaselineRef.current = null; setForm(newAgent(view, parent)); };
   const openEdit = (agent: AgentDefinition, returnFocus: HTMLElement | null) => { pendingSavedDocumentRef.current = null; setCleanupPending(false); setSaveError(''); setRestoredDraft(false); setRecoveryOnlyDraft(false); setEditorMode('edit'); editorReturnFocusRef.current = returnFocus; setSelected(null); editorBaselineRef.current = toForm(agent); setForm(toForm(agent)); };
@@ -524,7 +572,7 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
     savingRef.current = true;
     setSaving(true);
     try {
-      const response = await fetch('/api/agent-workforce', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agents: nextAgents, expected_revision: document.revision }) });
+      const response = await fetch('/api/agent-workforce', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agents: nextAgents.map(toInput), expected_revision: document.revision }) });
       const data = await response.json() as { document?: AgentWorkforceDocument; error?: string };
       if (response.status === 409) {
         const reloadResponse = await fetch('/api/agent-workforce', { cache: 'no-store' });
@@ -535,7 +583,7 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
           const latestAgent = reloadData.document.agents.find((agent) => agent.id === form.id);
           if (!editorBaselineRef.current) {
             if (latestAgent) {
-              if (!sameAgentDefinition(latestAgent, normalized)) throw new Error('This create ID now belongs to different agent data. Your draft is preserved; close and reload before continuing.');
+              if (!sameAgentDefinition(toInput(latestAgent), normalized)) throw new Error('This create ID now belongs to different agent data. Your draft is preserved; close and reload before continuing.');
               finalizeSavedDocument(reloadData.document);
               return;
             }
@@ -587,16 +635,39 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
         </header>
 
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[{ label: 'Core agents', value: coreAgents.length, icon: Users }, { label: 'Marked released', value: liveCount, icon: Activity }, { label: 'Building or testing', value: buildingCount, icon: Clock3 }, { label: 'Overall build', value: `${overallProgress}%`, icon: ShieldCheck }].map(({ label, value, icon: Icon }) => <div key={label} className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3.5 sm:p-4"><div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-zinc-400"><Icon size={13} />{label}</div><p className="mt-2 text-xl font-semibold text-zinc-100">{value}</p></div>)}
+          {[
+            { label: 'Core agents', value: summary.core, icon: Users },
+            { label: 'Sub-agents', value: summary.subagents, icon: Bot },
+            { label: 'Approval gated', value: summary.approvalGated, icon: ShieldCheck },
+            { label: 'Overall build', value: `${summary.overallProgress}%`, icon: Activity },
+          ].map(({ label, value, icon: Icon }) => <div key={label} className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3.5 sm:p-4"><div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-zinc-400"><Icon size={13} />{label}</div><p className="mt-2 text-xl font-semibold text-zinc-100">{value}</p></div>)}
         </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-zinc-400"><Clock3 size={12} /> Build stages</span>
+          {([['planned', summary.planned], ['designed', summary.designed], ['building', summary.building], ['testing', summary.testing], ['live', summary.live], ['paused', summary.paused]] as const).map(([stage, count]) => (
+            <span key={stage} className={`rounded-full border px-2.5 py-1 text-[10px] font-medium ${STATUS_STYLE[stage]}`}>{STATUS_LABEL[stage]} {count}</span>
+          ))}
+        </div>
+
+        {summary.milestonesNeedingAttention.length > 0 && (
+          <div className="mt-3 min-w-0 rounded-xl border border-amber-400/20 bg-amber-400/[0.06] px-4 py-3 text-xs leading-5 text-amber-100">
+            <p className="font-medium">{summary.milestonesNeedingAttention.length} {summary.milestonesNeedingAttention.length === 1 ? 'agent needs' : 'agents need'} a next milestone</p>
+            <p className="mt-1 break-words text-amber-100/80 [overflow-wrap:anywhere]">{summary.milestonesNeedingAttention.map((agent) => agent.name).join(', ')}</p>
+          </div>
+        )}
 
         {error && <div role="alert" className="mt-5 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-rose-400/20 bg-rose-400/[0.06] px-4 py-3 text-xs text-rose-300"><span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{error}</span><button onClick={() => void load()} className={`${FOCUS_RING} min-h-11 shrink-0 rounded px-2 underline`}>Reload</button></div>}
         {draftWarning && !form && <div role="alert" className="mt-5 max-w-full break-words rounded-xl border border-amber-300/40 bg-amber-300/10 px-4 py-3 text-sm text-amber-100 [overflow-wrap:anywhere]">{draftWarning}</div>}
 
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <label className="relative flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" /><span className="sr-only">Search agents</span><input ref={searchInputRef} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, role, department, or mission" className={`${FOCUS_RING} min-h-11 w-full rounded-xl border border-zinc-500 bg-[#18181b] pl-9 pr-3 text-base text-white placeholder:text-zinc-400 sm:text-sm focus:border-blue-400/40`} /></label>
-          <label><span className="sr-only">Filter by build status</span><select value={status} onChange={(e) => setStatus(e.target.value as 'all' | AgentStatus)} className={`${FOCUS_RING} min-h-11 w-full rounded-xl border border-zinc-500 bg-[#18181b] px-3 text-base text-zinc-300 sm:w-48 sm:text-sm`}><option value="all">All build statuses</option>{AGENT_STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABEL[item]}</option>)}</select></label>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <label className="relative min-w-[12rem] flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" /><span className="sr-only">Search agents</span><input ref={searchInputRef} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, role, capability, or department" className={`${FOCUS_RING} min-h-11 w-full rounded-xl border border-zinc-500 bg-[#18181b] pl-9 pr-3 text-base text-white placeholder:text-zinc-400 sm:text-sm focus:border-blue-400/40`} /></label>
+          <label><span className="sr-only">Filter by build stage</span><select value={status} onChange={(e) => setStatus(e.target.value as 'all' | AgentStatus)} className={SELECT_CLASS}><option value="all">All build stages</option>{AGENT_STATUSES.map((item) => <option key={item} value={item}>{STATUS_LABEL[item]}</option>)}</select></label>
+          <label><span className="sr-only">Filter by autonomy level</span><select value={autonomy} onChange={(e) => setAutonomy(e.target.value as 'all' | AgentAutonomy)} className={SELECT_CLASS}><option value="all">All autonomy levels</option>{AGENT_AUTONOMY.map((item) => <option key={item} value={item}>{AUTONOMY_LABEL[item]}</option>)}</select></label>
+          {view === 'subagent' && <label><span className="sr-only">Filter by core agent</span><select value={parent} onChange={(e) => setParent(e.target.value)} className={SELECT_CLASS}><option value="all">All core agents</option>{coreAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
         </div>
+
+        <p aria-live="polite" className="mt-2 text-xs text-zinc-400">Showing {agents.length} of {view === 'core' ? summary.core : summary.subagents} {view === 'core' ? 'core agents' : 'sub-agents'}.</p>
 
         {agents.length === 0 ? <div className="mt-6 rounded-2xl border border-dashed border-white/10 py-16 text-center"><Bot className="mx-auto text-zinc-400" /><p className="mt-3 text-sm text-zinc-400">No agents match this view.</p><button onClick={(event) => openCreate(event.currentTarget)} className={`${FOCUS_RING} mt-4 min-h-11 rounded px-2 text-sm text-blue-400`}>Create the first one</button></div> : (
           <div className="mt-6 grid gap-4 xl:grid-cols-2">

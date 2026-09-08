@@ -20,9 +20,11 @@ test("Clients is its own sidebar category with Dashboard, Members, and Calendar"
   assert.ok(dashboard < members && members < calendar, "Clients should be Dashboard, Members, Calendar");
 });
 
-test("Jarvis belongs to Backend instead of Command", () => {
-  assert.match(navLine("/jarvis"), /section: "Backend"/);
-  assert.doesNotMatch(navLine("/jarvis"), /section: "Command"/);
+test("Jarvis fronts its own AI Workforce section rather than hiding under Backend", () => {
+  assert.match(navLine("/jarvis"), /section: "AI Workforce"/);
+  assert.doesNotMatch(navLine("/jarvis"), /section: "Backend"|section: "Command"/);
+  assert.match(navLine("/jarvis\\?tab=core"), /label: "Core Agents"[\s\S]*section: "AI Workforce"/);
+  assert.match(navLine("/jarvis\\?tab=subagent"), /label: "Sub-agents"[\s\S]*section: "AI Workforce"/);
 });
 
 test("Sales and Marketing are separate sidebar sections in the requested order", () => {

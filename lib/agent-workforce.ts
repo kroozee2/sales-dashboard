@@ -6,7 +6,9 @@ export type AgentType = (typeof AGENT_TYPES)[number];
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
 export type AgentAutonomy = (typeof AGENT_AUTONOMY)[number];
 
-export type AgentDefinition = {
+// What an editor may send. Timestamps are deliberately absent: the server owns
+// them, so a stale or hostile client cannot rewrite an agent's history.
+export type AgentInput = {
   id: string;
   type: AgentType;
   parent_id: string | null;
@@ -21,10 +23,18 @@ export type AgentDefinition = {
   autonomy: AgentAutonomy;
   cadence: string;
   schedule: string;
+  triggers: string[];
+  responsibilities: string[];
   capabilities: string[];
   inputs: string[];
   outputs: string[];
   next_milestone: string;
+  notes: string;
+};
+
+export type AgentDefinition = AgentInput & {
+  created_at: string;
+  updated_at: string;
 };
 
 export type AgentWorkforceDocument = {
@@ -34,17 +44,22 @@ export type AgentWorkforceDocument = {
   updated_at: string;
 };
 
-export type AgentWorkforceInput = { agents: AgentDefinition[] };
+export type AgentWorkforceInput = { agents: AgentInput[] };
 export type AgentWorkforceUpdateInput = AgentWorkforceInput & { expected_revision: string };
 
-export const AGENT_WORKFORCE_MAX_BODY_BYTES = 180_000;
+export const AGENT_WORKFORCE_MAX_BODY_BYTES = 220_000;
 const MAX_AGENTS = 60;
 const MAX_LIST_ITEMS = 20;
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const AGENT_KEYS = [
+const AGENT_INPUT_KEYS = [
   "id", "type", "parent_id", "name", "emoji", "role", "department", "mission", "personality",
-  "status", "progress", "autonomy", "cadence", "schedule", "capabilities", "inputs", "outputs", "next_milestone",
+  "status", "progress", "autonomy", "cadence", "schedule", "triggers", "responsibilities",
+  "capabilities", "inputs", "outputs", "next_milestone", "notes",
 ] as const;
+const AGENT_STORED_KEYS = [...AGENT_INPUT_KEYS, "created_at", "updated_at"] as const;
+// Fields added after the first release. A document written by the previous
+// schema is still valid data — fill these in rather than bricking the page.
+const LEGACY_OPTIONAL_KEYS = ["triggers", "responsibilities", "notes"] as const;
 
 export function parseJsonWithUniqueKeys(raw: string): unknown {
   const containers: Array<{ type: "object" | "array"; keys: Set<string> }> = [];
@@ -104,6 +119,15 @@ function canonicalString(value: unknown, field: string, max: number): string {
   return value;
 }
 
+// Notes are the one free-form field where line breaks carry meaning, so they
+// allow newlines while still rejecting every other control character.
+function multilineString(value: unknown, field: string, max: number): string {
+  if (typeof value !== "string") throw new Error(`${field} must be a string`);
+  if (/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(value)) throw new Error(`${field} contains invalid control characters`);
+  if (value.length > max) throw new Error(`${field} exceeds ${max} characters`);
+  return value.trim();
+}
+
 function boundedIcon(value: unknown, field: string): string {
   const icon = boundedString(value, field, 12);
   if (Array.from(icon).length > 4 || /[\p{L}\p{N}]/u.test(icon)) throw new Error(`${field} must be a short emoji or symbol`);
@@ -124,9 +148,20 @@ function isOneOf<T extends readonly string[]>(value: unknown, choices: T): value
   return typeof value === "string" && (choices as readonly string[]).includes(value);
 }
 
-function validateAgent(value: unknown, index: number): AgentDefinition {
-  if (!isRecord(value)) throw new Error(`agents[${index}] must be an object`);
-  assertExactKeys(value, AGENT_KEYS, `agents[${index}]`);
+type ValidateMode = "input" | "stored";
+
+function validateAgent(raw: unknown, index: number, mode: ValidateMode = "input"): AgentInput {
+  if (!isRecord(raw)) throw new Error(`agents[${index}] must be an object`);
+  assertExactKeys(raw, mode === "stored" ? AGENT_STORED_KEYS : AGENT_INPUT_KEYS, `agents[${index}]`);
+  // A document stored before these fields existed is migrated forward without
+  // mutating the caller's object. A field that is present but malformed is
+  // still a hard failure.
+  const value: Record<string, unknown> = { ...raw };
+  if (mode === "stored") {
+    for (const key of LEGACY_OPTIONAL_KEYS) {
+      if (!(key in value)) value[key] = key === "notes" ? "" : [];
+    }
+  }
   const id = canonicalString(value.id, `agents[${index}].id`, 80);
   if (!ID_PATTERN.test(id)) throw new Error(`agents[${index}].id must be a lowercase slug`);
   if (!isOneOf(value.type, AGENT_TYPES)) throw new Error(`agents[${index}].type is invalid`);
@@ -155,19 +190,22 @@ function validateAgent(value: unknown, index: number): AgentDefinition {
     autonomy: value.autonomy,
     cadence: boundedString(value.cadence, `agents[${index}].cadence`, 200, true),
     schedule: boundedString(value.schedule, `agents[${index}].schedule`, 200, true),
+    triggers: boundedStringList(value.triggers, `agents[${index}].triggers`),
+    responsibilities: boundedStringList(value.responsibilities, `agents[${index}].responsibilities`),
     capabilities: boundedStringList(value.capabilities, `agents[${index}].capabilities`),
     inputs: boundedStringList(value.inputs, `agents[${index}].inputs`),
     outputs: boundedStringList(value.outputs, `agents[${index}].outputs`),
     next_milestone: boundedString(value.next_milestone, `agents[${index}].next_milestone`, 300, true),
+    notes: multilineString(value.notes, `agents[${index}].notes`, 2_000),
   };
 }
 
-function validateInput(value: unknown, includeRevision: boolean): AgentWorkforceInput & { expected_revision?: string } {
+function validateInput(value: unknown, includeRevision: boolean, mode: ValidateMode = "input"): AgentWorkforceInput & { expected_revision?: string } {
   if (!isRecord(value)) throw new Error("Agent workforce must be an object");
   assertExactKeys(value, includeRevision ? ["agents", "expected_revision"] : ["agents"], "workforce");
   if (!Array.isArray(value.agents)) throw new Error("agents must be an array");
   if (value.agents.length > MAX_AGENTS) throw new Error(`agents exceeds ${MAX_AGENTS} items`);
-  const agents = value.agents.map(validateAgent);
+  const agents = value.agents.map((agent, index) => validateAgent(agent, index, mode));
   const ids = new Set<string>();
   for (const agent of agents) {
     if (ids.has(agent.id)) throw new Error(`Duplicate agent id: ${agent.id}`);
@@ -201,9 +239,19 @@ function nextRevision(current: string, requestedNow: string, databaseRevision: s
   return new Date(Math.max(times[1], times[0] + 1, times[2] + 1)).toISOString();
 }
 
+// Everything about an agent except the timestamps the server maintains. Two
+// agents that compare equal here represent an unchanged definition.
+function definitionFingerprint(agent: AgentInput): string {
+  return JSON.stringify(AGENT_INPUT_KEYS.map((key) => agent[key]));
+}
+
+function stamp(agents: AgentInput[], now: string): AgentDefinition[] {
+  return agents.map((agent) => ({ ...agent, created_at: now, updated_at: now }));
+}
+
 export function createAgentWorkforceDocument(input: unknown, now = new Date().toISOString()): AgentWorkforceDocument {
   const valid = validateInput(input, false);
-  return { version: 1, agents: valid.agents, revision: now, updated_at: now };
+  return { version: 1, agents: stamp(valid.agents, now), revision: now, updated_at: now };
 }
 
 export function parseAgentWorkforceDocument(raw: string): AgentWorkforceDocument {
@@ -212,13 +260,25 @@ export function parseAgentWorkforceDocument(raw: string): AgentWorkforceDocument
   if (!isRecord(parsed)) throw new Error("Stored agent workforce must be an object");
   assertExactKeys(parsed, ["version", "agents", "revision", "updated_at"], "stored workforce");
   if (parsed.version !== 1) throw new Error("Unsupported agent workforce version");
-  const valid = validateInput({ agents: parsed.agents }, false);
+  const valid = validateInput({ agents: parsed.agents }, false, "stored");
   const revision = canonicalTimestamp(parsed.revision, "revision");
   const updatedAt = canonicalTimestamp(parsed.updated_at, "updated_at");
   if (!Number.isFinite(Date.parse(revision)) || !Number.isFinite(Date.parse(updatedAt))) {
     throw new Error("Stored agent workforce revision is invalid");
   }
-  return { version: 1, agents: valid.agents, revision, updated_at: updatedAt };
+  // Agents stored before per-agent timestamps existed inherit the document's
+  // own revision — the most truthful thing known about when they last changed.
+  const storedAgents = parsed.agents as Array<Record<string, unknown>>;
+  const agents: AgentDefinition[] = valid.agents.map((agent, index) => ({
+    ...agent,
+    created_at: "created_at" in storedAgents[index]
+      ? canonicalTimestamp(storedAgents[index].created_at, `agents[${index}].created_at`)
+      : revision,
+    updated_at: "updated_at" in storedAgents[index]
+      ? canonicalTimestamp(storedAgents[index].updated_at, `agents[${index}].updated_at`)
+      : revision,
+  }));
+  return { version: 1, agents, revision, updated_at: updatedAt };
 }
 
 export function updateAgentWorkforceDocument(
@@ -233,7 +293,21 @@ export function updateAgentWorkforceDocument(
   const removed = current.agents.find((agent) => !nextIds.has(agent.id));
   if (removed) throw new Error(`Agent deletion is not supported: ${removed.id}`);
   const revision = nextRevision(current.revision, now, databaseRevision);
-  return { version: 1, agents: valid.agents, revision, updated_at: revision };
+  // Timestamps are derived here rather than trusted from the request: a new
+  // agent is born at this revision, an edited one is touched, and an agent the
+  // save did not change keeps the history it already had.
+  const previous = new Map(current.agents.map((agent) => [agent.id, agent]));
+  const agents: AgentDefinition[] = valid.agents.map((agent) => {
+    const existing = previous.get(agent.id);
+    if (!existing) return { ...agent, created_at: revision, updated_at: revision };
+    const unchanged = definitionFingerprint(agent) === definitionFingerprint(existing);
+    return {
+      ...agent,
+      created_at: existing.created_at,
+      updated_at: unchanged ? existing.updated_at : revision,
+    };
+  });
+  return { version: 1, agents, revision, updated_at: revision };
 }
 
 export async function readBoundedAgentWorkforceBody(request: Request): Promise<string> {

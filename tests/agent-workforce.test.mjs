@@ -35,10 +35,13 @@ const coreAgent = (overrides = {}) => ({
   autonomy: "internal",
   cadence: "Weekly planning, daily production",
   schedule: "Mon 6:00 AM PT",
+  triggers: ["Weekly planning block"],
+  responsibilities: ["Set the editorial direction"],
   capabilities: ["Research", "Strategy", "Delegation"],
   inputs: ["Sales calls", "Client calls"],
   outputs: ["Editorial plan", "Creative briefs"],
   next_milestone: "Connect the weekly research brief",
+  notes: "",
   ...overrides,
 });
 
@@ -57,10 +60,13 @@ const subAgent = (overrides = {}) => ({
   autonomy: "internal",
   cadence: "Daily",
   schedule: "5:45 AM PT",
+  triggers: ["Daily research window"],
+  responsibilities: ["Cite a source for every claim"],
   capabilities: ["Web research"],
   inputs: ["Audience questions"],
   outputs: ["Research brief"],
   next_milestone: "Define source-quality rubric",
+  notes: "",
   ...overrides,
 });
 
@@ -147,14 +153,14 @@ test("agent editor close policy handles clean, dirty, and save-in-flight states"
 });
 
 test("tab-scoped agent drafts are bounded, validated, revision-bound, owner-bound, and view-scoped", () => {
-  const { capabilities, inputs, outputs, ...base } = coreAgent();
-  const form = { ...base, capabilities_text: capabilities.join("\n"), inputs_text: inputs.join("\n"), outputs_text: outputs.join("\n") };
+  const { capabilities, inputs, outputs, responsibilities, triggers, ...base } = coreAgent();
+  const form = { ...base, capabilities_text: capabilities.join("\n"), inputs_text: inputs.join("\n"), outputs_text: outputs.join("\n"), responsibilities_text: responsibilities.join("\n"), triggers_text: triggers.join("\n") };
   const revision = "2026-09-05T18:00:00.000Z";
   const ownerId = "owner-one";
   const raw = serializeAgentWorkforceDraft(revision, ownerId, "core", form);
   assert.equal(typeof raw, "string");
   assert.deepEqual(parseAgentWorkforceDraft(raw, revision, ownerId, "core"), form);
-  for (const field of ["name", "emoji", "role", "department", "mission", "personality", "cadence", "schedule", "next_milestone", "capabilities_text", "inputs_text", "outputs_text"]) assert.equal(serializeAgentWorkforceDraft(revision, ownerId, "core", { ...form, [field]: `valid\u007fhidden` }), null);
+  for (const field of ["name", "emoji", "role", "department", "mission", "personality", "cadence", "schedule", "next_milestone", "capabilities_text", "inputs_text", "outputs_text", "responsibilities_text", "triggers_text"]) assert.equal(serializeAgentWorkforceDraft(revision, ownerId, "core", { ...form, [field]: `valid\u007fhidden` }), null);
   assert.equal(parseAgentWorkforceDraft(raw, "2026-09-05T19:00:00.000Z", ownerId, "core"), null);
   assert.equal(parseAgentWorkforceDraft(raw, revision, "owner-two", "core"), null);
   assert.equal(parseAgentWorkforceDraft(raw, revision, ownerId, "subagent"), null);
@@ -422,10 +428,11 @@ test("Jarvis becomes a three-tab AI workforce command center with interactive cr
   assert.match(settingsPage, /flex min-w-0 flex-col items-stretch gap-3 px-5 py-3[\s\S]*sm:flex-row/);
   assert.match(settingsPage, /space-y-1 text-xs break-words \[overflow-wrap:anywhere\]/);
   assert.equal((settingsPage.match(/className=\{`block \$/g) ?? []).length, 2);
-  const page = readFileSync(pagePath, "utf8") + dashboard;
+  const workspace = readFileSync(new URL("../app/jarvis/jarvis-workspace.tsx", import.meta.url), "utf8");
+  const page = readFileSync(pagePath, "utf8") + workspace + dashboard;
   assert.match(page, /border border-cyan-400\/60[\s\S]*focus-within:border-cyan-300/);
   assert.match(page, /workspaceTab === id \? 'border-2 border-cyan-300/);
-  const callsPage = readFileSync(new URL("../app/calls/page.tsx", import.meta.url), "utf8");
+  const callsPage = readFileSync(new URL("../app/calls/calls-workspace.tsx", import.meta.url), "utf8");
   assert.match(callsPage, /type FathomListState = FathomPickerListState<FathomMeeting>/);
   assert.match(callsPage, /fathomPageDisclosure\(fathomState\)/);
   assert.match(callsPage, /fathomAttendeeOmission\(item\.attendees_omitted\)/);
@@ -494,7 +501,7 @@ test("Jarvis becomes a three-tab AI workforce command center with interactive cr
   assert.match(page, /draftReadyRevision !== document\.revision/);
   assert.match(page, /setDraftReadyRevision\(document\.revision\)/);
   assert.match(page, /if \(!document \|\| draftReadyRevision !== document\.revision \|\| recoveryOnlyDraft\) return/);
-  assert.ok((dashboard.match(/maxLength=\{4000\}/g) ?? []).length === 3);
+  assert.ok((dashboard.match(/maxLength=\{4000\}/g) ?? []).length === 5);
   assert.match(page, /persistAgentWorkforceDraft\(window\.sessionStorage/);
   assert.match(page, /Your unsaved agent draft will be kept in this tab/);
   assert.match(page, /agentWorkforceDraftKey\(ownerId, view\)/);
@@ -618,8 +625,10 @@ test("Jarvis becomes a three-tab AI workforce command center with interactive cr
   assert.match(page, /min-h-11 rounded-lg[^\n]+New conversation/);
   assert.match(page, /min-h-11 rounded-full[^\n]+starter/);
   assert.doesNotMatch(page, /text-slate-(?:600|700)/);
-  assert.match(page, /Marked released/);
+  // A released blueprint must never be presented as a running process.
+  assert.match(page, /live: 'Released'/);
   assert.doesNotMatch(page, /Built and live/);
+  assert.doesNotMatch(page, /Currently running|Online now|Healthy/);
   assert.match(route, /AGENT_WORKFORCE_KEY/);
   assert.match(route, /Agent workforce storage is temporarily unavailable/);
   assert.match(route, /databaseError\("(?:read|update-read|update|insert)"/);

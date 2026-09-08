@@ -1,9 +1,14 @@
 import { AGENT_AUTONOMY, AGENT_STATUSES, parseJsonWithUniqueKeys, type AgentAutonomy, type AgentDefinition, type AgentStatus, type AgentType } from "./agent-workforce.ts";
 
-export type AgentWorkforceDraftForm = Omit<AgentDefinition, "capabilities" | "inputs" | "outputs"> & {
+export type AgentWorkforceDraftForm = Omit<
+  AgentDefinition,
+  "capabilities" | "inputs" | "outputs" | "responsibilities" | "triggers" | "created_at" | "updated_at"
+> & {
   capabilities_text: string;
   inputs_text: string;
   outputs_text: string;
+  responsibilities_text: string;
+  triggers_text: string;
 };
 
 export type AgentWorkforceDraftWriteResult =
@@ -24,14 +29,18 @@ const STRING_LIMITS: Partial<Record<keyof AgentWorkforceDraftForm, number>> = {
   cadence: 200,
   schedule: 200,
   next_milestone: 300,
+  notes: 2_000,
   capabilities_text: 4_000,
   inputs_text: 4_000,
   outputs_text: 4_000,
+  responsibilities_text: 4_000,
+  triggers_text: 4_000,
 };
 const DRAFT_KEYS = ["form", "owner_id", "revision", "view"].sort();
 const FORM_KEYS = [
   "id", "type", "parent_id", "name", "emoji", "role", "department", "mission", "personality", "status", "progress",
-  "autonomy", "cadence", "schedule", "next_milestone", "capabilities_text", "inputs_text", "outputs_text",
+  "autonomy", "cadence", "schedule", "next_milestone", "notes", "capabilities_text", "inputs_text", "outputs_text",
+  "responsibilities_text", "triggers_text",
 ].sort();
 
 function byteLength(value: string) {
@@ -59,7 +68,7 @@ export function parseAgentWorkforceDraft(raw: string, revision: string | null, o
     if (Object.keys(form).sort().join("|") !== FORM_KEYS.join("|") || form.type !== view) return null;
     for (const [key, max] of Object.entries(STRING_LIMITS)) {
       const stringValue = form[key];
-      const hasInvalidControl = typeof stringValue === "string" && (key.endsWith("_text") ? /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(stringValue) : /\p{Cc}/u.test(stringValue));
+      const hasInvalidControl = typeof stringValue === "string" && (key.endsWith("_text") || key === "notes" ? /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(stringValue) : /\p{Cc}/u.test(stringValue));
       if (typeof stringValue !== "string" || stringValue.length > max || hasInvalidControl) return null;
     }
     if (!AGENT_STATUSES.includes(form.status as AgentStatus) || !AGENT_AUTONOMY.includes(form.autonomy as AgentAutonomy)) return null;

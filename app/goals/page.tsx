@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { PersonSelect } from "@/components/sub-tabs";
 import { usePerson } from "@/lib/use-person";
 import {
-  buildGoalBoard, daysUntil, goalStatus, isoDaysFromNow,
-  projectedTotal, sectionProgress, type GoalSection, type GoalStatus,
+  AUTO_SOURCES, autoValue, buildGoalBoard, daysUntil, goalStatus, isAutoSource,
+  isoDaysFromNow, projectedTotal, sectionProgress,
+  type GoalSection, type GoalSource, type GoalStatus, type LiveMonthly,
 } from "@/lib/goal-board";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -56,6 +57,8 @@ const SOURCE_PERIOD: Record<string, string> = {
 };
 
 const SOURCE_LABEL: Record<string, string> = {
+  stripe_cash: "Auto · cash collected in this goal's window",
+  booked_calls: "Auto · sales calls booked in this goal's window",
   cash_mtd: "Live · Stripe this month",
   cash_wtd: "Live · Stripe this week",
   cash_qtd: "Live · Stripe this quarter",
@@ -145,10 +148,16 @@ function periodDateLabel(g: Goal): string {
   }
 }
 
-// Live + manual current value for a goal
+/**
+ * What the goal currently reads.
+ *
+ * `live` is keyed by goal id, not by source: each automated goal is resolved
+ * once against its own window, so a reader here is a plain lookup and August's
+ * goal and September's can both track "cash collected" without colliding.
+ * A manual adjustment on top still counts, for money that never touched Stripe.
+ */
 function currentValue(g: Goal, live: Record<string, number>): number {
-  const base = g.source && live[g.source] != null ? live[g.source] : 0;
-  return base + (g.current_amount ?? 0);
+  return (live[g.id] ?? 0) + (g.current_amount ?? 0);
 }
 
 const computeStatus = (g: Goal, current: number): GoalStatus => goalStatus(g, current);
@@ -169,6 +178,27 @@ function OwnerSelect({ value, onChange, className = "" }: { value: Owner; onChan
     >
       {OWNERS.map((o) => (
         <option key={o} value={o} className="bg-zinc-900 text-white">{ownerEmoji(o)} {o}</option>
+      ))}
+    </select>
+  );
+}
+
+/** Where this goal's number comes from. Changing it is the whole automation UI. */
+function SourceSelect({ value, onChange, className = "" }: { value: string | null; onChange: (v: GoalSource) => void; className?: string }) {
+  const key: GoalSource = value === "stripe_cash" || value === "booked_calls" ? value : "manual";
+  const auto = key !== "manual";
+  return (
+    <select
+      value={key}
+      onChange={(e) => onChange(e.target.value as GoalSource)}
+      onClick={(e) => e.stopPropagation()}
+      title={AUTO_SOURCES.find((s) => s.key === key)?.hint}
+      className={`rounded-lg border px-2 py-1 text-[11px] font-semibold focus:outline-none ${
+        auto ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-zinc-700 bg-zinc-800/60 text-zinc-400"
+      } ${className}`}
+    >
+      {AUTO_SOURCES.map((s) => (
+        <option key={s.key} value={s.key} className="bg-zinc-900 text-white">{s.emoji} {s.label}</option>
       ))}
     </select>
   );
@@ -211,7 +241,7 @@ function GoalModal({ initial, onClose, onSave, onDelete }: {
       current_amount: parseFloat(current) || 0,
       period,
       target_date: targetDate || null,
-      source: isCash && source ? source : null,
+      source: source || null,
       color,
       notes: notes.trim() || null,
       owner,
@@ -329,23 +359,26 @@ function GoalModal({ initial, onClose, onSave, onDelete }: {
             </div>
           </div>
 
-          {/* Auto-track source (cash only) */}
-          {isCash && (
-            <div>
-              <label className="text-zinc-400 text-xs uppercase tracking-wide block mb-1.5">
-                Auto-track from Stripe <span className="text-zinc-600 normal-case font-normal">(optional — pulls live cash collected)</span>
-              </label>
-              <select value={source} onChange={(e) => setSource(e.target.value)}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500">
-                <option value="">Manual only</option>
-                <option value="cash_wtd">Cash collected — this week</option>
-                <option value="cash_mtd">Cash collected — this month</option>
-                <option value="cash_qtd">Cash collected — this quarter</option>
-                <option value="cash_ytd">Cash collected — this year</option>
-                <option value="cash_alltime">Cash collected — all time</option>
-              </select>
+          {/* Where the number comes from. An automated goal reads the window
+              it is already set to — no second period to keep in sync. */}
+          <div>
+            <label className="text-zinc-400 text-xs uppercase tracking-wide block mb-1.5">Tracking</label>
+            <div className="grid grid-cols-3 gap-2">
+              {AUTO_SOURCES.map((opt) => (
+                <button key={opt.key} onClick={() => setSource(opt.key === "manual" ? "" : opt.key)}
+                  className={`rounded-xl border px-2 py-2 text-left transition-colors ${
+                    (source || "manual") === opt.key ? "bg-blue-600/20 border-blue-500/40" : "bg-zinc-800 border-zinc-700 hover:border-zinc-600"
+                  }`}>
+                  <span className={`block text-xs font-semibold ${(source || "manual") === opt.key ? "text-blue-200" : "text-zinc-300"}`}>
+                    {opt.emoji} {opt.label}
+                  </span>
+                </button>
+              ))}
             </div>
-          )}
+            <p className="mt-1.5 text-[11px] text-zinc-600">
+              {AUTO_SOURCES.find((o) => o.key === (source || "manual"))?.hint}
+            </p>
+          </div>
 
           {/* Color */}
           <div>
@@ -461,9 +494,9 @@ function GoalDrawer({ goal, live, liveLoading, onClose, onEdit, onPatch }: {
           <p className="text-zinc-400 text-xs uppercase tracking-wide mb-2">Log progress</p>
           {goal.source && (
             <p className="text-zinc-500 text-xs mb-3">
-              {liveLoading ? "Syncing live Stripe total…" : SOURCE_LABEL[goal.source]}
-              {goal.source && live[goal.source] != null && !liveLoading && (
-                <> · <span className="text-zinc-300">{fmtCashExact(live[goal.source])}</span> auto-tracked</>
+              {liveLoading ? "Syncing live totals…" : SOURCE_LABEL[goal.source] ?? "Auto-tracked"}
+              {live[goal.id] != null && !liveLoading && (
+                <> · <span className="text-zinc-300">{fmtVal(goal, live[goal.id])}</span> auto-tracked</>
               )}
               {(goal.current_amount ?? 0) !== 0 && <> · <span className="text-zinc-300">{fmtCashExact(goal.current_amount)}</span> manual</>}
             </p>
@@ -501,7 +534,7 @@ function GoalCard({ goal, live, onOpen, onPatch, onToggleFeature }: { goal: Goal
   const status = computeStatus(goal, current);
   const st = STATUS[status];
 
-  const liveBase = goal.source && live[goal.source] != null ? live[goal.source] : 0;
+  const liveBase = live[goal.id] ?? 0;
   const step = goal.goal_type === "cash" ? 100 : 1;
   const stepLabel = goal.goal_type === "cash" ? fmtCash(step) : String(step);
   // The field shows the actual number; editing sets it directly, +/− nudge it by one step.
@@ -615,8 +648,8 @@ function PaceNote({ goal, current }: { goal: Goal; current: number }) {
 
 // ─── Featured (starred) top tracker ──────────────────────────────────────────
 
-function FeaturedHero({ goal, live, summary, liveLoading, onOpen }: {
-  goal: Goal; live: Record<string, number>; summary: { achieved: number; onTrack: number; atRisk: number };
+function FeaturedHero({ goal, live, liveLoading, onOpen }: {
+  goal: Goal; live: Record<string, number>;
   liveLoading: boolean; onOpen: () => void;
 }) {
   const current = currentValue(goal, live);
@@ -624,6 +657,9 @@ function FeaturedHero({ goal, live, summary, liveLoading, onOpen }: {
   const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
   const status = computeStatus(goal, current);
   const st = STATUS[status];
+  const proj = projected(goal, current);
+  const paceLabel = proj == null ? "—" : fmtValShort(goal, proj);
+  const paceClears = proj != null && proj >= target;
   return (
     <button onClick={onOpen} className="block w-full text-left bg-gradient-to-br from-zinc-900 to-zinc-900/40 border border-zinc-800 hover:border-zinc-700 rounded-3xl p-5 sm:p-6 transition-colors">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -638,13 +674,14 @@ function FeaturedHero({ goal, live, summary, liveLoading, onOpen }: {
             <span className="text-zinc-500 text-xs">{periodDateLabel(goal)} · {pct.toFixed(0)}%</span>
           </div>
         </div>
+        {/* Where the year lands at today's rate — the only number the headline
+            is missing, and the one that decides whether it needs attention. */}
         <div className="flex gap-2.5">
           {[
-            { n: summary.achieved, label: "Achieved", cls: "text-emerald-400" },
-            { n: summary.onTrack, label: "On track", cls: "text-blue-400" },
-            { n: summary.atRisk, label: "At risk", cls: "text-amber-400" },
+            { n: fmtValShort(goal, Math.max(0, target - current)), label: "Still to go", cls: "text-white" },
+            { n: paceLabel, label: "On pace for", cls: paceClears ? "text-emerald-400" : "text-amber-400" },
           ].map((s) => (
-            <div key={s.label} className="bg-zinc-900/70 border border-zinc-800 rounded-2xl px-4 py-2.5 text-center min-w-[84px]">
+            <div key={s.label} className="bg-zinc-900/70 border border-zinc-800 rounded-2xl px-4 py-2.5 text-center min-w-[104px]">
               <p className={`font-bold text-xl ${s.cls}`}>{s.n}</p>
               <p className="text-zinc-500 text-[10px] uppercase tracking-wide">{s.label}</p>
             </div>
@@ -742,6 +779,175 @@ function QuickAddGoal({ defaultOwner, onAdd }: { defaultOwner: Owner; onAdd: (g:
   );
 }
 
+// ─── Goal spreadsheet ───────────────────────────────────────────────────────
+// Rows arrive pre-sorted by urgency. Every field is editable in place, and an
+// automated Actual is read-only on purpose — typing over a number that Stripe
+// is about to overwrite is a lie waiting to happen.
+function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature, onRemove }: {
+  goals: Goal[];
+  live: Record<string, number>;
+  onPatch: (id: string, patch: Partial<Goal>) => Promise<void>;
+  onSetSource: (g: Goal, source: GoalSource) => void;
+  onOpen: (id: string) => void;
+  onToggleFeature: (id: string, on: boolean) => void;
+  onRemove: (id: string) => void;
+}) {
+  const cell = "bg-transparent focus:bg-zinc-950 border border-transparent focus:border-blue-500/50 rounded-md px-2 py-1 text-sm focus:outline-none w-full transition-colors";
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-zinc-800">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1180px] border-collapse">
+          <thead>
+            <tr className="border-b border-zinc-800 bg-zinc-900/80 text-left text-[11px] uppercase tracking-wide text-zinc-400">
+              <th className="w-8 px-2 py-2 font-semibold"></th>
+              <th className="w-12 px-2 py-2 font-semibold"></th>
+              <th className="min-w-[260px] px-3 py-2 font-semibold">Goal</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Who</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Tracking</th>
+              <th className="min-w-[110px] whitespace-nowrap px-3 py-2 text-right font-semibold">Actual</th>
+              <th className="min-w-[110px] whitespace-nowrap px-3 py-2 text-right font-semibold">Target</th>
+              <th className="min-w-[150px] px-3 py-2 font-semibold">Progress</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Due</th>
+              <th className="w-8 px-2 py-2 font-semibold"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {goals.map((g, i) => (
+              <GoalRow key={g.id} goal={g} live={live} zebra={i % 2 === 1} cell={cell}
+                onPatch={onPatch} onSetSource={onSetSource} onOpen={onOpen}
+                onToggleFeature={onToggleFeature} onRemove={onRemove} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function GoalRow({ goal, live, zebra, cell, onPatch, onSetSource, onOpen, onToggleFeature, onRemove }: {
+  goal: Goal; live: Record<string, number>; zebra: boolean; cell: string;
+  onPatch: (id: string, patch: Partial<Goal>) => Promise<void>;
+  onSetSource: (g: Goal, source: GoalSource) => void;
+  onOpen: (id: string) => void;
+  onToggleFeature: (id: string, on: boolean) => void;
+  onRemove: (id: string) => void;
+}) {
+  const current = currentValue(goal, live);
+  const target = goal.target_amount || 0;
+  const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
+  const st = STATUS[computeStatus(goal, current)];
+  const auto = isAutoSource(goal.source);
+  const dl = goal.target_date ? daysUntil(goal.target_date) : null;
+  const overdue = dl !== null && dl < 0 && current < target;
+  const ow = OWNER_STYLE[goal.owner ?? "Andrew"] ?? OWNER_STYLE.Andrew;
+
+  return (
+    <tr className={`group border-b border-zinc-800/60 border-l-[3px] transition-colors hover:bg-zinc-800/30 ${zebra ? "bg-zinc-900/30" : ""} ${current >= target && target > 0 ? "opacity-60" : ""}`}
+      style={{ borderLeftColor: ow.dot.includes("violet") ? "#a78bfa" : "#60a5fa" }}>
+      <td className="px-2 py-1.5 text-center align-middle">
+        <button onClick={() => onToggleFeature(goal.id, !goal.featured)}
+          title={goal.featured ? "Pinned to the top — click to unpin" : "Pin to the top"}
+          className={`text-base leading-none transition-colors ${goal.featured ? "text-amber-400" : "text-zinc-700 hover:text-amber-300"}`}>
+          {goal.featured ? "★" : "☆"}
+        </button>
+      </td>
+      <td className="px-2 py-1.5 align-middle">
+        <input defaultValue={goal.emoji}
+          onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== goal.emoji) void onPatch(goal.id, { emoji: v }); }}
+          className={`${cell} w-11 min-w-[2.75rem] text-center text-base`} />
+      </td>
+      <td className="px-1 py-1.5 align-middle">
+        <div className="flex items-center gap-1.5">
+          <input defaultValue={goal.name}
+            onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== goal.name) void onPatch(goal.id, { name: v }); }}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+            className={`${cell} font-semibold text-white`} />
+          <button onClick={() => onOpen(goal.id)} title="Open details"
+            className="flex-shrink-0 text-xs text-zinc-700 opacity-0 transition-opacity hover:text-blue-300 group-hover:opacity-100">↗</button>
+        </div>
+      </td>
+      <td className="whitespace-nowrap px-3 py-1.5 align-middle">
+        <OwnerSelect value={goal.owner ?? "Andrew"} onChange={(v) => void onPatch(goal.id, { owner: v })} />
+      </td>
+      <td className="whitespace-nowrap px-3 py-1.5 align-middle">
+        <SourceSelect value={goal.source} onChange={(v) => onSetSource(goal, v)} />
+      </td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-right align-middle">
+        {auto ? (
+          live[goal.id] == null ? (
+            // A first load walks a year of Stripe; a skeleton reads as "coming"
+            // where a bare "…" reads as "broken".
+            <span className="ml-auto block h-4 w-16 animate-pulse rounded bg-zinc-800" title="Pulling the live number…" />
+          ) : (
+            <span className="font-bold tabular-nums text-emerald-300" title={SOURCE_LABEL[goal.source ?? ""] ?? "Auto-tracked"}>
+              {fmtVal(goal, current)}
+            </span>
+          )
+        ) : (
+          <ActualCell goal={goal} current={current} onPatch={onPatch} />
+        )}
+      </td>
+      <td className="whitespace-nowrap px-3 py-1.5 text-right align-middle">
+        <input defaultValue={String(Math.round(target))} inputMode="decimal"
+          onBlur={(e) => { const n = parseFloat(e.target.value.replace(/[^\d.]/g, "")); if (!isNaN(n) && n !== target) void onPatch(goal.id, { target_amount: n }); }}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+          className={`${cell} text-right tabular-nums text-zinc-300`} />
+      </td>
+      <td className="px-3 py-1.5 align-middle">
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 min-w-[60px] flex-1 overflow-hidden rounded-full bg-zinc-800">
+            <div className={`h-full rounded-full bg-gradient-to-r ${st.bar} transition-all duration-500`} style={{ width: `${pct}%` }} />
+          </div>
+          <span className="w-9 flex-shrink-0 text-right text-[11px] tabular-nums text-zinc-400">{pct.toFixed(0)}%</span>
+          <span className={`flex-shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-bold ${st.badge}`}>{st.label}</span>
+        </div>
+      </td>
+      <td className="whitespace-nowrap px-3 py-1.5 align-middle">
+        <div className="flex items-center gap-1.5">
+          <input type="date" value={goal.target_date ?? ""}
+            onChange={(e) => void onPatch(goal.id, { target_date: e.target.value || null })}
+            className={`rounded-lg border border-zinc-800 bg-zinc-950/70 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none ${overdue ? "text-rose-400" : "text-zinc-300"}`} />
+          {dl !== null && current < target && (
+            <span className={`text-[11px] ${overdue ? "font-semibold text-rose-400" : dl <= 3 ? "text-amber-300" : "text-zinc-600"}`}>
+              {overdue ? `${Math.abs(dl)}d over` : dl === 0 ? "today" : `${dl}d`}
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-2 py-1.5 align-middle">
+        <button onClick={() => onRemove(goal.id)} title="Delete goal"
+          className="text-sm text-zinc-600 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100">✕</button>
+      </td>
+    </tr>
+  );
+}
+
+/** A manual number, typed straight into the sheet. */
+function ActualCell({ goal, current, onPatch }: { goal: Goal; current: number; onPatch: (id: string, patch: Partial<Goal>) => Promise<void> }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const cancelRef = useRef(false);
+  const commit = () => {
+    if (cancelRef.current) { cancelRef.current = false; setDraft(null); return; }
+    if (draft != null) {
+      const n = parseFloat(draft);
+      if (!isNaN(n)) void onPatch(goal.id, { current_amount: Math.round(n) });
+      setDraft(null);
+    }
+  };
+  return (
+    <input
+      type="text" inputMode="decimal"
+      value={draft ?? String(Math.round(current))}
+      onChange={(e) => setDraft(e.target.value.replace(/[^\d.]/g, ""))}
+      onFocus={(e) => { setDraft(String(Math.round(current))); const el = e.currentTarget; requestAnimationFrame(() => el.select()); }}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { cancelRef.current = true; e.currentTarget.blur(); } }}
+      className="w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-right text-sm font-bold tabular-nums text-white transition-colors focus:border-blue-500/50 focus:bg-zinc-950 focus:outline-none"
+    />
+  );
+}
+
 // ─── Board section ──────────────────────────────────────────────────────────
 
 const TONE: Record<GoalSection<Goal>["tone"], { title: string; pill: string; rule: string; bar: string }> = {
@@ -790,6 +996,7 @@ export default function GoalsPage() {
   const [modal, setModal] = useState<"new" | Goal | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showAchieved, setShowAchieved] = useState(false);
+  const [view, setView] = useState<"sheet" | "grid">("sheet");
   const [person] = usePerson();
 
   const loadGoals = useCallback(async () => {
@@ -801,37 +1008,69 @@ export default function GoalsPage() {
 
   useEffect(() => { void loadGoals(); }, [loadGoals]);
 
-  // The distinct set of live sources in use — a stable string so the Stripe
-  // fetch below only re-runs when the sources change, NOT on every number edit.
-  const sourceKey = useMemo(
-    () => Array.from(new Set(goals.map((g) => g.source).filter(Boolean))).sort().join(","),
-    [goals]
-  );
+  // A stable key over what actually drives the fetch — which years and which
+  // legacy periods are in play. Editing a number must not refetch Stripe; that
+  // is what used to make the goal fields jump while you typed in them.
+  const liveKey = useMemo(() => {
+    const years = new Set<number>();
+    const legacy = new Set<string>();
+    for (const g of goals) {
+      if (!isAutoSource(g.source)) continue;
+      if (g.source === "stripe_cash" || g.source === "booked_calls") {
+        const anchor = g.target_date ? new Date(`${g.target_date}T12:00:00`) : new Date();
+        years.add(anchor.getFullYear());
+      } else if (g.source) {
+        legacy.add(g.source);
+      }
+    }
+    return JSON.stringify({ years: [...years].sort(), legacy: [...legacy].sort() });
+  }, [goals]);
 
-  // Pull live Stripe cash totals for any auto-tracked sources in use.
+  // Pull the months each automated goal needs, then resolve one number per goal.
   useEffect(() => {
-    const sources = sourceKey ? sourceKey.split(",") : [];
-    const periods = Array.from(new Set(sources.map((s) => SOURCE_PERIOD[s]).filter(Boolean)));
-    if (periods.length === 0) return;
+    const { years, legacy } = JSON.parse(liveKey) as { years: number[]; legacy: string[] };
+    if (years.length === 0 && legacy.length === 0) { setLive({}); return; }
     let cancelled = false;
     setLiveLoading(true);
     (async () => {
-      const entries = await Promise.all(periods.map(async (p) => {
-        try {
-          const r = await fetch(`/api/stripe/revenue?period=${p}`);
-          const d = await r.json();
-          return [p, Number(d?.summary?.total) || 0] as const;
-        } catch { return [p, 0] as const; }
-      }));
+      const [monthlyByYear, legacyEntries] = await Promise.all([
+        Promise.all(years.map(async (y) => {
+          try {
+            const r = await fetch(`/api/goals/live?year=${y}`);
+            return (await r.json()) as LiveMonthly;
+          } catch { return { cashByMonth: {}, callsByMonth: {} }; }
+        })),
+        Promise.all(legacy.map(async (source) => {
+          const period = SOURCE_PERIOD[source];
+          try {
+            const r = await fetch(`/api/stripe/revenue?period=${period}`);
+            const d = await r.json();
+            return [source, Number(d?.summary?.total) || 0] as const;
+          } catch { return [source, 0] as const; }
+        })),
+      ]);
       if (cancelled) return;
-      const byPeriod = Object.fromEntries(entries);
-      const bySource: Record<string, number> = {};
-      for (const s of sources) bySource[s] = byPeriod[SOURCE_PERIOD[s]] ?? 0;
-      setLive(bySource);
+
+      // Years are disjoint by month key, so one merged table serves every goal.
+      const merged: LiveMonthly = { cashByMonth: {}, callsByMonth: {} };
+      for (const m of monthlyByYear) {
+        Object.assign(merged.cashByMonth, m.cashByMonth ?? {});
+        Object.assign(merged.callsByMonth, m.callsByMonth ?? {});
+      }
+      const legacyByPeriod = Object.fromEntries(legacyEntries);
+
+      const byGoal: Record<string, number> = {};
+      for (const g of goals) {
+        const v = autoValue(g, merged, legacyByPeriod);
+        if (v !== null) byGoal[g.id] = v;
+      }
+      setLive(byGoal);
       setLiveLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [sourceKey]);
+    // `goals` is read to map ids onto values; liveKey is what decides a refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveKey]);
 
   const patchGoal = useCallback(async (id: string, patch: Partial<Goal>) => {
     setGoals((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
@@ -883,27 +1122,18 @@ export default function GoalsPage() {
   const statusOf = useCallback((g: Goal) => computeStatus(g, currentValue(g, live)), [live]);
   const today = useMemo(() => isoDaysFromNow(0), []);
   const in7 = useMemo(() => isoDaysFromNow(7), []);
+
+  // The year's number is the headline, not a row in December. It comes out of
+  // the month blocks and sits above them.
+  const annual = useMemo(() => visible.filter((g) => g.period === "annual"), [visible]);
+  const monthly = useMemo(() => visible.filter((g) => g.period !== "annual"), [visible]);
+
   const { sections, achievedItems, counts } = useMemo(
-    () => buildGoalBoard(visible, statusOf, today, in7),
-    [visible, statusOf, today, in7],
+    () => buildGoalBoard(monthly, statusOf, today, in7),
+    [monthly, statusOf, today, in7],
   );
 
-  const pinned = useMemo(() => visible.filter((g) => g.featured), [visible]);
-
-  // Summary across cash goals
-  const summary = useMemo(() => {
-    const cashGoals = goals.filter((g) => g.goal_type === "cash");
-    const collected = cashGoals.reduce((s, g) => s + currentValue(g, live), 0);
-    const target = cashGoals.reduce((s, g) => s + (g.target_amount || 0), 0);
-    let onTrack = 0, atRisk = 0, achieved = 0;
-    for (const g of goals) {
-      const s = computeStatus(g, currentValue(g, live));
-      if (s === "achieved") achieved++;
-      else if (s === "ontrack") onTrack++;
-      else atRisk++;
-    }
-    return { collected, target, onTrack, atRisk, achieved, pct: target > 0 ? Math.min(100, (collected / target) * 100) : 0 };
-  }, [goals, live]);
+  const pinned = useMemo(() => monthly.filter((g) => g.featured), [monthly]);
 
   const openGoal = goals.find((g) => g.id === openId) ?? null;
 
@@ -912,13 +1142,27 @@ export default function GoalsPage() {
     await loadGoals();
   }, [loadGoals]);
 
-  const renderCards = (items: Goal[]) => (
-    <div className="grid gap-3 lg:grid-cols-2">
-      {items.map((g) => (
-        <GoalCard key={g.id} goal={g} live={live} onOpen={() => setOpenId(g.id)} onPatch={patchGoal} onToggleFeature={toggleFeature} />
-      ))}
-    </div>
-  );
+  // Switching a goal to an automated source clears the number that was typed
+  // in by hand — otherwise the old figure is silently added to the live one and
+  // September reads $28K instead of $17K.
+  const setSource = useCallback((g: Goal, source: GoalSource) => {
+    const next = source === "manual" ? null : source;
+    const patch: Partial<Goal> = { source: next };
+    if (next && (g.current_amount ?? 0) !== 0) patch.current_amount = 0;
+    void patchGoal(g.id, patch);
+  }, [patchGoal]);
+
+  const renderCards = (items: Goal[]) =>
+    view === "sheet" ? (
+      <GoalSheet goals={items} live={live} onPatch={patchGoal} onSetSource={setSource}
+        onOpen={setOpenId} onToggleFeature={toggleFeature} onRemove={deleteGoal} />
+    ) : (
+      <div className="grid gap-3 lg:grid-cols-2">
+        {items.map((g) => (
+          <GoalCard key={g.id} goal={g} live={live} onOpen={() => setOpenId(g.id)} onPatch={patchGoal} onToggleFeature={toggleFeature} />
+        ))}
+      </div>
+    );
 
   return (
     <div className="space-y-5">
@@ -928,9 +1172,16 @@ export default function GoalsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">🏁 Goals</h1>
           <p className="mt-0.5 text-sm text-zinc-500">
             What needs you first, up top. {counts.open} in play · {counts.achieved} hit
+            {liveLoading && <span className="ml-2 text-emerald-400/80">· pulling live numbers…</span>}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1">
+            {([["sheet", "▦ Sheet"], ["grid", "🗂️ Cards"]] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setView(k)}
+                className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${view === k ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>{l}</button>
+            ))}
+          </div>
           <PersonSelect />
           <button onClick={() => setModal("new")}
             className="flex flex-shrink-0 items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500">
@@ -954,9 +1205,14 @@ export default function GoalsPage() {
         ))}
       </div>
 
+      {/* The year — the headline number, above everything it rolls up from */}
+      {annual.map((g) => (
+        <FeaturedHero key={g.id} goal={g} live={live} liveLoading={liveLoading} onOpen={() => setOpenId(g.id)} />
+      ))}
+
       {/* Pinned — a single star reads as a hero, several as a row */}
       {pinned.length === 1 ? (
-        <FeaturedHero goal={pinned[0]} live={live} summary={summary} liveLoading={liveLoading} onOpen={() => setOpenId(pinned[0].id)} />
+        <FeaturedHero goal={pinned[0]} live={live} liveLoading={liveLoading} onOpen={() => setOpenId(pinned[0].id)} />
       ) : pinned.length > 1 ? (
         <section>
           <div className="mb-2.5 flex items-center gap-2.5">

@@ -10,6 +10,9 @@ import {
   projectedTotal,
   sectionProgress,
   sortByUrgency,
+  autoValue,
+  goalMonths,
+  isAutoSource,
 } from "../lib/goal-board.ts";
 
 // Wed 2026-09-16 at midnight — exactly 15 of September's 30 days gone, so
@@ -153,4 +156,66 @@ test("a level goal is read against its number, not against the clock", () => {
 test("a level is never projected forward", () => {
   assert.equal(projectedTotal(goal({ track_mode: "level" }), 22197, NOW), null);
   assert.ok(projectedTotal(goal({ track_mode: "accumulates" }), 50, NOW) !== null);
+});
+
+// ─── Automated goals ─────────────────────────────────────────────────────────
+
+const LIVE = {
+  cashByMonth: { "2026-07": 60969, "2026-08": 52335, "2026-09": 17097 },
+  callsByMonth: { "2026-08": 10, "2026-09": 10 },
+};
+
+test("a goal's window comes from its own date, not from today", () => {
+  assert.deepEqual(goalMonths({ period: "monthly", target_date: "2026-08-31" }, NOW), ["2026-08"]);
+  assert.deepEqual(goalMonths({ period: "quarterly", target_date: "2026-08-31" }, NOW), ["2026-07", "2026-08", "2026-09"]);
+  assert.equal(goalMonths({ period: "annual", target_date: "2026-12-31" }, NOW).length, 12);
+  assert.deepEqual(goalMonths({ period: "annual", target_date: "2026-12-31" }, NOW).slice(0, 2), ["2026-01", "2026-02"]);
+});
+
+test("an undated goal falls back to the month you're in", () => {
+  assert.deepEqual(goalMonths({ period: "monthly", target_date: null }, NOW), ["2026-09"]);
+});
+
+test("a one-off spans from when it was set to when it's due", () => {
+  const months = goalMonths(
+    { period: "one_time", target_date: "2026-09-30", created_at: "2026-07-15T00:00:00Z" },
+    NOW,
+  );
+  assert.deepEqual(months, ["2026-07", "2026-08", "2026-09"]);
+});
+
+test("an automated goal reads its own months, not month-to-date", () => {
+  const august = { period: "monthly", target_date: "2026-08-31", source: "stripe_cash" };
+  assert.equal(autoValue(august, LIVE, {}, NOW), 52335);
+  const september = { period: "monthly", target_date: "2026-09-30", source: "stripe_cash" };
+  assert.equal(autoValue(september, LIVE, {}, NOW), 17097);
+});
+
+test("an annual goal is the sum of its months", () => {
+  const annual = { period: "annual", target_date: "2026-12-31", source: "stripe_cash" };
+  assert.equal(autoValue(annual, LIVE, {}, NOW), 60969 + 52335 + 17097);
+});
+
+test("booked calls read the calls table, not the cash one", () => {
+  const g = { period: "monthly", target_date: "2026-09-30", source: "booked_calls" };
+  assert.equal(autoValue(g, LIVE, {}, NOW), 10);
+});
+
+test("a manual goal has no automated part", () => {
+  assert.equal(autoValue({ period: "monthly", target_date: "2026-09-30", source: null }, LIVE, {}, NOW), null);
+  assert.equal(isAutoSource(null), false);
+  assert.equal(isAutoSource("stripe_cash"), true);
+});
+
+test("legacy fixed-period sources keep reading their own period", () => {
+  const g = { period: "annual", target_date: "2026-12-31", source: "cash_ytd" };
+  assert.equal(autoValue(g, LIVE, { cash_ytd: 341841 }, NOW), 341841);
+  assert.equal(isAutoSource("cash_ytd"), true);
+});
+
+test("a month with no activity is zero, but an unloaded table is not", () => {
+  const empty = { cashByMonth: {}, callsByMonth: {} };
+  const g = { period: "monthly", target_date: "2026-11-30", source: "stripe_cash" };
+  assert.equal(autoValue(g, empty, {}, NOW), null, "nothing loaded yet — don't claim zero");
+  assert.equal(autoValue(g, LIVE, {}, NOW), 0, "loaded, and November really is empty");
 });

@@ -10,6 +10,13 @@
 export type GoalStatus = "achieved" | "behind" | "atrisk" | "ontrack";
 
 export type BoardGoal = {
+  /**
+   * Closed out by hand — "I'm not chasing this any more". Distinct from
+   * achieved, which the board works out for itself. A missed month stays in
+   * Past due until you say you're done with it, and then it leaves the flow
+   * rather than being deleted, because what you aimed at is worth keeping.
+   */
+  archived?: boolean;
   target_amount: number;
   period: string;
   target_date: string | null;
@@ -152,7 +159,8 @@ export function sortByUrgency<T>(items: T[], statusOf: (item: T) => GoalStatus, 
 export type GoalBoard<T> = {
   sections: GoalSection<T>[];
   achievedItems: T[];
-  counts: { behind: number; week: number; open: number; achieved: number };
+  closedItems: T[];
+  counts: { behind: number; week: number; open: number; achieved: number; closed: number };
 };
 
 /**
@@ -170,8 +178,12 @@ export function buildGoalBoard<T extends BoardGoal>(
   const dateOf = (g: T) => g.target_date;
   const sort = (items: T[]) => sortByUrgency(items, statusOf, dateOf);
 
-  const achieved = goals.filter((g) => statusOf(g) === "achieved");
-  const open = goals.filter((g) => statusOf(g) !== "achieved");
+  // Closed out wins over everything: once you've said you're done with a goal
+  // it shouldn't reappear in Past due, and it shouldn't be counted as a win.
+  const closed = goals.filter((g) => g.archived === true);
+  const live = goals.filter((g) => g.archived !== true);
+  const achieved = live.filter((g) => statusOf(g) === "achieved");
+  const open = live.filter((g) => statusOf(g) !== "achieved");
 
   const missed = open.filter((g) => g.target_date && g.target_date < today);
   const week = open.filter((g) => g.target_date && g.target_date >= today && g.target_date <= in7);
@@ -210,7 +222,11 @@ export function buildGoalBoard<T extends BoardGoal>(
   return {
     sections,
     achievedItems: [...achieved].sort((a, b) => String(b.target_date ?? "").localeCompare(String(a.target_date ?? ""))),
-    counts: { behind: missed.length, week: week.length, open: open.length, achieved: achieved.length },
+    closedItems: [...closed].sort((a, b) => String(b.target_date ?? "").localeCompare(String(a.target_date ?? ""))),
+    counts: {
+      behind: missed.length, week: week.length, open: open.length,
+      achieved: achieved.length, closed: closed.length,
+    },
   };
 }
 

@@ -6,12 +6,19 @@ const db = createClient(
   process.env.SUPABASE_CALLS_SERVICE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY!
 );
 
-// GET — all active goals
-export async function GET() {
-  const { data, error } = await db
-    .from("goals")
-    .select("*")
-    .eq("archived", false)
+/**
+ * GET — goals still in play.
+ *
+ * `?include=closed` also returns the ones closed out by hand, which only the
+ * Goals board wants: everywhere else (the Projects goal picker, the home
+ * dashboard) is offering a list to attach work to, and a goal you have stopped
+ * chasing does not belong there.
+ */
+export async function GET(req: NextRequest) {
+  const includeClosed = new URL(req.url).searchParams.get("include") === "closed";
+  let query = db.from("goals").select("*");
+  if (!includeClosed) query = query.eq("archived", false);
+  const { data, error } = await query
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

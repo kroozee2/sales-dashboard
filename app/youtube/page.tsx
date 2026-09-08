@@ -1,7 +1,9 @@
 "use client";
+
+import { PostedTab, type Posted } from "@/components/posted-table";
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import GraphicsStudio from "@/components/graphics-studio";
 import YouTubeContentPlanner from "@/components/youtube-content-planner";
 import YouTubePerformanceTable from "@/components/youtube-performance-table";
@@ -30,6 +32,14 @@ const TABS: Array<{ key: Tab; label: string; icon: string }> = [
 ];
 
 export default function YouTubePage() {
+  const [posted, setPosted] = useState<Posted[]>([]);
+  const loadPosted = useCallback(async () => {
+    const res = await fetch("/api/content/posted");
+    const json = (await res.json()) as { posted?: Posted[] };
+    setPosted(json.posted ?? []);
+  }, []);
+  useEffect(() => { void loadPosted(); }, [loadPosted]);
+
   const [tab, setTab] = useState<Tab>("dashboard");
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
@@ -105,7 +115,16 @@ export default function YouTubePage() {
           {TABS.map((entry) => <button key={entry.key} type="button" onClick={() => setTab(entry.key)} aria-current={tab === entry.key ? "page" : undefined} className={`min-w-max flex-1 rounded-xl px-4 py-2.5 text-xs font-black transition-colors ${tab === entry.key ? "bg-red-600 text-white shadow-lg" : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"}`}>{entry.icon} {entry.label}</button>)}
         </nav>
 
-        {tab === "dashboard" && <Dashboard analytics={analytics} videos={videos} loading={analyticsLoading} error={analyticsError} />}
+        {tab === "dashboard" && (
+          <div className="space-y-8">
+            <Dashboard analytics={analytics} videos={videos} loading={analyticsLoading} error={analyticsError} />
+            {/* What actually went out, moved here from the Content page's
+                YouTube tab so the channel's numbers and its posts sit together. */}
+            <section className="border-t border-zinc-800 pt-8">
+              <PostedTab posted={posted} onChanged={loadPosted} lockPlatform="youtube" />
+            </section>
+          </div>
+        )}
         {tab === "long-form" && <YouTubePerformanceTable videos={videos} format="long_form" loading={analyticsLoading} error={analyticsError} />}
         {tab === "shorts" && <YouTubePerformanceTable videos={videos} format="short" loading={analyticsLoading} error={analyticsError} />}
         {tab === "create" && <div className="space-y-10"><YouTubeContentPlanner items={items} loading={contentLoading} error={contentError} onCreated={(item) => setItems((current) => [item, ...current])} onUpdated={(item) => setItems((current) => current.map((candidate) => candidate.id === item.id ? item : candidate))} /><section className="border-t border-zinc-800 pt-8"><div className="mb-5"><p className="text-[10px] font-black uppercase tracking-[0.22em] text-red-400">1280 × 720</p><h2 className="mt-1 text-xl font-black text-white">YouTube Thumbnail Studio</h2><p className="mt-1 text-xs text-zinc-500">Generate phone-readable thumbnails with your face, a style reference, and automatic Graphics Library saving.</p></div><GraphicsStudio /></section></div>}

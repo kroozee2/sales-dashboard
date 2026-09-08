@@ -235,3 +235,96 @@ export function sectionProgress<T>(
   }
   return { pct: (sum / items.length) * 100, complete };
 }
+
+// ─── Automated goals ─────────────────────────────────────────────────────────
+
+/**
+ * Where a goal gets its current number from.
+ *
+ * "manual" is whatever was typed in. The rest read the same data the Finances
+ * and Calls pages read, scoped to the goal's own window — so "August Cash
+ * Collected" shows August, not month-to-date.
+ */
+export type GoalSource = "manual" | "stripe_cash" | "booked_calls";
+
+export const AUTO_SOURCES: { key: GoalSource; label: string; emoji: string; hint: string }[] = [
+  { key: "manual", label: "Manual", emoji: "✍️", hint: "You type the number" },
+  { key: "stripe_cash", label: "Cash collected", emoji: "💵", hint: "Stripe + logged payments, in this goal's window" },
+  { key: "booked_calls", label: "Booked calls", emoji: "📞", hint: "Sales calls on the calendar, in this goal's window" },
+];
+
+/** Legacy fixed-period sources, kept working so old goals don't break. */
+const LEGACY_CASH_SOURCES = new Set(["cash_mtd", "cash_wtd", "cash_qtd", "cash_ytd", "cash_alltime"]);
+
+export function isAutoSource(source: string | null | undefined): boolean {
+  return source === "stripe_cash" || source === "booked_calls" || LEGACY_CASH_SOURCES.has(source ?? "");
+}
+
+/**
+ * The months a goal covers, as "YYYY-MM" keys.
+ *
+ * A goal's window comes from its own target date, not from today: an annual
+ * goal dated 2026-12-31 covers all of 2026, and a monthly goal dated
+ * 2026-08-31 covers August — which is the whole point of automating it.
+ */
+export function goalMonths(
+  g: { period: string; target_date: string | null; created_at?: string },
+  now = new Date(),
+): string[] {
+  const anchor = g.target_date ? new Date(`${g.target_date}T12:00:00`) : now;
+  const y = anchor.getFullYear();
+  const m = anchor.getMonth();
+  const key = (year: number, month: number) => `${year}-${String(month + 1).padStart(2, "0")}`;
+
+  if (g.period === "annual") return Array.from({ length: 12 }, (_, i) => key(y, i));
+  if (g.period === "quarterly") {
+    const q = Math.floor(m / 3) * 3;
+    return [key(y, q), key(y, q + 1), key(y, q + 2)];
+  }
+  if (g.period === "one_time" && g.created_at) {
+    // A one-off spans from when it was set to when it's due.
+    const start = new Date(g.created_at);
+    const months: string[] = [];
+    const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+    const end = new Date(y, m, 1);
+    while (cur <= end) {
+      months.push(key(cur.getFullYear(), cur.getMonth()));
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    return months.length ? months : [key(y, m)];
+  }
+  // monthly, weekly and anything unrecognised resolve to the single month.
+  return [key(y, m)];
+}
+
+/** Live totals by month, as returned by /api/goals/live. */
+export type LiveMonthly = { cashByMonth: Record<string, number>; callsByMonth: Record<string, number> };
+
+/**
+ * The automated part of a goal's current value, or null when it has none.
+ *
+ * Legacy `cash_*` goals keep reading their fixed period from the old
+ * period-keyed totals rather than being silently re-scoped.
+ */
+export function autoValue(
+  g: { period: string; target_date: string | null; created_at?: string; source: string | null },
+  live: LiveMonthly,
+  legacyByPeriod: Record<string, number> = {},
+  now = new Date(),
+): number | null {
+  if (!g.source) return null;
+  if (LEGACY_CASH_SOURCES.has(g.source)) return legacyByPeriod[g.source] ?? null;
+  if (g.source !== "stripe_cash" && g.source !== "booked_calls") return null;
+
+  const table = g.source === "stripe_cash" ? live.cashByMonth : live.callsByMonth;
+  const months = goalMonths(g, now);
+  let total = 0;
+  let sawAny = false;
+  for (const m of months) {
+    if (m in table) sawAny = true;
+    total += table[m] ?? 0;
+  }
+  // An empty window is a real zero once the data has loaded — but before it
+  // loads, every month is missing, and claiming zero would flash "behind".
+  return sawAny || Object.keys(table).length > 0 ? total : null;
+}

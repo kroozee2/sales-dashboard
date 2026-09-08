@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { SubTabs } from "@/components/sub-tabs";
 import { usePerson } from "@/lib/use-person";
 import { Ring } from "@/components/winning-formula";
 
@@ -145,7 +144,6 @@ export default function ExecutionPage() {
 
   return (
     <div className="w-full">
-      <SubTabs group="tasks" />
 
       {/* ── Header: today's list at a glance ────────────────────────────────── */}
       <div className={`bg-zinc-900 border rounded-2xl p-4 sm:p-5 mb-4 ${clear ? "border-emerald-500/50" : "border-zinc-800"}`}>

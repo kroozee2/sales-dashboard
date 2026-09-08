@@ -82,6 +82,7 @@ export function PlatformsPanel() {
   const [syncing, setSyncing] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(async (r: string) => {
     setLoading(true); setError(null);
@@ -162,7 +163,16 @@ export function PlatformsPanel() {
               const a = ACCENT[p.key] ?? ACCENT.skool;
               const connected = p.followers != null;
               return (
-                <div key={p.key} className={cn("rounded-2xl border bg-zinc-900/60 p-4", connected ? a.ring : "border-dashed border-zinc-800")}>
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setOpen(open === p.key ? null : p.key)}
+                  aria-expanded={open === p.key}
+                  className={cn(
+                    "rounded-2xl border bg-zinc-900/60 p-4 text-left transition-colors hover:bg-zinc-900",
+                    connected ? a.ring : "border-dashed border-zinc-800",
+                    open === p.key && "ring-1 ring-blue-500/40",
+                  )}>
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-sm font-black text-white">{p.emoji} {p.label}</span>
                     {p.change != null && p.change !== 0 && (
@@ -201,10 +211,16 @@ export function PlatformsPanel() {
                       </p>
                     </>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
+
+          {open && (() => {
+            const p = data.platforms.find((x) => x.key === open);
+            if (!p) return null;
+            return <GrowthDetail platform={p} range={data.range} onClose={() => setOpen(null)} />;
+          })()}
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
             <p className="text-sm font-black text-white">Share of audience</p>
@@ -315,6 +331,92 @@ function MonthlyTable({ months }: { months: Month[] }) {
         Posts, views and engagement come from what actually published. Follower counts per month
         begin once there are snapshots to compare — today is the first.
       </p>
+    </div>
+  );
+}
+
+
+// Clicking a platform opens this: the gain or loss for the window you picked,
+// what it is built from, and every reading taken so far.
+function GrowthDetail({ platform: p, range, onClose }: { platform: Platform; range: string; onClose: () => void }) {
+  const a = ACCENT[p.key] ?? ACCENT.skool;
+  const window = range === "all" ? "all time" : `this ${range}`;
+  const readings = p.series.filter((x) => x.followers != null) as { date: string; followers: number }[];
+
+  return (
+    <div className={cn("rounded-2xl border bg-zinc-900/80 p-5", a.ring)}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-black text-white">{p.emoji} {p.label}</p>
+          <p className="text-[11px] text-zinc-500">{p.handle ?? "not connected"}</p>
+        </div>
+        <button onClick={onClose} aria-label="Close" className="text-xl leading-none text-zinc-500 hover:text-white">×</button>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-zinc-800 bg-black/30 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Now</p>
+          <p className={cn("mt-1 text-2xl font-black tabular-nums", a.text)}>{n(p.followers)}</p>
+          <p className="text-[11px] text-zinc-600">{p.unit}</p>
+        </div>
+        <div className="rounded-xl border border-zinc-800 bg-black/30 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Change {window}</p>
+          <p className={cn("mt-1 text-2xl font-black tabular-nums",
+            p.change == null ? "text-zinc-700" : p.change > 0 ? "text-emerald-400" : p.change < 0 ? "text-rose-400" : "text-zinc-300")}>
+            {p.change == null ? "—" : signed(p.change)}
+          </p>
+          <p className="text-[11px] text-zinc-600">
+            {p.change == null ? "not measured yet" : p.basis === "youtube-analytics" ? "from YouTube Analytics" : "from daily readings"}
+          </p>
+        </div>
+        <div className="rounded-xl border border-zinc-800 bg-black/30 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">Readings</p>
+          <p className="mt-1 text-2xl font-black tabular-nums text-zinc-300">{readings.length}</p>
+          <p className="text-[11px] text-zinc-600">{readings.length < 2 ? "two needed for a trend" : `since ${readings[0].date}`}</p>
+        </div>
+      </div>
+
+      {/* The gained/lost split, where the platform reports it. */}
+      {p.detail && (
+        <p className="mt-3 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.07] px-3 py-2 text-xs text-emerald-100/80">
+          {p.detail}
+        </p>
+      )}
+
+      {p.change == null && (
+        <p className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-3 py-2 text-xs leading-relaxed text-amber-100/80">
+          {p.followers == null
+            ? "This platform isn't connected, so there is nothing to measure yet."
+            : p.key === "youtube"
+              ? "YouTube reports its subscriber movement for one 365-day window, so it answers Year and All time. Shorter windows need the daily readings, which start today."
+              : "Nothing recorded this platform's audience before today, so there is no earlier number to compare against. Capture a reading each day and this fills in — a week from now, Week works."}
+        </p>
+      )}
+
+      {readings.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-zinc-500">Every reading</p>
+          <div className="divide-y divide-zinc-800/70 overflow-hidden rounded-xl border border-zinc-800">
+            {[...readings].reverse().slice(0, 12).map((r, i, arr) => {
+              const prev = arr[i + 1];
+              const delta = prev ? r.followers - prev.followers : null;
+              return (
+                <div key={r.date} className="flex items-center justify-between px-3 py-2 text-xs">
+                  <span className="text-zinc-400">{new Date(`${r.date}T12:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</span>
+                  <span className="flex items-baseline gap-3">
+                    <span className="font-bold tabular-nums text-zinc-200">{n(r.followers)}</span>
+                    {delta !== null && (
+                      <span className={cn("w-14 text-right tabular-nums", delta > 0 ? "text-emerald-400" : delta < 0 ? "text-rose-400" : "text-zinc-600")}>
+                        {delta === 0 ? "—" : signed(delta)}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

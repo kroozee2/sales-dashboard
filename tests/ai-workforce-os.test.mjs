@@ -385,7 +385,7 @@ test("the sidebar has an AI Workforce section holding Jarvis, Core Agents, and S
 
 test("the AI Workforce section renders in the sidebar section order", () => {
   const sidebar = read("../components/sidebar.tsx");
-  const order = sidebar.match(/const sections = \[([^\]]+)\]/);
+  const order = sidebar.match(/const SECTIONS = \[([^\]]+)\]/);
   assert.notEqual(order, null);
   assert.match(order[1], /"AI Workforce"/);
 });

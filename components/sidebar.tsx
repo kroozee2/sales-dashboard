@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { parseSectionState, serializeSectionState, SIDEBAR_SECTIONS_KEY, toggleSectionState, type SectionState } from "@/lib/sidebar-sections";
 
 // `match` lists extra route prefixes that keep this item highlighted — used
 // where one sidebar entry fronts a group of sub-tabbed pages.
 // `tab` marks entries that share a path and differ only by ?tab=. `tabDefault`
 // is the one that lights up when the URL carries no tab (or an unlisted one).
-type NavItem = { href: string; label: string; emoji: string; match?: string[]; section?: string; tab?: string; tabDefault?: boolean };
+type NavItem = { href: string; label: string; emoji: string; match?: string[]; section?: string; tab?: string; tabDefault?: boolean; badge?: NavCountKey };
+type NavCountKey = "followUps" | "applications" | "hotLeads";
+type NavCounts = Record<NavCountKey, number>;
 
 // The order sections render in: the work first, then the reference material.
 const SECTIONS = ["Command", "AI Workforce", "Marketing", "Leads", "Sales", "Clients", "Partners", "Finances", "Offers", "Team"];
@@ -26,17 +29,17 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/leads", label: "Leads", emoji: "🎯", tab: "leads", tabDefault: true, match: ["/scripts"], section: "Leads" },
   { href: "/leads?tab=new", label: "New Leads", emoji: "🌱", tab: "new", section: "Leads" },
   { href: "/leads?tab=hotlist", label: "Hot List", emoji: "🔥", tab: "hotlist", section: "Leads" },
-  { href: "/hot-leads", label: "AI Hot List", emoji: "🤖", match: ["/instagram-hot-leads"], section: "Leads" },
+  { href: "/hot-leads", label: "AI Hot List", emoji: "🤖", match: ["/instagram-hot-leads"], section: "Leads", badge: "hotLeads" },
   { href: "/leads?tab=followup", label: "Follow-Up", emoji: "🔁", tab: "followup", section: "Leads" },
   { href: "/messages", label: "Messages", emoji: "💬", section: "Leads" },
   { href: "/signups", label: "Signups", emoji: "🆕", section: "Leads" },
-  { href: "/applications", label: "Applications", emoji: "📝", section: "Leads" },
+  { href: "/applications", label: "Applications", emoji: "📝", section: "Leads", badge: "applications" },
   { href: "/event-leads", label: "Event Leads", emoji: "🎟️", section: "Leads" },
 
   { href: "/calls?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Sales" },
   { href: "/calls", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Sales" },
   { href: "/calls?tab=calls", label: "List", emoji: "📋", tab: "calls", section: "Sales" },
-  { href: "/follow-ups", label: "Follow-Ups", emoji: "🔥", section: "Sales" },
+  { href: "/follow-ups", label: "Follow-Ups", emoji: "🔥", section: "Sales", badge: "followUps" },
 
   { href: "/content?tab=dashboard", label: "Dashboard", emoji: "📊", tab: "dashboard", section: "Marketing" },
   { href: "/content?tab=events", label: "Events", emoji: "🎟️", tab: "events", section: "Marketing" },
@@ -147,16 +150,58 @@ function Brand() {
   );
 }
 
+function useNavCounts(): NavCounts | null {
+  const [counts, setCounts] = useState<NavCounts | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/nav-counts", { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: NavCounts | null) => { if (!controller.signal.aborted && data) setCounts(data); })
+      // A badge is a nicety. It must never surface an error or block the nav.
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  return counts;
+}
+
+function NavBadge({ value }: { value: number }) {
+  if (!value) return null;
+  return (
+    <span className="ml-auto min-w-5 rounded-full bg-blue-500/20 px-1.5 text-center text-[10px] font-semibold leading-5 text-blue-200">
+      {value > 99 ? "99+" : value}
+    </span>
+  );
+}
+
 function NavList({ pathname, activeTab, onNavigate }: { pathname: string; activeTab: string | null; onNavigate?: () => void }) {
+  const counts = useNavCounts();
   const sections = SECTIONS;
   // Every section starts open — derived from the list so adding a section here
   // can't silently leave it collapsed.
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(sections.map((s) => [s, true])),
-  );
+  // Every section starts open, on the server and on the first client render, so
+  // the markup matches. What you collapsed is applied just after mount — a
+  // deferred read rather than a synchronous one, so this never turns into a
+  // cascading render.
+  const [expanded, setExpanded] = useState<SectionState>(() => Object.fromEntries(sections.map((name) => [name, true])));
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      let raw: string | null = null;
+      try { raw = window.localStorage.getItem(SIDEBAR_SECTIONS_KEY); } catch { return; }
+      if (!raw) return;
+      setExpanded(parseSectionState(raw, sections));
+    });
+    return () => { cancelled = true; };
+  }, [sections]);
 
   const toggleSection = (section: string) => {
-    setExpanded((prev) => ({ ...prev, [section]: !prev[section] }));
+    setExpanded((prev) => {
+      const next = toggleSectionState(prev, section);
+      try { window.localStorage.setItem(SIDEBAR_SECTIONS_KEY, serializeSectionState(next)); } catch { /* a lost preference is not worth a failed click */ }
+      return next;
+    });
   };
 
   return (
@@ -205,6 +250,7 @@ function NavList({ pathname, activeTab, onNavigate }: { pathname: string; active
                     {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-blue-400" />}
                     <span className="text-lg leading-none">{n.emoji}</span>
                     {n.label}
+                    {n.badge && counts && <NavBadge value={counts[n.badge]} />}
                   </Link>
                 );
               })}

@@ -18,12 +18,7 @@ type Post = {
   posted_at: string | null; in_my_voice: string | null;
 };
 
-const TABS = [
-  { key: "model", label: "Model", emoji: "🎯" },
-  { key: "content", label: "Content Model", emoji: "🎬" },
-  { key: "hooks", label: "Hooks", emoji: "🪝" },
-  { key: "themes", label: "Themes", emoji: "🧭" },
-] as const;
+export type ModelView = "model" | "content" | "hooks" | "themes";
 
 const n = (v: number | null | undefined) => (v == null ? "—" : new Intl.NumberFormat("en-US").format(v));
 const compact = (v: number | null | undefined) =>
@@ -37,8 +32,7 @@ const ago = (iso: string | null) => {
 const engRate = (p: Post, followers: number | null) =>
   followers && followers > 0 ? ((p.likes ?? 0) + (p.comments ?? 0)) / followers * 100 : null;
 
-export function InstagramModel() {
-  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("model");
+export function InstagramModel({ view = "model" }: { view?: ModelView }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,16 +102,9 @@ export function InstagramModel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 rounded-xl bg-zinc-900 p-1">
-          {TABS.map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={cn("rounded-lg px-3.5 py-2 text-xs font-bold transition-colors",
-                tab === t.key ? "bg-pink-600 text-white" : "text-zinc-400 hover:text-white")}>
-              {t.emoji} {t.label}
-            </button>
-          ))}
-        </div>
+      {/* These four views sit in the page's own tab row now, so all that is
+          left here is the toolbar, which is useful on every one of them. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex flex-wrap items-center gap-2">
           {accounts.length > 1 && (
             <select value={who ?? ""} onChange={(e) => setWho(e.target.value || null)}
@@ -140,11 +127,11 @@ export function InstagramModel() {
         <p className="animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60 py-16 text-center text-sm text-zinc-500">Reading the accounts you model…</p>
       ) : (
         <>
-          {tab === "model" && <ModelTab accounts={accounts} posts={posts} busy={busy} onSync={sync} onRemove={remove}
+          {view === "model" && <ModelTab accounts={accounts} posts={posts} busy={busy} onSync={sync} onRemove={remove}
             newHandle={newHandle} setNewHandle={setNewHandle} onAdd={add} />}
-          {tab === "content" && <ContentTab posts={shown} followersOf={followersOf} />}
-          {tab === "hooks" && <HooksTab posts={shown} />}
-          {tab === "themes" && <ThemesTab posts={shown} />}
+          {view === "content" && <ContentTab posts={shown} followersOf={followersOf} />}
+          {view === "hooks" && <HooksTab posts={shown} />}
+          {view === "themes" && <ThemesTab posts={shown} />}
         </>
       )}
     </div>

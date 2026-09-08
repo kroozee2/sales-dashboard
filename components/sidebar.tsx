@@ -132,7 +132,7 @@ function Brand() {
 }
 
 function NavList({ pathname, activeTab, onNavigate }: { pathname: string; activeTab: string | null; onNavigate?: () => void }) {
-  const sections = ["Command", "Leads", "Sales", "Partners", "Marketing", "Clients", "Backend", "Vault"];
+  const sections = ["Command", "Marketing", "Leads", "Sales", "Partners", "Clients", "Backend", "Vault"];
   // Every section starts open — derived from the list so adding a section here
   // can't silently leave it collapsed.
   const [expanded, setExpanded] = useState<Record<string, boolean>>(

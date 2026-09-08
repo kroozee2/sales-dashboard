@@ -34,6 +34,10 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/calls", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Sales" },
   { href: "/calls?tab=calls", label: "List", emoji: "📋", tab: "calls", section: "Sales" },
 
+  { href: "/partners", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Partners" },
+  { href: "/partners?tab=calls", label: "List", emoji: "📋", tab: "calls", section: "Partners" },
+  { href: "/partners?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Partners" },
+
   { href: "/content?tab=dashboard", label: "Dashboard", emoji: "📊", tab: "dashboard", section: "Marketing" },
   { href: "/content", label: "Calendar", emoji: "🗓️", tab: "calendar", tabDefault: true, section: "Marketing" },
   { href: "/instagram", label: "Instagram", emoji: "📸", section: "Marketing" },
@@ -127,7 +131,7 @@ function Brand() {
 }
 
 function NavList({ pathname, activeTab, onNavigate }: { pathname: string; activeTab: string | null; onNavigate?: () => void }) {
-  const sections = ["Command", "Leads", "Sales", "Marketing", "Clients", "Backend", "Vault"];
+  const sections = ["Command", "Leads", "Sales", "Partners", "Marketing", "Clients", "Backend", "Vault"];
   // Every section starts open — derived from the list so adding a section here
   // can't silently leave it collapsed.
   const [expanded, setExpanded] = useState<Record<string, boolean>>(

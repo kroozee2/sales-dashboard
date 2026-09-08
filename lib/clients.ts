@@ -1,4 +1,4 @@
-export const CLIENT_TABS = ["Dashboard", "Members", "Calendar"] as const;
+export const CLIENT_TABS = ["Dashboard", "New", "Members", "Calendar"] as const;
 export type ClientTab = (typeof CLIENT_TABS)[number];
 export type MemberFilter = "All active" | "Onboarding" | "At Risk" | "Off-Track" | "Off-boarded";
 export type MemberSort = "urgency" | "name" | "last-contact";

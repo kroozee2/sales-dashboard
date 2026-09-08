@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ClientOnboarding, { type Patch } from "@/components/client-onboarding";
+import {
+  CLIENT_STATUSES, mergeClients, recentClients, sortByNewest,
+  type ClientAccount, type MergedClient, type OnboardingStepKey,
+} from "@/lib/client-accounts";
 import {
   bucketCalendarEvents,
   calendarDays,
@@ -96,21 +101,85 @@ function Dashboard({ data }: { data: ClientsPayload }) {
   </div>;
 }
 
-function MemberCard({ member }: { member: ClientMember }) {
+function MemberCard({ member, account, busy, onPatch }: {
+  member: ClientMember;
+  account: MergedClient | null;
+  busy: boolean;
+  onPatch: (client: MergedClient, patch: Patch) => void;
+}) {
   const age = contactAgeDays(member);
   const initials = member.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-  return <a href={helmClientUrl(HELM_URL, member.id)} target="_blank" rel="noreferrer" className="block rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 transition hover:border-zinc-600 hover:bg-zinc-900">
+  const status = account?.status ?? member.status;
+
+  return <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 transition hover:border-zinc-700">
     <div className="flex items-start gap-3">
       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-xs font-bold text-white">{initials}</div>
-      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="truncate font-semibold text-white">{member.name}</p><span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusTone(member.status)}`}>{member.status || "No status"}</span></div><p className="truncate text-xs text-zinc-500">{member.membership || "Program not recorded"}{member.phase ? ` · ${member.phase}` : ""}</p></div>
+      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="truncate font-semibold text-white">{member.name}</p><span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusTone(status)}`}>{status || "No status"}</span></div><p className="truncate text-xs text-zinc-500">{account?.program || member.membership || "Program not recorded"}{member.phase ? ` · ${member.phase}` : ""}</p></div>
     </div>
     <div className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><p className="text-zinc-600">Last contact</p><p className="mt-0.5 text-zinc-300">{age === null ? "No contact recorded" : age === 0 ? "Today" : `${age}d ago`}</p></div><div><p className="text-zinc-600">Portal</p><p className="mt-0.5 capitalize text-zinc-300">{member.portalStatus.replace("_", " ")}</p></div><div><p className="text-zinc-600">Attendance</p><p className="mt-0.5 text-zinc-300">{member.callsAttended} calls</p></div><div><p className="text-zinc-600">Last call</p><p className="mt-0.5 text-zinc-300">{formatDate(member.lastCallAt, { month: "short", day: "numeric" })}</p></div></div>
     {member.aiNextAction && <p className="mt-3 rounded-lg bg-blue-500/10 px-3 py-2 text-xs text-blue-200">Next: {member.aiNextAction}</p>}
-    <p className="mt-3 text-right text-[11px] font-medium text-zinc-600">Open in Helm ↗</p>
-  </a>;
+
+    {/* Ours to edit. Helm's four numbers above stay where they belong. */}
+    <div className="mt-3 border-t border-zinc-800 pt-3">
+      {account?.editable ? (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <EditNumber label="Deal" value={account.dealValue} tone="text-emerald-300" disabled={busy}
+            onSave={(v) => onPatch(account, { deal_value: v })} />
+          <EditNumber label="MRR" value={account.mrr} tone="text-blue-300" disabled={busy}
+            onSave={(v) => onPatch(account, { mrr: v })} />
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-zinc-600">Status</p>
+            <select value={CLIENT_STATUSES.includes(account.status as never) ? account.status as string : "Onboarding"} disabled={busy}
+              aria-label={`Status for ${member.name}`}
+              onChange={(e) => onPatch(account, { status: e.target.value })}
+              className="mt-0.5 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-1.5 py-1 text-[11px] text-zinc-200 focus:border-blue-500 focus:outline-none">
+              {CLIENT_STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-zinc-600">Who</p>
+            <select value={account.owner} disabled={busy} aria-label={`Owner for ${member.name}`}
+              onChange={(e) => onPatch(account, { owner: e.target.value })}
+              className="mt-0.5 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-1.5 py-1 text-[11px] text-zinc-200 focus:border-blue-500 focus:outline-none">
+              <option value="Andrew">🧔 Andrew</option>
+              <option value="Jameson">🧑 Jameson</option>
+            </select>
+          </div>
+        </div>
+      ) : account ? (
+        <button type="button" onClick={() => onPatch(account, { __create: true })} disabled={busy}
+          className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-[11px] font-semibold text-blue-300 transition-colors hover:bg-blue-500/20 disabled:opacity-50">
+          {busy ? "Adding…" : "＋ Track in Sales OS to edit"}
+        </button>
+      ) : null}
+      <a href={helmClientUrl(HELM_URL, member.id)} target="_blank" rel="noreferrer"
+        className="mt-2 block text-right text-[11px] font-medium text-zinc-600 hover:text-zinc-400">Open in Helm ↗</a>
+    </div>
+  </div>;
 }
 
-function Members({ members }: { members: ClientMember[] }) {
+function EditNumber({ label, value, tone, disabled, onSave }: {
+  label: string; value: number | null; tone: string; disabled: boolean; onSave: (v: number | null) => void;
+}) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wide text-zinc-600">{label}</p>
+      <input defaultValue={value === null ? "" : String(value)} key={`${label}-${value}`} inputMode="decimal"
+        disabled={disabled} placeholder="—" aria-label={label}
+        onBlur={(e) => { const raw = e.target.value.replace(/[^\d.]/g, ""); const next = raw ? Number(raw) : null; if (next !== value) onSave(next); }}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        className={`mt-0.5 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-1.5 py-1 text-[11px] font-semibold tabular-nums focus:border-blue-500 focus:outline-none ${tone}`} />
+    </div>
+  );
+}
+
+function Members({ members, merged, busyKey, onPatch }: {
+  members: ClientMember[];
+  merged: MergedClient[];
+  busyKey: string | null;
+  onPatch: (client: MergedClient, patch: Patch) => void;
+}) {
+  const byHelmId = useMemo(() => new Map(merged.filter((c) => c.helmId).map((c) => [c.helmId as string, c])), [merged]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<MemberFilter>("All active");
   const [sort, setSort] = useState<MemberSort>("urgency");
@@ -121,8 +190,8 @@ function Members({ members }: { members: ClientMember[] }) {
       <label className="sr-only" htmlFor="member-filter">Filter members</label><select id="member-filter" value={filter} onChange={(event) => setFilter(event.target.value as MemberFilter)} className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-200 outline-none focus:border-blue-500">{MEMBER_FILTERS.map((value) => <option key={value}>{value}</option>)}</select>
       <label className="sr-only" htmlFor="member-sort">Sort members</label><select id="member-sort" value={sort} onChange={(event) => setSort(event.target.value as MemberSort)} className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-200 outline-none focus:border-blue-500"><option value="urgency">Most urgent</option><option value="name">Name</option><option value="last-contact">Recent contact</option></select>
     </div>
-    <div className="flex items-center justify-between text-xs text-zinc-500"><span>{rows.length} members</span><span>Read-only, opens Helm to update</span></div>
-    {rows.length === 0 ? <Empty>No members match these filters.</Empty> : <div className="grid gap-3 xl:grid-cols-2">{rows.map((member) => <MemberCard key={member.id} member={member} />)}</div>}
+    <div className="flex items-center justify-between text-xs text-zinc-500"><span>{rows.length} members</span><span>Deal, MRR, status and owner save here</span></div>
+    {rows.length === 0 ? <Empty>No members match these filters.</Empty> : <div className="grid gap-3 xl:grid-cols-2">{rows.map((member) => <MemberCard key={member.id} member={member} account={byHelmId.get(member.id) ?? null} busy={busyKey === (byHelmId.get(member.id)?.key ?? "")} onPatch={onPatch} />)}</div>}
   </div>;
 }
 
@@ -154,6 +223,10 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [accounts, setAccounts] = useState<ClientAccount[]>([]);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [windowDays, setWindowDays] = useState(60);
   const requestId = useRef(0);
   const range = useMemo(() => monthRange(month), [month]);
 
@@ -168,6 +241,88 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
     return () => controller.abort();
   }, [range.from, range.to, refreshKey]);
 
+  const loadAccounts = useCallback(async () => {
+    try {
+      const response = await fetch("/api/clients/accounts", { cache: "no-store" });
+      const payload = await response.json();
+      if (response.ok) setAccounts(payload.accounts ?? []);
+    } catch { /* the Helm view still works without our own rows */ }
+  }, []);
+  useEffect(() => { void Promise.resolve().then(loadAccounts); }, [loadAccounts, refreshKey]);
+
+  // Helm's roster and our own records, as one list. Sales OS owns the fields it
+  // can write; Helm's stay read-only because Helm owns them.
+  const merged = useMemo(
+    () => sortByNewest(mergeClients(data?.members ?? [], accounts)),
+    [data?.members, accounts],
+  );
+  const newest = useMemo(() => recentClients(merged, windowDays), [merged, windowDays]);
+
+  const applyAccount = (account: ClientAccount) =>
+    setAccounts((current) => current.some((a) => a.id === account.id)
+      ? current.map((a) => (a.id === account.id ? account : a))
+      : [account, ...current]);
+
+  /**
+   * Every edit goes to our own table. A Helm member with no record of ours gets
+   * one created on the spot, carrying the id so the two stay linked.
+   */
+  const patchClient = useCallback(async (client: MergedClient, patch: Patch) => {
+    setBusyKey(client.key); setNotice(null);
+    try {
+      const creating = !client.accountId;
+      const body = creating
+        ? {
+            name: client.name, email: client.email, phone: client.phone,
+            program: client.program, start_date: client.startDate,
+            helm_client_id: client.helmId,
+            ...Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "__create")),
+          }
+        : { id: client.accountId, ...patch };
+      const response = await fetch("/api/clients/accounts", {
+        method: creating ? "POST" : "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.account) throw new Error(payload.error ?? "Could not save the change");
+      applyAccount(payload.account as ClientAccount);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "Could not save the change");
+    } finally { setBusyKey(null); }
+  }, []);
+
+  const stepClient = useCallback(async (client: MergedClient, key: OnboardingStepKey, done: boolean, note?: string) => {
+    if (!client.accountId) { await patchClient(client, { __create: true }); return; }
+    setBusyKey(client.key); setNotice(null);
+    try {
+      const response = await fetch("/api/clients/accounts", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: client.accountId, step: { key, done, note } }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.account) throw new Error(payload.error ?? "Could not save that step");
+      applyAccount(payload.account as ClientAccount);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "Could not save that step");
+    } finally { setBusyKey(null); }
+  }, [patchClient]);
+
+  const createClient = useCallback(async (draft: Record<string, unknown>) => {
+    setNotice(null);
+    try {
+      const response = await fetch("/api/clients/accounts", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.account) throw new Error(payload.error ?? "Could not add the client");
+      applyAccount(payload.account as ClientAccount);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "Could not add the client");
+    }
+  }, []);
+
   const changeMonth = (next: Date) => {
     const nextRange = monthRange(next);
     setData(null);
@@ -180,10 +335,34 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
   return <div className="mx-auto max-w-7xl space-y-5">
     <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-400">Client Success</p><h1 className="mt-1 text-3xl font-bold text-white">Clients</h1><p className="mt-1 text-sm text-zinc-500">Performance, members, and calls in one operational view.</p></div><a href={HELM_URL} target="_blank" rel="noreferrer" className="self-start rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-semibold text-zinc-300 hover:border-zinc-500 hover:text-white">Open Helm ↗</a></header>
 
-    <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-200"><strong>Helm is the source of truth.</strong> This workspace is read-only so client records stay synchronized.</div>
+    <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-200">
+      <strong>Helm owns fulfilment; Sales OS owns the deal.</strong> Programme, deal value, MRR, status, owner, notes and the
+      onboarding runbook are edited here. Attendance, portal state and last contact come from Helm and stay read-only there.
+    </div>
+    {notice && <p role="status" className="rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">{notice}</p>}
 
     <section aria-label={`Clients ${view}`}>
-      {loading ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Loading client workspace">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />)}</div> : error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-10 text-center text-sm text-rose-200">{error}</div> : data ? <div className="transition">{view === "Dashboard" ? <Dashboard data={data} /> : view === "Members" ? <Members members={data.members} /> : <Calendar month={month} setMonth={changeMonth} events={data.calendar} />}</div> : <Empty>No client data returned.</Empty>}
+      {view === "New" ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-white">Newest clients</h2>
+              <p className="text-xs text-zinc-500">Everyone who started recently, and the runbook that gets them onboarded.</p>
+            </div>
+            <div className="flex gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1">
+              {[30, 60, 90, 365].map((days) => (
+                <button key={days} type="button" onClick={() => setWindowDays(days)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${windowDays === days ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white"}`}>
+                  {days === 365 ? "1 year" : `${days}d`}
+                </button>
+              ))}
+            </div>
+          </div>
+          <ClientOnboarding clients={newest} loading={loading && accounts.length === 0} busyKey={busyKey}
+            onPatch={patchClient} onCreate={createClient} onStep={stepClient} />
+          {error && <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">Helm is unreachable, so only clients tracked in Sales OS are listed. {error}</p>}
+        </div>
+      ) : loading ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Loading client workspace">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />)}</div> : error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-10 text-center text-sm text-rose-200">{error}</div> : data ? <div className="transition">{view === "Dashboard" ? <Dashboard data={data} /> : view === "Members" ? <Members members={data.members} merged={merged} busyKey={busyKey} onPatch={patchClient} /> : <Calendar month={month} setMonth={changeMonth} events={data.calendar} />}</div> : <Empty>No client data returned.</Empty>}
     </section>
     {data && <p className="text-right text-[11px] text-zinc-700">Updated {formatDate(data.generatedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>}
   </div>;

@@ -35,20 +35,28 @@ const payload = {
   calendar: [],
 };
 
-test("Clients workspace exposes Dashboard, Members, and Calendar as separate sidebar routes", () => {
-  assert.deepEqual(CLIENT_TABS, ["Dashboard", "Members", "Calendar"]);
+test("Clients workspace exposes Dashboard, New, Members and Calendar as separate sidebar routes", () => {
+  assert.deepEqual(CLIENT_TABS, ["Dashboard", "New", "Members", "Calendar"]);
   const workspace = readFileSync(new URL("../app/clients/clients-workspace.tsx", import.meta.url), "utf8");
   const indexPage = readFileSync(new URL("../app/clients/page.tsx", import.meta.url), "utf8");
-  for (const view of ["dashboard", "members", "calendar"]) {
+  for (const view of ["dashboard", "new", "members", "calendar"]) {
     const route = readFileSync(new URL(`../app/clients/${view}/page.tsx`, import.meta.url), "utf8");
     assert.match(route, new RegExp(`view="${view[0].toUpperCase()}${view.slice(1)}"`, "i"));
   }
   assert.match(indexPage, /redirect\("\/clients\/dashboard"\)/);
   assert.doesNotMatch(workspace, /role="tablist"/);
-  assert.match(workspace, /Helm is the source of truth/i);
   assert.match(workspace, /Needs Attention/);
   assert.match(workspace, /Upcoming 7 Days/);
   assert.match(workspace, /AbortController/);
+});
+
+test("the workspace no longer claims to be read-only, and says what each side owns", () => {
+  const workspace = readFileSync(new URL("../app/clients/clients-workspace.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(workspace, /This workspace is read-only/i, "editing lands in our own table now");
+  assert.match(workspace, /Helm owns fulfilment; Sales OS owns the deal/i);
+  // Every write goes to our own endpoint; nothing here writes to Helm.
+  assert.match(workspace, /\/api\/clients\/accounts/);
+  assert.doesNotMatch(workspace, /method: "(POST|PATCH)"[^}]*\/api\/clients\?/);
 });
 
 test("SalesOS proxy rejects malformed or oversized nested Helm payloads", () => {

@@ -173,7 +173,14 @@ export async function GET(req: NextRequest) {
         engagement: perPlatform.reduce((s, x) => s + x.engagement, 0),
       },
     };
-  }).reverse();
+  })
+    // All time spans further back than there is content, which padded the table
+    // with a year of zero rows. Start at the first month that actually has any.
+    .filter((m, i, all) => {
+      const firstWithData = all.findIndex((x) => x.totals.posts > 0);
+      return firstWithData === -1 ? i >= all.length - 6 : i >= firstWithData;
+    })
+    .reverse();
 
   return NextResponse.json({
     range,

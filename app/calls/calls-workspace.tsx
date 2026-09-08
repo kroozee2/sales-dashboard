@@ -513,17 +513,23 @@ function GroupedCallList({ calls, onSelect, onUpdate }: { calls: SalesCall[]; on
   // still ahead of you is a to-do list; the months behind are a record. Mixing
   // them buried tomorrow's call halfway down September.
   const todayKey = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD, local
+  const todays: SalesCall[] = [];
   const upcoming: SalesCall[] = [];
 
   const groups: { key: string; label: string; items: SalesCall[]; total: number }[] = [];
   const byKey = new Map<string, SalesCall[]>();
   for (const c of calls) {
-    if (c.call_date && c.call_date.slice(0, 10) >= todayKey) { upcoming.push(c); continue; }
+    const day = c.call_date?.slice(0, 10);
+    if (day === todayKey) { todays.push(c); continue; }
+    if (day && day > todayKey) { upcoming.push(c); continue; }
     const key = c.call_date ? c.call_date.slice(0, 7) : "no-date";
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key)!.push(c);
   }
-  // Soonest first — the opposite of the archive below, because you work forwards.
+  // Both forward-looking lists run soonest first — today in clock order, and
+  // upcoming by date — the opposite of the archive below, because you work
+  // forwards through what is ahead and backwards through what is done.
+  todays.sort((a, b) => (a.call_date ?? "").localeCompare(b.call_date ?? ""));
   upcoming.sort((a, b) => (a.call_date ?? "").localeCompare(b.call_date ?? ""));
   for (const [key, items] of byKey) {
     const label = key === "no-date"
@@ -554,6 +560,27 @@ function GroupedCallList({ calls, onSelect, onUpdate }: { calls: SalesCall[]; on
         <span className="w-[100px] flex-shrink-0 text-right">Amount</span>
         <span className="w-4 flex-shrink-0" />
       </div>
+      {/* Today first: the only section you can still act on before it passes. */}
+      {todays.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between gap-3 border-y border-emerald-500/40 bg-emerald-500/15 px-4 py-2.5">
+            <span className="text-xs font-bold text-emerald-100">
+              ☀️ Today
+              <span className="ml-2 font-medium text-emerald-300/70">
+                {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+              </span>
+            </span>
+            <span className="text-xs text-emerald-300/70">
+              {todays.length} call{todays.length === 1 ? "" : "s"}
+              {todays[0]?.call_date ? ` · first ${new Date(todays[0].call_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""}
+            </span>
+          </div>
+          <div className="divide-y divide-zinc-800/50">
+            {todays.map((c) => <CallRow key={c.id} call={c} onOpen={() => onSelect(c)} onUpdate={onUpdate} />)}
+          </div>
+        </div>
+      )}
+
       {upcoming.length > 0 && (
         <div>
           <div className="flex items-center justify-between gap-3 border-y border-violet-500/30 bg-violet-500/10 px-4 py-2.5">

@@ -26,7 +26,7 @@ const PLATFORMS: { key: PlatformKey; label: string; emoji: string; unit: string;
   { key: "skool", label: "Skool", emoji: "🎓", unit: "members", handle: null },
 ];
 
-const RANGE_DAYS = { week: 7, month: 30, quarter: 90, year: 365 } as const;
+const RANGE_DAYS = { week: 7, month: 30, quarter: 90, year: 365, all: 36500 } as const;
 type Range = keyof typeof RANGE_DAYS;
 
 async function apify(actor: string, input: unknown): Promise<Record<string, unknown>[]> {
@@ -45,11 +45,37 @@ async function apify(actor: string, input: unknown): Promise<Record<string, unkn
 
 // ── GET: current numbers + the series behind them ───────────────────────────
 export async function GET(req: NextRequest) {
-  const range = (req.nextUrl.searchParams.get("range") ?? "month") as Range;
+  // All time by default: it is the only window with a number for every
+  // platform today, so opening on it shows a full board rather than four dashes.
+  const range = (req.nextUrl.searchParams.get("range") ?? "all") as Range;
   const days = RANGE_DAYS[range] ?? 30;
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 
   const db = createLeadsAdminClient();
+
+  // YouTube reports its own subscriber movement, which is real history the
+  // snapshots cannot reach back to. It covers one stored window (365 days), so
+  // it answers Year and All time and nothing shorter.
+  let youtubeNet: { value: number; gained: number; lost: number; from: string; to: string } | null = null;
+  try {
+    // Stored as a row in posted_content under its own platform key — it is the
+    // analytics blob, not a post, which is why the posts views exclude it.
+    const { data: ownerRows } = await db
+      .from("posted_content").select("raw").eq("platform", "youtube_owner_analytics")
+      .order("posted_at", { ascending: false }).limit(1);
+    const raw = (ownerRows ?? [])[0]?.raw as Record<string, unknown> | undefined;
+    const m = raw?.metrics as Record<string, number> | undefined;
+    if (m && typeof m.subscribersNet === "number") {
+      youtubeNet = {
+        value: m.subscribersNet,
+        gained: m.subscribersGained ?? 0,
+        lost: m.subscribersLost ?? 0,
+        from: String(raw?.startDate ?? ""),
+        to: String(raw?.endDate ?? ""),
+      };
+    }
+  } catch { /* the board still works without it */ }
+
   const { data, error } = await db
     .from(TABLE)
     .select("platform, followers, posts, total_views, captured_on")
@@ -67,8 +93,14 @@ export async function GET(req: NextRequest) {
     const latest = (latestAll ?? []).find((r) => r.platform === p.key) ?? null;
     const first = mine[0] ?? null;
     const last = mine[mine.length - 1] ?? null;
-    const change = first && last && first.followers != null && last.followers != null
+    // Two readings make a change; one is just today's number.
+    const snapshotChange = first && last && first.followers != null && last.followers != null && mine.length > 1
       ? last.followers - first.followers : null;
+    // YouTube's own figure fills the long windows the snapshots cannot yet reach.
+    const useYoutube = p.key === "youtube" && snapshotChange === null && youtubeNet && (range === "all" || range === "year");
+    const change = snapshotChange ?? (useYoutube ? youtubeNet!.value : null);
+    const basis = snapshotChange !== null ? "snapshots" : useYoutube ? "youtube-analytics" : null;
+    const detail = useYoutube ? `+${youtubeNet!.gained} gained · ${youtubeNet!.lost} lost since ${youtubeNet!.from}` : null;
     return {
       ...p,
       followers: latest?.followers ?? null,
@@ -76,6 +108,8 @@ export async function GET(req: NextRequest) {
       total_views: latest?.total_views ?? null,
       captured_on: latest?.captured_on ?? null,
       change,
+      basis,
+      detail,
       // A single point is a reading, not a trend; the UI says so.
       series: mine.map((r) => ({ date: r.captured_on, followers: r.followers })),
     };

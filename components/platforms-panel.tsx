@@ -10,6 +10,8 @@ type Platform = {
   key: string; label: string; emoji: string; unit: string; handle: string | null;
   followers: number | null; posts: number | null; total_views: number | null;
   captured_on: string | null; change: number | null; series: Point[];
+  basis: "snapshots" | "youtube-analytics" | null;
+  detail: string | null;
 };
 type MonthPlatform = {
   platform: string; posts: number; views: number; engagement: number;
@@ -28,10 +30,11 @@ type Data = {
 };
 
 const RANGES = [
-  { key: "week", label: "Week" },
-  { key: "month", label: "Month" },
-  { key: "quarter", label: "Quarter" },
+  { key: "all", label: "All time" },
   { key: "year", label: "Year" },
+  { key: "quarter", label: "Quarter" },
+  { key: "month", label: "Month" },
+  { key: "week", label: "Week" },
 ] as const;
 
 const ACCENT: Record<string, { bar: string; text: string; ring: string }> = {
@@ -72,7 +75,8 @@ function Spark({ series, color }: { series: Point[]; color: string }) {
 }
 
 export function PlatformsPanel() {
-  const [range, setRange] = useState<"week" | "month" | "quarter" | "year">("month");
+  // All time first: the only window with a number for every platform today.
+  const [range, setRange] = useState<"all" | "week" | "month" | "quarter" | "year">("all");
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -107,6 +111,9 @@ export function PlatformsPanel() {
   }
 
   const history = data?.totals.days_of_history ?? 0;
+  // Say which platforms the headline change actually covers, so a number that
+  // only reflects YouTube is never read as the whole audience moving.
+  const measured = (data?.platforms ?? []).filter((p) => p.change != null).map((p) => p.label);
 
   return (
     <div className="space-y-4">
@@ -137,16 +144,16 @@ export function PlatformsPanel() {
             <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">Total audience</p>
             <div className="mt-1 flex flex-wrap items-baseline gap-3">
               <span className="text-4xl font-black tabular-nums text-white">{n(data.totals.audience)}</span>
-              {history > 1 && data.totals.change !== 0 && (
+              {data.totals.change !== 0 && (
                 <span className={cn("text-sm font-bold", data.totals.change > 0 ? "text-emerald-400" : "text-rose-400")}>
-                  {signed(data.totals.change)} this {data.range}
+                  {signed(data.totals.change)} {data.range === "all" ? "all time" : `this ${data.range}`}
                 </span>
               )}
             </div>
             <p className="mt-1 text-[11px] text-zinc-500">
-              {history <= 1
-                ? "Tracking starts today — growth appears here once there are two readings."
-                : `${history} day${history === 1 ? "" : "s"} of history since ${data.totals.tracking_since}`}
+              {measured.length === 0
+                ? "No growth measured for this window yet — daily readings start today."
+                : `Growth measured for ${measured.join(" and ")}. The rest fills in as daily readings accrue.`}
             </p>
           </div>
 
@@ -166,6 +173,16 @@ export function PlatformsPanel() {
                     <>
                       <p className={cn("mt-1 text-3xl font-black tabular-nums", a.text)}>{n(p.followers)}</p>
                       <p className="text-[11px] text-zinc-500">{p.unit}{p.handle ? ` · ${p.handle}` : ""}</p>
+                      {p.change != null ? (
+                        <p className="mt-1.5 text-[11px] text-zinc-400">
+                          <span className={cn("font-bold", p.change > 0 ? "text-emerald-400" : p.change < 0 ? "text-rose-400" : "text-zinc-400")}>
+                            {signed(p.change)}
+                          </span>{" "}
+                          {p.detail ?? (p.basis === "snapshots" ? "from daily readings" : "")}
+                        </p>
+                      ) : (
+                        <p className="mt-1.5 text-[11px] text-zinc-600">No growth figure for this window yet</p>
+                      )}
                       <div className="mt-2"><Spark series={p.series} color={a.bar} /></div>
                       {(p.posts != null || p.total_views != null) && (
                         <p className="mt-1 text-[11px] text-zinc-600">

@@ -527,7 +527,7 @@ function GoalDrawer({ goal, live, liveLoading, onClose, onEdit, onPatch }: {
 
 // ─── Goal Card ──────────────────────────────────────────────────────────────
 
-function GoalCard({ goal, live, onOpen, onPatch, onToggleFeature }: { goal: Goal; live: Record<string, number>; onOpen: () => void; onPatch: (id: string, patch: Partial<Goal>) => Promise<void>; onToggleFeature: (id: string, on: boolean) => void }) {
+function GoalCard({ goal, live, onOpen, onPatch, onToggleFeature, onSetClosed }: { goal: Goal; live: Record<string, number>; onOpen: () => void; onPatch: (id: string, patch: Partial<Goal>) => Promise<void>; onToggleFeature: (id: string, on: boolean) => void; onSetClosed: (id: string, closed: boolean) => void }) {
   const current = currentValue(goal, live);
   const target = goal.target_amount || 0;
   const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
@@ -584,6 +584,11 @@ function GoalCard({ goal, live, onOpen, onPatch, onToggleFeature }: { goal: Goal
       <div className="flex flex-wrap items-center gap-2 mt-3">
         <OwnerSelect value={goal.owner ?? "Andrew"} onChange={(v) => void onPatch(goal.id, { owner: v })} />
         <PaceNote goal={goal} current={current} />
+        <button onClick={() => onSetClosed(goal.id, !goal.archived)}
+          title={goal.archived ? "Put this back in play" : "Close it out — drops off the board, keeps the record"}
+          className="ml-auto flex-shrink-0 rounded-lg border border-zinc-800 px-2 py-1 text-[11px] text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-200">
+          {goal.archived ? "↩ Reopen" : "📦 Close out"}
+        </button>
       </div>
 
       {/* Quick actual editor — shows the real number; type to set it, ± to nudge */}
@@ -783,7 +788,7 @@ function QuickAddGoal({ defaultOwner, onAdd }: { defaultOwner: Owner; onAdd: (g:
 // Rows arrive pre-sorted by urgency. Every field is editable in place, and an
 // automated Actual is read-only on purpose — typing over a number that Stripe
 // is about to overwrite is a lie waiting to happen.
-function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature, onRemove }: {
+function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature, onRemove, onSetClosed }: {
   goals: Goal[];
   live: Record<string, number>;
   onPatch: (id: string, patch: Partial<Goal>) => Promise<void>;
@@ -791,6 +796,7 @@ function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature,
   onOpen: (id: string) => void;
   onToggleFeature: (id: string, on: boolean) => void;
   onRemove: (id: string) => void;
+  onSetClosed: (id: string, closed: boolean) => void;
 }) {
   const cell = "bg-transparent focus:bg-zinc-950 border border-transparent focus:border-blue-500/50 rounded-md px-2 py-1 text-sm focus:outline-none w-full transition-colors";
 
@@ -809,14 +815,14 @@ function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature,
               <th className="min-w-[110px] whitespace-nowrap px-3 py-2 text-right font-semibold">Target</th>
               <th className="min-w-[150px] px-3 py-2 font-semibold">Progress</th>
               <th className="whitespace-nowrap px-3 py-2 font-semibold">Due</th>
-              <th className="w-8 px-2 py-2 font-semibold"></th>
+              <th className="w-16 px-2 py-2 font-semibold"></th>
             </tr>
           </thead>
           <tbody>
             {goals.map((g, i) => (
               <GoalRow key={g.id} goal={g} live={live} zebra={i % 2 === 1} cell={cell}
                 onPatch={onPatch} onSetSource={onSetSource} onOpen={onOpen}
-                onToggleFeature={onToggleFeature} onRemove={onRemove} />
+                onToggleFeature={onToggleFeature} onRemove={onRemove} onSetClosed={onSetClosed} />
             ))}
           </tbody>
         </table>
@@ -825,13 +831,14 @@ function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature,
   );
 }
 
-function GoalRow({ goal, live, zebra, cell, onPatch, onSetSource, onOpen, onToggleFeature, onRemove }: {
+function GoalRow({ goal, live, zebra, cell, onPatch, onSetSource, onOpen, onToggleFeature, onRemove, onSetClosed }: {
   goal: Goal; live: Record<string, number>; zebra: boolean; cell: string;
   onPatch: (id: string, patch: Partial<Goal>) => Promise<void>;
   onSetSource: (g: Goal, source: GoalSource) => void;
   onOpen: (id: string) => void;
   onToggleFeature: (id: string, on: boolean) => void;
   onRemove: (id: string) => void;
+  onSetClosed: (id: string, closed: boolean) => void;
 }) {
   const current = currentValue(goal, live);
   const target = goal.target_amount || 0;
@@ -916,8 +923,15 @@ function GoalRow({ goal, live, zebra, cell, onPatch, onSetSource, onOpen, onTogg
         </div>
       </td>
       <td className="px-2 py-1.5 align-middle">
-        <button onClick={() => onRemove(goal.id)} title="Delete goal"
-          className="text-sm text-zinc-600 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100">✕</button>
+        <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <button onClick={() => onSetClosed(goal.id, !goal.archived)}
+            title={goal.archived ? "Put this back in play" : "Close it out — drops off the board, keeps the record"}
+            className="text-sm text-zinc-600 transition-colors hover:text-emerald-300">
+            {goal.archived ? "↩" : "📦"}
+          </button>
+          <button onClick={() => onRemove(goal.id)} title="Delete goal"
+            className="text-sm text-zinc-600 transition-colors hover:text-rose-400">✕</button>
+        </div>
       </td>
     </tr>
   );
@@ -961,7 +975,7 @@ const TONE: Record<GoalSection<Goal>["tone"], { title: string; pill: string; rul
  * landed, and one bar for the block. It's the thing that makes the board
  * readable at arm's length — you see the month's shape before any single goal.
  */
-function SectionHeader({ section, live }: { section: GoalSection<Goal>; live: Record<string, number> }) {
+function SectionHeader({ section, live, action }: { section: GoalSection<Goal>; live: Record<string, number>; action?: React.ReactNode }) {
   const t = TONE[section.tone];
   const { pct, complete } = sectionProgress(
     section.items,
@@ -974,6 +988,7 @@ function SectionHeader({ section, live }: { section: GoalSection<Goal>; live: Re
         <h2 className={`text-sm font-bold ${t.title}`}>{section.emoji} {section.label}</h2>
         <span className={`rounded-full border px-2 py-0.5 text-[11px] ${t.pill}`}>{section.items.length}</span>
         <div className={`h-px flex-1 ${t.rule}`} />
+        {action}
         <span className="flex-shrink-0 text-[11px] tabular-nums text-zinc-500">
           {complete}/{section.items.length} hit · <span className="font-bold text-zinc-300">{Math.round(pct)}%</span>
         </span>
@@ -996,11 +1011,12 @@ export default function GoalsPage() {
   const [modal, setModal] = useState<"new" | Goal | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showAchieved, setShowAchieved] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
   const [view, setView] = useState<"sheet" | "grid">("sheet");
   const [person] = usePerson();
 
   const loadGoals = useCallback(async () => {
-    const res = await fetch("/api/goals");
+    const res = await fetch("/api/goals?include=closed");
     const data = await res.json();
     setGoals(Array.isArray(data) ? data : []);
     setLoading(false);
@@ -1104,7 +1120,7 @@ export default function GoalsPage() {
 
   // Categories present, for filter chips
   const presentCats = useMemo(() => {
-    const set = new Set(goals.map((g) => g.category));
+    const set = new Set(goals.filter((g) => !g.archived).map((g) => g.category));
     return CATEGORIES.filter((c) => set.has(c.key));
   }, [goals]);
 
@@ -1125,15 +1141,16 @@ export default function GoalsPage() {
 
   // The year's number is the headline, not a row in December. It comes out of
   // the month blocks and sits above them.
-  const annual = useMemo(() => visible.filter((g) => g.period === "annual"), [visible]);
-  const monthly = useMemo(() => visible.filter((g) => g.period !== "annual"), [visible]);
+  const inPlay = useMemo(() => visible.filter((g) => !g.archived), [visible]);
+  const annual = useMemo(() => inPlay.filter((g) => g.period === "annual"), [inPlay]);
+  const monthly = useMemo(() => visible.filter((g) => g.period !== "annual" || g.archived), [visible]);
 
-  const { sections, achievedItems, counts } = useMemo(
+  const { sections, achievedItems, closedItems, counts } = useMemo(
     () => buildGoalBoard(monthly, statusOf, today, in7),
     [monthly, statusOf, today, in7],
   );
 
-  const pinned = useMemo(() => monthly.filter((g) => g.featured), [monthly]);
+  const pinned = useMemo(() => monthly.filter((g) => g.featured && !g.archived), [monthly]);
 
   const openGoal = goals.find((g) => g.id === openId) ?? null;
 
@@ -1145,6 +1162,10 @@ export default function GoalsPage() {
   // Switching a goal to an automated source clears the number that was typed
   // in by hand — otherwise the old figure is silently added to the live one and
   // September reads $28K instead of $17K.
+  const setClosed = useCallback((id: string, closed: boolean) => {
+    void patchGoal(id, { archived: closed });
+  }, [patchGoal]);
+
   const setSource = useCallback((g: Goal, source: GoalSource) => {
     const next = source === "manual" ? null : source;
     const patch: Partial<Goal> = { source: next };
@@ -1155,11 +1176,12 @@ export default function GoalsPage() {
   const renderCards = (items: Goal[]) =>
     view === "sheet" ? (
       <GoalSheet goals={items} live={live} onPatch={patchGoal} onSetSource={setSource}
-        onOpen={setOpenId} onToggleFeature={toggleFeature} onRemove={deleteGoal} />
+        onOpen={setOpenId} onToggleFeature={toggleFeature} onRemove={deleteGoal} onSetClosed={setClosed} />
     ) : (
       <div className="grid gap-3 lg:grid-cols-2">
         {items.map((g) => (
-          <GoalCard key={g.id} goal={g} live={live} onOpen={() => setOpenId(g.id)} onPatch={patchGoal} onToggleFeature={toggleFeature} />
+          <GoalCard key={g.id} goal={g} live={live} onOpen={() => setOpenId(g.id)} onPatch={patchGoal}
+            onToggleFeature={toggleFeature} onSetClosed={setClosed} />
         ))}
       </div>
     );
@@ -1255,12 +1277,24 @@ export default function GoalsPage() {
         </p>
       ) : (
         <div className="space-y-7">
-          {sections.length === 0 && (
+          {sections.length === 0 && counts.achieved > 0 && (
             <p className="py-10 text-center text-zinc-600">🎉 Every goal in play has landed.</p>
+          )}
+          {sections.length === 0 && counts.achieved === 0 && closedItems.length > 0 && (
+            <p className="py-10 text-center text-zinc-600">Nothing in play — everything is closed out below.</p>
           )}
           {sections.map((sec) => (
             <section key={sec.key}>
-              <SectionHeader section={sec} live={live} />
+              <SectionHeader section={sec} live={live}
+                action={sec.key === "missed" ? (
+                  <button
+                    onClick={() => { for (const g of sec.items) setClosed(g.id, true); }}
+                    title="Move every past-due goal into Closed out"
+                    className="flex-shrink-0 rounded-lg border border-zinc-800 px-2 py-0.5 text-[11px] font-semibold text-zinc-400 transition-colors hover:border-zinc-700 hover:text-white"
+                  >
+                    📦 Close out all {sec.items.length}
+                  </button>
+                ) : null} />
               {renderCards(sec.items)}
             </section>
           ))}
@@ -1276,6 +1310,21 @@ export default function GoalsPage() {
                 <div className="h-px flex-1 bg-zinc-800/70" />
               </button>
               {showAchieved && <div className="opacity-75">{renderCards(achievedItems)}</div>}
+            </section>
+          )}
+
+          {/* Closed out — kept, not deleted, and one click from coming back */}
+          {closedItems.length > 0 && (
+            <section>
+              <button onClick={() => setShowClosed((v) => !v)} className="group mb-2.5 flex w-full items-center gap-2.5 text-left">
+                <h2 className="text-sm font-bold text-zinc-500 transition-colors group-hover:text-zinc-300">
+                  {showClosed ? "▾" : "▸"} 📦 Closed out
+                </h2>
+                <span className="rounded-full border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-500">{closedItems.length}</span>
+                <div className="h-px flex-1 bg-zinc-800/70" />
+                <span className="flex-shrink-0 text-[11px] text-zinc-600">not counted anywhere</span>
+              </button>
+              {showClosed && <div className="opacity-60">{renderCards(closedItems)}</div>}
             </section>
           )}
         </div>

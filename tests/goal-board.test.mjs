@@ -86,7 +86,7 @@ test("the board puts past due first, then this week, then months, then ongoing",
   assert.deepEqual(board.sections.map((s) => s.key), ["missed", "week", "m-2026-11", "ongoing"]);
   assert.equal(board.sections[2].label, "November 2026");
   assert.deepEqual(board.achievedItems.map((g) => g.id), ["won"]);
-  assert.deepEqual(board.counts, { behind: 1, week: 1, open: 4, achieved: 1 });
+  assert.deepEqual(board.counts, { behind: 1, week: 1, open: 4, achieved: 1, closed: 0 });
 });
 
 test("achieved goals leave the flow entirely", () => {
@@ -218,4 +218,37 @@ test("a month with no activity is zero, but an unloaded table is not", () => {
   const g = { period: "monthly", target_date: "2026-11-30", source: "stripe_cash" };
   assert.equal(autoValue(g, empty, {}, NOW), null, "nothing loaded yet — don't claim zero");
   assert.equal(autoValue(g, LIVE, {}, NOW), 0, "loaded, and November really is empty");
+});
+
+// ─── Closing a goal out ──────────────────────────────────────────────────────
+
+test("a closed goal leaves Past due without being deleted", () => {
+  const missed = { id: "aug", ...goal({ target_date: "2026-08-31" }) };
+  const board = buildGoalBoard([missed], () => "behind", "2026-09-16", "2026-09-23");
+  assert.deepEqual(board.sections.map((s) => s.key), ["missed"], "open, it sits in Past due");
+
+  const closedBoard = buildGoalBoard([{ ...missed, archived: true }], () => "behind", "2026-09-16", "2026-09-23");
+  assert.deepEqual(closedBoard.sections, [], "closed, it leaves the flow entirely");
+  assert.deepEqual(closedBoard.closedItems.map((g) => g.id), ["aug"], "and is kept, not lost");
+  assert.equal(closedBoard.counts.behind, 0);
+  assert.equal(closedBoard.counts.closed, 1);
+});
+
+test("closing out is not the same as winning", () => {
+  const g = { id: "x", archived: true, ...goal({ target_date: "2026-08-31" }) };
+  const board = buildGoalBoard([g], () => "achieved", "2026-09-16", "2026-09-23");
+  assert.deepEqual(board.achievedItems, [], "a closed goal is never counted as achieved");
+  assert.equal(board.closedItems.length, 1);
+  assert.equal(board.counts.achieved, 0);
+});
+
+test("closed goals do not count towards anything still in play", () => {
+  const goals = [
+    { id: "live", ...goal({ target_date: "2026-09-19" }) },
+    { id: "closed", archived: true, ...goal({ target_date: "2026-09-19" }) },
+  ];
+  const board = buildGoalBoard(goals, () => "behind", "2026-09-16", "2026-09-23");
+  assert.equal(board.counts.open, 1);
+  assert.equal(board.counts.week, 1);
+  assert.equal(board.counts.closed, 1);
 });

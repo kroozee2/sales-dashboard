@@ -84,9 +84,67 @@ export async function GET(req: NextRequest) {
   const audience = platforms.reduce((s, p) => s + (p.followers ?? 0), 0);
   const dates = [...new Set(rows.map((r) => r.captured_on))].sort();
 
+  // Month-by-month, per platform. Follower counts only start when snapshots do,
+  // but what was published and how it did goes back as far as the posts, so the
+  // table has real history from day one instead of waiting on the snapshots.
+  const months = Math.min(24, Math.max(3, Math.round(days / 30)));
+  const monthKeys: string[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i);
+    monthKeys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  const { data: postRows } = await db
+    .from("posted_content")
+    .select("platform, posted_at, views, likes, comments, shares")
+    .not("posted_at", "is", null)
+    .gte("posted_at", `${monthKeys[0]}-01`);
+
+  // Followers at the end of each month, from whatever snapshots exist.
+  const { data: snapRows } = await db
+    .from(TABLE).select("platform, followers, captured_on").order("captured_on", { ascending: true });
+
+  const monthly = monthKeys.map((key) => {
+    const perPlatform = PLATFORMS.map((p) => {
+      const posts = (postRows ?? []).filter(
+        (r) => r.platform === p.key && String(r.posted_at).slice(0, 7) === key,
+      );
+      const views = posts.reduce((s, r) => s + (r.views ?? 0), 0);
+      const engagement = posts.reduce(
+        (s, r) => s + (r.likes ?? 0) + (r.comments ?? 0) + (r.shares ?? 0), 0,
+      );
+      const inMonth = (snapRows ?? []).filter((r) => r.platform === p.key && String(r.captured_on).slice(0, 7) === key);
+      const endFollowers = inMonth.length ? inMonth[inMonth.length - 1].followers : null;
+      const startFollowers = inMonth.length ? inMonth[0].followers : null;
+      return {
+        platform: p.key,
+        posts: posts.length,
+        views,
+        engagement,
+        avg_views: posts.length ? Math.round(views / posts.length) : 0,
+        followers: endFollowers,
+        followers_change: endFollowers != null && startFollowers != null && inMonth.length > 1
+          ? endFollowers - startFollowers : null,
+      };
+    });
+    return {
+      month: key,
+      label: new Date(`${key}-01T12:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+      platforms: perPlatform,
+      totals: {
+        posts: perPlatform.reduce((s, x) => s + x.posts, 0),
+        views: perPlatform.reduce((s, x) => s + x.views, 0),
+        engagement: perPlatform.reduce((s, x) => s + x.engagement, 0),
+      },
+    };
+  }).reverse();
+
   return NextResponse.json({
     range,
     platforms,
+    monthly,
     totals: {
       audience,
       change: platforms.reduce((s, p) => s + (p.change ?? 0), 0),

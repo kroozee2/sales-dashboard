@@ -11,9 +11,18 @@ type Platform = {
   followers: number | null; posts: number | null; total_views: number | null;
   captured_on: string | null; change: number | null; series: Point[];
 };
+type MonthPlatform = {
+  platform: string; posts: number; views: number; engagement: number;
+  avg_views: number; followers: number | null; followers_change: number | null;
+};
+type Month = {
+  month: string; label: string; platforms: MonthPlatform[];
+  totals: { posts: number; views: number; engagement: number };
+};
 type Data = {
   range: string;
   platforms: Platform[];
+  monthly: Month[];
   totals: { audience: number; change: number; tracking_since: string | null; days_of_history: number };
   error?: string;
 };
@@ -199,8 +208,96 @@ export function PlatformsPanel() {
               ))}
             </div>
           </div>
+
+          <MonthlyTable months={data.monthly ?? []} />
         </>
       )}
+    </div>
+  );
+}
+
+
+// Month by month, per platform. Followers fill in as snapshots accrue; posts,
+// views and engagement are real history from the posted content itself.
+function MonthlyTable({ months }: { months: Month[] }) {
+  const [metric, setMetric] = useState<"views" | "posts" | "engagement" | "avg_views">("views");
+  const KEYS = ["instagram", "youtube", "facebook"] as const;
+  const METRICS = [
+    { key: "views", label: "Views" },
+    { key: "posts", label: "Posts" },
+    { key: "engagement", label: "Engagement" },
+    { key: "avg_views", label: "Avg / post" },
+  ] as const;
+
+  const cell = (m: Month, k: string) => {
+    const p = m.platforms.find((x) => x.platform === k);
+    return p ? (p[metric] as number) : 0;
+  };
+  const peak = Math.max(1, ...months.flatMap((m) => KEYS.map((k) => cell(m, k))));
+  const monthTotal = (m: Month) =>
+    metric === "avg_views"
+      ? (m.totals.posts ? Math.round(m.totals.views / m.totals.posts) : 0)
+      : (m.totals[metric as "views" | "posts" | "engagement"] ?? 0);
+
+  if (months.length === 0) return null;
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 p-4">
+        <div>
+          <p className="text-sm font-black text-white">Growth by month</p>
+          <p className="text-[11px] text-zinc-500">Every platform, month by month. Newest first.</p>
+        </div>
+        <div className="flex gap-1 rounded-lg bg-zinc-950 p-0.5">
+          {METRICS.map((m) => (
+            <button key={m.key} onClick={() => setMetric(m.key)}
+              className={cn("rounded-md px-2.5 py-1 text-[11px] font-bold transition-colors",
+                metric === m.key ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-white")}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-sm">
+          <thead>
+            <tr className="border-b border-zinc-800 bg-zinc-950/50 text-[10px] uppercase tracking-wide text-zinc-500">
+              <th className="px-4 py-2 text-left font-bold">Month</th>
+              {KEYS.map((k) => (
+                <th key={k} className="px-3 py-2 text-right font-bold">
+                  <span className={ACCENT[k].text}>{k === "instagram" ? "📸 Instagram" : k === "youtube" ? "▶️ YouTube" : "👍 Facebook"}</span>
+                </th>
+              ))}
+              <th className="px-4 py-2 text-right font-bold text-zinc-300">Total</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/70">
+            {months.map((m) => (
+              <tr key={m.month} className="transition-colors hover:bg-zinc-800/30">
+                <td className="whitespace-nowrap px-4 py-2 font-semibold text-zinc-200">{m.label}</td>
+                {KEYS.map((k) => {
+                  const v = cell(m, k);
+                  return (
+                    <td key={k} className="px-3 py-2 text-right">
+                      <span className={cn("tabular-nums", v ? "text-zinc-200" : "text-zinc-700")}>{n(v)}</span>
+                      {/* A bar in the cell, so a column scans as a shape not a wall of digits. */}
+                      <span className="mt-1 block h-0.5 w-full overflow-hidden rounded-full bg-zinc-800">
+                        <span className={cn("block h-full rounded-full", ACCENT[k].bar)} style={{ width: `${(v / peak) * 100}%` }} />
+                      </span>
+                    </td>
+                  );
+                })}
+                <td className="px-4 py-2 text-right font-bold tabular-nums text-white">{n(monthTotal(m))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="border-t border-zinc-800 px-4 py-2 text-[11px] text-zinc-600">
+        Posts, views and engagement come from what actually published. Follower counts per month
+        begin once there are snapshots to compare — today is the first.
+      </p>
     </div>
   );
 }

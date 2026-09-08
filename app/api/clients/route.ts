@@ -66,6 +66,23 @@ export async function GET(request: Request) {
   ]);
 
   if (!result.ok) {
+    // Helm is the roster's source, but the client calls booked here live in our
+    // own table. A call moved out of the sales lane must still be somewhere, so
+    // serve those rather than an empty page.
+    if (ownCalls.length > 0) {
+      return json({
+        generatedAt: new Date().toISOString(),
+        dashboard: {
+          activeClients: 0, onboarding: 0, atRisk: 0, offTrack: 0, overdueContact: 0,
+          portalActive: 0, portalInvited: 0, upcoming7Days: 0, openSupport: 0, attention: [],
+        },
+        members: [],
+        calendar: ownCalls,
+        degraded: result.status === 503
+          ? "Client data connection is not configured — showing calls booked in Sales OS only."
+          : "Client data is temporarily unavailable — showing calls booked in Sales OS only.",
+      });
+    }
     return result.status === 503
       ? json({ error: "Client data connection is not configured." }, 503)
       : json({ error: "Client data is temporarily unavailable." }, 502);

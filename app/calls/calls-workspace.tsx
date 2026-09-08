@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { callLane, LANE_META, type CallLane } from "@/lib/call-lanes";
+import { pickMutableSalesCallFields } from "@/lib/sales-call-mutation";
 import { useSearchParams } from "next/navigation";
 import type { SalesCall, CallResult, CallType, FollowUpStatus, ProspectQuality } from "@/lib/supabase-calls";
 import type { FathomRecording } from "@/app/api/calls/route";
@@ -1250,13 +1251,14 @@ function DetailPanel({
 }: {
   call: SalesCall;
   onClose: () => void;
-  onSave: (updated: Partial<SalesCall>) => Promise<void>;
+  onSave: (updated: Partial<SalesCall>) => Promise<boolean>;
   onDelete: () => Promise<void>;
 }) {
   const [tab, setTab] = useState<DetailTab>("details");
   const [form, setForm] = useState<Partial<SalesCall>>({ ...call });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Add-to-Leads (Hot Prospect) state
@@ -1661,7 +1663,9 @@ function DetailPanel({
   async function handleSave() {
     setSaving(true);
     try {
-      await onSave(form);
+      const ok = await onSave(form);
+      setSaveError(!ok);
+      if (!ok) return; // keep the baseline stale so the retry re-sends it
       savedFormRef.current = JSON.stringify(form);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -1683,9 +1687,18 @@ function DetailPanel({
     const cur = JSON.stringify(form);
     if (cur === savedFormRef.current) return;
     const t = setTimeout(() => {
-      savedFormRef.current = cur;
       setSaving(true);
-      Promise.resolve(onSave(form)).then(() => { setSaved(true); setTimeout(() => setSaved(false), 1500); }).finally(() => setSaving(false));
+      // Only advance the baseline once the server confirms, so a failed
+      // auto-save is retried on the next edit instead of being forgotten.
+      Promise.resolve(onSave(form))
+        .then((ok) => {
+          setSaveError(!ok);
+          if (!ok) return;
+          savedFormRef.current = cur;
+          setSaved(true);
+          setTimeout(() => setSaved(false), 1500);
+        })
+        .finally(() => setSaving(false));
     }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2722,14 +2735,14 @@ function DetailPanel({
           <button
             onClick={handleSave}
             disabled={saving}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 disabled:opacity-50 transition-colors shadow-lg shadow-violet-500/20"
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-white text-sm font-semibold disabled:opacity-50 transition-colors shadow-lg ${saveError ? "bg-rose-600 hover:bg-rose-500 shadow-rose-500/20" : "bg-violet-600 hover:bg-violet-500 shadow-violet-500/20"}`}
           >
             {saving ? (
               <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
-            ) : saved ? "✓ Saved" : "Save Changes"}
+            ) : saveError ? "⚠ Not saved — retry" : saved ? "✓ Saved" : "Save Changes"}
           </button>
         </div>
       </div>
@@ -3431,30 +3444,47 @@ function CallsPageInner({ lane }: { lane: CallLane }) {
     return true;
   });
 
-  async function handleSave(updated: Partial<SalesCall>) {
-    if (!selected) return;
-    const { id: _id, created_at, updated_at, booked_view_moved_off, booked_view_revision, booked_view_error, ...mutableFields } = updated;
-    void _id; void created_at; void updated_at; void booked_view_moved_off; void booked_view_revision; void booked_view_error;
-    const res = await fetch("/api/sales-calls", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: selected.id, ...mutableFields }),
-    });
-    const data = await res.json();
-    if (data.call) {
+  // The panel edits a copy of the whole row, but a row carries system columns
+  // (calendar_event_id, helm_*) the API rejects outright — sending one back
+  // verbatim used to 400 the entire save while the panel still said "Saved".
+  // Narrow to the mutable fields, and tell the caller if it really landed.
+  async function handleSave(updated: Partial<SalesCall>): Promise<boolean> {
+    if (!selected) return false;
+    const fields = pickMutableSalesCallFields(updated as Record<string, unknown>);
+    if (Object.keys(fields).length === 0) return true;
+    try {
+      const res = await fetch("/api/sales-calls", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selected.id, ...fields }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.call) return false;
       setCalls((prev) => prev.map((c) => (c.id === selected.id ? data.call : c)));
       setSelected(data.call);
+      return true;
+    } catch {
+      return false;
     }
   }
 
   // Inline edit straight from the grid row (optimistic)
   async function handleInlineUpdate(id: string, patch: Partial<SalesCall>) {
+    const before = calls.find((c) => c.id === id);
     setCalls((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-    await fetch("/api/sales-calls", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, ...patch }),
-    });
+    try {
+      const res = await fetch("/api/sales-calls", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...pickMutableSalesCallFields(patch as Record<string, unknown>) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.call) throw new Error("rejected");
+      setCalls((prev) => prev.map((c) => (c.id === id ? data.call : c)));
+    } catch {
+      // Don't leave a change on screen that the server refused.
+      if (before) setCalls((prev) => prev.map((c) => (c.id === id ? before : c)));
+    }
   }
 
   async function handleDelete() {

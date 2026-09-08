@@ -509,15 +509,22 @@ function CallRow({ call, onOpen, onUpdate }: { call: SalesCall; onOpen: () => vo
 }
 
 function GroupedCallList({ calls, onSelect, onUpdate }: { calls: SalesCall[]; onSelect: (c: SalesCall) => void; onUpdate: (id: string, patch: Partial<SalesCall>) => void }) {
-  // Grouped by month, newest month first: September, August, July and back.
-  // A day-per-heading turned a month of work into a wall of two-call groups.
+  // Upcoming sits on its own at the top, then the months below it. What is
+  // still ahead of you is a to-do list; the months behind are a record. Mixing
+  // them buried tomorrow's call halfway down September.
+  const todayKey = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD, local
+  const upcoming: SalesCall[] = [];
+
   const groups: { key: string; label: string; items: SalesCall[]; total: number }[] = [];
   const byKey = new Map<string, SalesCall[]>();
   for (const c of calls) {
+    if (c.call_date && c.call_date.slice(0, 10) >= todayKey) { upcoming.push(c); continue; }
     const key = c.call_date ? c.call_date.slice(0, 7) : "no-date";
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key)!.push(c);
   }
+  // Soonest first — the opposite of the archive below, because you work forwards.
+  upcoming.sort((a, b) => (a.call_date ?? "").localeCompare(b.call_date ?? ""));
   for (const [key, items] of byKey) {
     const label = key === "no-date"
       ? "No date"
@@ -547,6 +554,21 @@ function GroupedCallList({ calls, onSelect, onUpdate }: { calls: SalesCall[]; on
         <span className="w-[100px] flex-shrink-0 text-right">Amount</span>
         <span className="w-4 flex-shrink-0" />
       </div>
+      {upcoming.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between gap-3 border-y border-violet-500/30 bg-violet-500/10 px-4 py-2.5">
+            <span className="text-xs font-bold text-violet-200">🔜 Upcoming Calls</span>
+            <span className="text-xs text-violet-300/70">
+              {upcoming.length} booked
+              {upcoming[0]?.call_date ? ` · next ${new Date(upcoming[0].call_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}` : ""}
+            </span>
+          </div>
+          <div className="divide-y divide-zinc-800/50">
+            {upcoming.map((c) => <CallRow key={c.id} call={c} onOpen={() => onSelect(c)} onUpdate={onUpdate} />)}
+          </div>
+        </div>
+      )}
+
       {groups.map((g) => (
         <div key={g.key}>
           <div className="flex items-center justify-between px-4 py-2 bg-zinc-800/40 border-y border-zinc-800/60">

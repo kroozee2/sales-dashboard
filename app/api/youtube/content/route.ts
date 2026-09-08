@@ -5,7 +5,7 @@ import { readBoundedRequestBody } from "@/lib/messaging";
 
 export const runtime = "nodejs";
 const MAX_BODY_BYTES = 16_000;
-const ALLOWED_FIELDS = new Set(["id", "expectedUpdatedAt", "title", "format", "targetDate", "stage", "viewer", "promise", "primaryKeyword", "openingHook", "mediaUrl"]);
+const ALLOWED_FIELDS = new Set(["id", "expectedUpdatedAt", "title", "format", "targetDate", "stage", "viewer", "promise", "primaryKeyword", "openingHook", "mediaUrl", "shootAt"]);
 
 async function readBoundedJson(req: NextRequest): Promise<Record<string, unknown>> {
   const declared = Number(req.headers.get("content-length") ?? "0");
@@ -87,6 +87,15 @@ export async function PATCH(req: NextRequest) {
       : body.mediaUrl === ""
         ? []
         : (() => { const url = safeHttpUrl(body.mediaUrl); if (!url) throw new SyntaxError("mediaUrl must be an HTTP or HTTPS URL"); return [url]; })();
+    // When you'll stand in front of the camera, which is not the same as the
+    // day it goes out — scheduled_date is the publish target.
+    let shootAt = typeof meta.shoot_at === "string" ? meta.shoot_at : null;
+    if (Object.hasOwn(body, "shootAt")) {
+      if (body.shootAt === null || body.shootAt === "") shootAt = null;
+      else if (typeof body.shootAt === "string" && Number.isFinite(Date.parse(body.shootAt))) shootAt = body.shootAt;
+      else throw new SyntaxError("shootAt must be a date-time or null");
+    }
+
     const update = {
       title: clean.title,
       status: clean.status,
@@ -94,7 +103,7 @@ export async function PATCH(req: NextRequest) {
       platforms: clean.platforms,
       creative_type: clean.creative_type,
       media_urls: mediaUrls,
-      meta: { ...meta, ...clean.meta },
+      meta: { ...meta, ...clean.meta, shoot_at: shootAt },
       updated_at: new Date().toISOString(),
     };
     const { data, error } = await db

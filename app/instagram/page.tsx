@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { InstagramPerformanceSpreadsheet } from "@/components/instagram-performance-grid";
 import type { InstagramPostedContent } from "@/lib/instagram-performance";
 
-type Tab = "ideas" | "performance" | "calendar" | "model";
+type Tab = "ideas" | "performance" | "calendar" | "model" | "content" | "hooks" | "themes";
 const INSTAGRAM_SYNC_KEY = "instagram-sync-runs";
 
 function hasPendingInstagramSync(): boolean {
@@ -643,6 +643,9 @@ export default function InstagramPage() {
             { key: "calendar", label: "📅 Calendar" },
             { key: "performance", label: "📊 Performance" },
             { key: "model", label: "🎯 Model" },
+            { key: "content", label: "🎬 Content Model" },
+            { key: "hooks", label: "🪝 Hooks" },
+            { key: "themes", label: "🧭 Themes" },
           ].map((t) => (
             <button
               key={t.key}
@@ -1019,7 +1022,9 @@ export default function InstagramPage() {
       )}
 
       {/* 🎯 MODEL — who we model, which posts, hooks and angles */}
-      {tab === "model" && <InstagramModel />}
+      {(tab === "model" || tab === "content" || tab === "hooks" || tab === "themes") && (
+        <InstagramModel view={tab} />
+      )}
 
     </div>
   );

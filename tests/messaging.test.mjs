@@ -84,7 +84,7 @@ test("request bodies are rejected while streaming as soon as they exceed the byt
   await assert.rejects(() => readBoundedRequestBody(request, 8), /too large/i);
 });
 
-test("Messaging is a first-class one-page Vault tab with editable saved sections", () => {
+test("Messaging is a first-class one-page Offers tab with editable saved sections", () => {
   const root = new URL("..", import.meta.url);
   const pagePath = new URL("../app/messaging/page.tsx", import.meta.url);
   const routePath = new URL("../app/api/messaging/route.ts", import.meta.url);
@@ -95,7 +95,7 @@ test("Messaging is a first-class one-page Vault tab with editable saved sections
   const page = readFileSync(pagePath, "utf8");
   const route = readFileSync(routePath, "utf8");
 
-  assert.match(sidebar, /href: "\/messaging", label: "Messaging"[^\n]+section: "Vault"/);
+  assert.match(sidebar, /href: "\/messaging", label: "Messaging"[^\n]+section: "Offers"/);
   assert.match(page, /\/api\/messaging/);
   assert.match(page, /Save changes/);
   assert.match(page, /textarea/);

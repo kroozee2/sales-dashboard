@@ -11,6 +11,9 @@ import { cn } from "@/lib/utils";
 // is the one that lights up when the URL carries no tab (or an unlisted one).
 type NavItem = { href: string; label: string; emoji: string; match?: string[]; section?: string; tab?: string; tabDefault?: boolean };
 
+// The order sections render in: the work first, then the reference material.
+const SECTIONS = ["Command", "AI Workforce", "Marketing", "Leads", "Sales", "Clients", "Partners", "Finances", "Offers", "Team"];
+
 const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Dashboard", emoji: "🏠", section: "Command" },
   { href: "/morning-brief", label: "Brief", emoji: "☀️", section: "Command" },
@@ -65,12 +68,12 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/jarvis?tab=core", label: "Core Agents", emoji: "🧠", tab: "core", section: "AI Workforce" },
   { href: "/jarvis?tab=subagent", label: "Sub-agents", emoji: "🛠️", tab: "subagent", section: "AI Workforce" },
 
-  { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Backend" },
-  { href: "/team", label: "Team", emoji: "👥", section: "Backend" },
+  { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Offers" },
+  { href: "/messaging", label: "Messaging", emoji: "🧠", section: "Offers" },
 
-  { href: "/messaging", label: "Messaging", emoji: "🧠", section: "Vault" },
-  { href: "/playbook", label: "Playbook", emoji: "📋", section: "Vault" },
-  { href: "/resources", label: "Resources", emoji: "🎁", match: ["/two-step"], section: "Vault" },
+  { href: "/team", label: "Team", emoji: "👥", section: "Team" },
+  { href: "/playbook", label: "Playbook", emoji: "📋", section: "Team" },
+  { href: "/resources", label: "Resources", emoji: "🎁", match: ["/two-step"], section: "Team" },
   { href: "/install", label: "Install App", emoji: "📲" },
 ];
 
@@ -145,7 +148,7 @@ function Brand() {
 }
 
 function NavList({ pathname, activeTab, onNavigate }: { pathname: string; activeTab: string | null; onNavigate?: () => void }) {
-  const sections = ["Command", "AI Workforce", "Marketing", "Leads", "Sales", "Clients", "Partners", "Finances", "Backend", "Vault"];
+  const sections = SECTIONS;
   // Every section starts open — derived from the list so adding a section here
   // can't silently leave it collapsed.
   const [expanded, setExpanded] = useState<Record<string, boolean>>(
@@ -162,21 +165,31 @@ function NavList({ pathname, activeTab, onNavigate }: { pathname: string; active
         const items = NAV_ITEMS.filter((n) => n.section === section);
         if (items.length === 0) return null;
         const isExpanded = expanded[section];
+        const sectionId = section.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         const hasActiveChild = items.some((n) => isActive(n, pathname, activeTab));
 
         return (
           <div key={section} className="space-y-0.5">
             <button
               onClick={() => toggleSection(section)}
-              className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-600 hover:text-zinc-400 transition-colors"
+              aria-expanded={isExpanded}
+              aria-controls={`sidebar-section-${sectionId}`}
+              className="min-h-11 w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold uppercase tracking-[0.15em] text-zinc-600 hover:text-zinc-400 transition-colors"
             >
               <span>{section}</span>
-              <span className={cn("transition-transform duration-200", isExpanded ? "rotate-180" : "")}>
+              <span aria-hidden="true" className={cn("transition-transform duration-200", isExpanded ? "rotate-180" : "")}>
                 ▼
               </span>
             </button>
 
-            <div className={cn("space-y-0.5 overflow-hidden transition-all duration-200", isExpanded ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0")}>
+            {/* grid-rows animates to the content's own height. The fixed
+                max-height this replaces silently clipped any section that grew
+                past it, and Leads is already ten items deep. */}
+            <div
+              id={`sidebar-section-${sectionId}`}
+              className={cn("grid transition-all duration-200", isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}
+            >
+              <div className="space-y-0.5 overflow-hidden">
               {items.map((n) => {
                 const active = isActive(n, pathname, activeTab);
                 return (
@@ -195,6 +208,7 @@ function NavList({ pathname, activeTab, onNavigate }: { pathname: string; active
                   </Link>
                 );
               })}
+              </div>
             </div>
 
             {!isExpanded && hasActiveChild && (

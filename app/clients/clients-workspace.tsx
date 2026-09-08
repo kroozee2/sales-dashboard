@@ -1,28 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ClientOnboarding, { type Patch } from "@/components/client-onboarding";
+import ClientOnboarding, { RunbookDrawer, type Patch } from "@/components/client-onboarding";
+import ClientMembers from "@/components/client-members";
+import { HEALTH_META, needsAttention, rosterCounts, statusToHealth } from "@/lib/client-roster";
 import {
-  CLIENT_STATUSES, mergeClients, recentClients, sortByNewest,
+  mergeClients, recentClients, sortByNewest,
   type ClientAccount, type MergedClient, type OnboardingStepKey,
 } from "@/lib/client-accounts";
 import {
   bucketCalendarEvents,
   calendarDays,
-  contactAgeDays,
-  filterAndSortMembers,
   helmClientUrl,
   localDate,
   monthRange,
   type CalendarFilter,
-  type ClientMember,
   type ClientsPayload,
   type ClientTab,
-  type MemberFilter,
-  type MemberSort,
 } from "@/lib/clients";
 
-const MEMBER_FILTERS: MemberFilter[] = ["All active", "Onboarding", "At Risk", "Off-Track", "Off-boarded"];
 const CALENDAR_FILTERS: CalendarFilter[] = ["All", "1:1", "Group"];
 const HELM_URL = process.env.NEXT_PUBLIC_HELM_URL || "https://helm-iota-five.vercel.app";
 
@@ -57,7 +53,44 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-900/30 px-5 py-10 text-center text-sm text-zinc-500">{children}</div>;
 }
 
-function Dashboard({ data }: { data: ClientsPayload }) {
+/** One bar per health bucket, the way Helm's Dashboards reads the roster. */
+function HealthBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between text-xs">
+        <span className="flex items-center gap-1.5 text-zinc-300">
+          <span className="h-2 w-2 rounded-full" style={{ background: color }} aria-hidden />{label}
+        </span>
+        <span className="tabular-nums text-zinc-500"><span className="font-bold text-white">{value}</span> · {pct}%</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+        <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A KPI with the number it is supposed to hit, so a figure means something
+ * without you remembering the target. Helm's fulfilment tiles work this way.
+ */
+function KpiTile({ icon, label, value, target, good, sub }: {
+  icon: string; label: string; value: string; target: string; good: boolean; sub?: string;
+}) {
+  return (
+    <div className={`rounded-2xl border p-4 ${good ? "border-emerald-500/25 bg-emerald-500/[0.05]" : "border-amber-500/25 bg-amber-500/[0.05]"}`}>
+      <p className="text-xs font-semibold text-zinc-400">{icon} {label}</p>
+      <p className={`mt-1.5 text-2xl font-bold tabular-nums ${good ? "text-emerald-300" : "text-amber-300"}`}>{value}</p>
+      <p className="mt-0.5 text-[10px] text-zinc-600">Target {target}{sub ? ` · ${sub}` : ""}</p>
+    </div>
+  );
+}
+
+function Dashboard({ data, clients, onOpen }: { data: ClientsPayload; clients: MergedClient[]; onOpen: (client: MergedClient) => void }) {
+  // The payload carries when it was built; use that rather than reading the
+  // clock during render, so the numbers agree with the rest of the page.
+  const asOf = useMemo(() => new Date(data.generatedAt), [data.generatedAt]);
   const d = data.dashboard;
   const adoption = d.activeClients > 0 ? Math.round((d.portalActive / d.activeClients) * 100) : 0;
   const now = Date.parse(data.generatedAt);
@@ -71,7 +104,70 @@ function Dashboard({ data }: { data: ClientsPayload }) {
     return event.callDate >= today && event.callDate <= nextWeek;
   }).slice(0, 8);
 
+  const counts = rosterCounts(clients, asOf);
+  const live = clients.filter((c) => statusToHealth(c.status) !== "idle");
+  const attention = clients.filter((c) => needsAttention(c, asOf));
+  const contacted14 = live.filter((c) => {
+    const at = c.helm?.lastContactAt;
+    return at ? (asOf.getTime() - Date.parse(at)) / 86400000 <= 14 : false;
+  }).length;
+  const contactPct = live.length ? Math.round((contacted14 / live.length) * 100) : 0;
+  const riskPct = live.length ? Math.round(((counts.risk + counts.offtrack) / live.length) * 100) : 0;
+  const withCalls = live.filter((c) => (c.helm?.callsAttended ?? 0) > 0).length;
+  const attendPct = live.length ? Math.round((withCalls / live.length) * 100) : 0;
+  const recurring = clients.reduce((sum, c) => sum + (c.mrr ?? 0), 0);
+
   return <div className="space-y-5">
+    {/* The three fulfilment numbers, each against the number it should hit */}
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <KpiTile icon="🤝" label="Contacted ≤ 14d" value={`${contactPct}%`} target="> 85%" good={contactPct >= 85}
+        sub={`${contacted14} of ${live.length}`} />
+      <KpiTile icon="👥" label="Attending calls" value={`${attendPct}%`} target="> 60%" good={attendPct >= 60}
+        sub={`${withCalls} of ${live.length}`} />
+      <KpiTile icon="🚊" label="At Risk / Off-Track" value={`${riskPct}%`} target="< 25%" good={riskPct < 25}
+        sub={`${counts.risk + counts.offtrack} clients`} />
+      <KpiTile icon="🔁" label="Client MRR" value={recurring >= 1000 ? `$${Math.round(recurring / 1000)}k` : `$${recurring}`}
+        target="tracked here" good sub={`${clients.filter((c) => c.mrr).length} on a plan`} />
+    </div>
+
+    <div className="grid gap-5 xl:grid-cols-[1fr_1.2fr]">
+      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 sm:p-5">
+        <h2 className="font-semibold text-white">Roster health</h2>
+        <p className="mb-4 text-xs text-zinc-500">{live.length} active clients</p>
+        <div className="space-y-3">
+          <HealthBar label="At Risk" value={counts.risk} max={live.length} color={HEALTH_META.risk.dot} />
+          <HealthBar label="Off-Track" value={counts.offtrack} max={live.length} color={HEALTH_META.watch.dot} />
+          <HealthBar label="On Track" value={counts.ontrack} max={live.length} color={HEALTH_META.good.dot} />
+          <HealthBar label="Onboarding" value={counts.onboarding} max={live.length} color="#60a5fa" />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 sm:p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div><h2 className="font-semibold text-white">Needs you now</h2><p className="text-xs text-zinc-500">At risk, off-track, or a fortnight of silence</p></div>
+          <span className="rounded-full bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-300">{attention.length}</span>
+        </div>
+        {attention.length === 0 ? <Empty>All clear. Nobody is at risk, off-track or overdue a conversation.</Empty> : (
+          <div className="space-y-2">
+            {attention.slice(0, 8).map((client) => (
+              <button key={client.key} type="button" onClick={() => onOpen(client)}
+                className="block w-full rounded-xl border border-zinc-800 bg-zinc-950/60 p-3 text-left transition hover:border-zinc-600">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-white">{client.name}</p>
+                    <p className="truncate text-xs text-zinc-500">{client.program || "No program"}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${HEALTH_META[statusToHealth(client.status)].chip}`}>
+                    {client.status || "No status"}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard label="Active clients" value={d.activeClients} detail={`${d.onboarding} onboarding`} />
       <StatCard label="Needs attention" value={d.atRisk + d.offTrack} detail={`${d.atRisk} at risk · ${d.offTrack} off-track`} tone={d.atRisk + d.offTrack ? "text-rose-300" : "text-emerald-300"} />
@@ -98,100 +194,6 @@ function Dashboard({ data }: { data: ClientsPayload }) {
         {upcoming.length === 0 ? <Empty>No calendar items returned for the next seven days.</Empty> : <div className="space-y-2">{upcoming.map((event) => <div key={event.id} className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-white">{event.title}</p>{event.clientName && <p className="text-xs text-zinc-500">{event.clientName}</p>}</div><span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] text-blue-300">{event.isGroup ? "Group" : "1:1"}</span></div><p className="mt-2 text-xs text-zinc-400">{formatDate(`${event.callDate}T12:00:00`, { weekday: "short", month: "short", day: "numeric" })}{eventTime(event.startsAt) ? ` · ${eventTime(event.startsAt)}` : ""}</p></div>)}</div>}
       </section>
     </div>
-  </div>;
-}
-
-function MemberCard({ member, account, busy, onPatch }: {
-  member: ClientMember;
-  account: MergedClient | null;
-  busy: boolean;
-  onPatch: (client: MergedClient, patch: Patch) => void;
-}) {
-  const age = contactAgeDays(member);
-  const initials = member.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-  const status = account?.status ?? member.status;
-
-  return <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 transition hover:border-zinc-700">
-    <div className="flex items-start gap-3">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-xs font-bold text-white">{initials}</div>
-      <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><p className="truncate font-semibold text-white">{member.name}</p><span className={`rounded-full border px-2 py-0.5 text-[11px] ${statusTone(status)}`}>{status || "No status"}</span></div><p className="truncate text-xs text-zinc-500">{account?.program || member.membership || "Program not recorded"}{member.phase ? ` · ${member.phase}` : ""}</p></div>
-    </div>
-    <div className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><p className="text-zinc-600">Last contact</p><p className="mt-0.5 text-zinc-300">{age === null ? "No contact recorded" : age === 0 ? "Today" : `${age}d ago`}</p></div><div><p className="text-zinc-600">Portal</p><p className="mt-0.5 capitalize text-zinc-300">{member.portalStatus.replace("_", " ")}</p></div><div><p className="text-zinc-600">Attendance</p><p className="mt-0.5 text-zinc-300">{member.callsAttended} calls</p></div><div><p className="text-zinc-600">Last call</p><p className="mt-0.5 text-zinc-300">{formatDate(member.lastCallAt, { month: "short", day: "numeric" })}</p></div></div>
-    {member.aiNextAction && <p className="mt-3 rounded-lg bg-blue-500/10 px-3 py-2 text-xs text-blue-200">Next: {member.aiNextAction}</p>}
-
-    {/* Ours to edit. Helm's four numbers above stay where they belong. */}
-    <div className="mt-3 border-t border-zinc-800 pt-3">
-      {account?.editable ? (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <EditNumber label="Deal" value={account.dealValue} tone="text-emerald-300" disabled={busy}
-            onSave={(v) => onPatch(account, { deal_value: v })} />
-          <EditNumber label="MRR" value={account.mrr} tone="text-blue-300" disabled={busy}
-            onSave={(v) => onPatch(account, { mrr: v })} />
-          <div>
-            <p className="text-[10px] uppercase tracking-wide text-zinc-600">Status</p>
-            <select value={CLIENT_STATUSES.includes(account.status as never) ? account.status as string : "Onboarding"} disabled={busy}
-              aria-label={`Status for ${member.name}`}
-              onChange={(e) => onPatch(account, { status: e.target.value })}
-              className="mt-0.5 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-1.5 py-1 text-[11px] text-zinc-200 focus:border-blue-500 focus:outline-none">
-              {CLIENT_STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-wide text-zinc-600">Who</p>
-            <select value={account.owner} disabled={busy} aria-label={`Owner for ${member.name}`}
-              onChange={(e) => onPatch(account, { owner: e.target.value })}
-              className="mt-0.5 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-1.5 py-1 text-[11px] text-zinc-200 focus:border-blue-500 focus:outline-none">
-              <option value="Andrew">🧔 Andrew</option>
-              <option value="Jameson">🧑 Jameson</option>
-            </select>
-          </div>
-        </div>
-      ) : account ? (
-        <button type="button" onClick={() => onPatch(account, { __create: true })} disabled={busy}
-          className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-[11px] font-semibold text-blue-300 transition-colors hover:bg-blue-500/20 disabled:opacity-50">
-          {busy ? "Adding…" : "＋ Track in Sales OS to edit"}
-        </button>
-      ) : null}
-      <a href={helmClientUrl(HELM_URL, member.id)} target="_blank" rel="noreferrer"
-        className="mt-2 block text-right text-[11px] font-medium text-zinc-600 hover:text-zinc-400">Open in Helm ↗</a>
-    </div>
-  </div>;
-}
-
-function EditNumber({ label, value, tone, disabled, onSave }: {
-  label: string; value: number | null; tone: string; disabled: boolean; onSave: (v: number | null) => void;
-}) {
-  return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wide text-zinc-600">{label}</p>
-      <input defaultValue={value === null ? "" : String(value)} key={`${label}-${value}`} inputMode="decimal"
-        disabled={disabled} placeholder="—" aria-label={label}
-        onBlur={(e) => { const raw = e.target.value.replace(/[^\d.]/g, ""); const next = raw ? Number(raw) : null; if (next !== value) onSave(next); }}
-        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-        className={`mt-0.5 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-1.5 py-1 text-[11px] font-semibold tabular-nums focus:border-blue-500 focus:outline-none ${tone}`} />
-    </div>
-  );
-}
-
-function Members({ members, merged, busyKey, onPatch }: {
-  members: ClientMember[];
-  merged: MergedClient[];
-  busyKey: string | null;
-  onPatch: (client: MergedClient, patch: Patch) => void;
-}) {
-  const byHelmId = useMemo(() => new Map(merged.filter((c) => c.helmId).map((c) => [c.helmId as string, c])), [merged]);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<MemberFilter>("All active");
-  const [sort, setSort] = useState<MemberSort>("urgency");
-  const rows = useMemo(() => filterAndSortMembers([...members], filter, sort, query), [members, filter, sort, query]);
-  return <div className="space-y-4">
-    <div className="grid gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-4 lg:grid-cols-[1fr_auto_auto]">
-      <label className="sr-only" htmlFor="member-search">Search members</label><input id="member-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, email, program, or status" className="min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-blue-500" />
-      <label className="sr-only" htmlFor="member-filter">Filter members</label><select id="member-filter" value={filter} onChange={(event) => setFilter(event.target.value as MemberFilter)} className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-200 outline-none focus:border-blue-500">{MEMBER_FILTERS.map((value) => <option key={value}>{value}</option>)}</select>
-      <label className="sr-only" htmlFor="member-sort">Sort members</label><select id="member-sort" value={sort} onChange={(event) => setSort(event.target.value as MemberSort)} className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-200 outline-none focus:border-blue-500"><option value="urgency">Most urgent</option><option value="name">Name</option><option value="last-contact">Recent contact</option></select>
-    </div>
-    <div className="flex items-center justify-between text-xs text-zinc-500"><span>{rows.length} members</span><span>Deal, MRR, status and owner save here</span></div>
-    {rows.length === 0 ? <Empty>No members match these filters.</Empty> : <div className="grid gap-3 xl:grid-cols-2">{rows.map((member) => <MemberCard key={member.id} member={member} account={byHelmId.get(member.id) ?? null} busy={busyKey === (byHelmId.get(member.id)?.key ?? "")} onPatch={onPatch} />)}</div>}
   </div>;
 }
 
@@ -227,6 +229,7 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState(60);
+  const [openClient, setOpenClient] = useState<MergedClient | null>(null);
   const requestId = useRef(0);
   const range = useMemo(() => monthRange(month), [month]);
 
@@ -362,8 +365,17 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
             onPatch={patchClient} onCreate={createClient} onStep={stepClient} />
           {error && <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">Helm is unreachable, so only clients tracked in Sales OS are listed. {error}</p>}
         </div>
-      ) : loading ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Loading client workspace">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />)}</div> : error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-10 text-center text-sm text-rose-200">{error}</div> : data ? <div className="transition">{view === "Dashboard" ? <Dashboard data={data} /> : view === "Members" ? <Members members={data.members} merged={merged} busyKey={busyKey} onPatch={patchClient} /> : <Calendar month={month} setMonth={changeMonth} events={data.calendar} />}</div> : <Empty>No client data returned.</Empty>}
+      ) : loading ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Loading client workspace">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />)}</div> : error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-10 text-center text-sm text-rose-200">{error}</div> : data ? <div className="transition">{view === "Dashboard" ? <Dashboard data={data} clients={merged} onOpen={setOpenClient} /> : view === "Members" ? <ClientMembers clients={merged} busyKey={busyKey} onPatch={patchClient} onOpen={setOpenClient} helmUrl={HELM_URL} /> : <Calendar month={month} setMonth={changeMonth} events={data.calendar} />}</div> : <Empty>No client data returned.</Empty>}
     </section>
+    {openClient && (
+      <RunbookDrawer
+        client={merged.find((c) => c.key === openClient.key) ?? openClient}
+        busy={busyKey === openClient.key}
+        onClose={() => setOpenClient(null)}
+        onStep={stepClient}
+        onPatch={patchClient}
+      />
+    )}
     {data && <p className="text-right text-[11px] text-zinc-700">Updated {formatDate(data.generatedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>}
   </div>;
 }

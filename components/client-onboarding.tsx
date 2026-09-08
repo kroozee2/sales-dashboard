@@ -291,7 +291,7 @@ function Row({ client, zebra, busy, onPatch, onStep, onOpen }: {
   );
 }
 
-function RunbookDrawer({ client, busy, onClose, onStep, onPatch }: {
+export function RunbookDrawer({ client, busy, onClose, onStep, onPatch }: {
   client: MergedClient; busy: boolean; onClose: () => void;
   onStep: (client: MergedClient, key: OnboardingStepKey, done: boolean, note?: string) => void;
   onPatch: (client: MergedClient, patch: Patch) => void;

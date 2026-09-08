@@ -3346,6 +3346,7 @@ function CallsPageInner({ lane }: { lane: CallLane }) {
   const mainTab: "calls" | "calendar" | "data" =
     urlTab === "data" || urlTab === "calls" || urlTab === "calendar" ? urlTab : "calendar";
   const [selected, setSelected] = useState<SalesCall | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange>("mtd");
   const [customStart, setCustomStart] = useState("");
@@ -3449,12 +3450,26 @@ function CallsPageInner({ lane }: { lane: CallLane }) {
 
   // Inline edit straight from the grid row (optimistic)
   async function handleInlineUpdate(id: string, patch: Partial<SalesCall>) {
+    setSaveError(null);
+    const before = calls.find((c) => c.id === id);
     setCalls((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-    await fetch("/api/sales-calls", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, ...patch }),
-    });
+    // The optimistic edit above used to stand even when the save failed, so a
+    // rejected change looked exactly like a successful one. Put the row back
+    // and say so instead.
+    try {
+      const res = await fetch("/api/sales-calls", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...patch }),
+      });
+      const json = (await res.json().catch(() => null)) as { call?: SalesCall; error?: string } | null;
+      if (!res.ok || json?.error) throw new Error(json?.error ?? `Save failed (${res.status})`);
+      // Trust the server's copy, so a field it normalised or ignored shows true.
+      if (json?.call) setCalls((prev) => prev.map((c) => (c.id === id ? { ...c, ...json.call } : c)));
+    } catch (e) {
+      if (before) setCalls((prev) => prev.map((c) => (c.id === id ? before : c)));
+      setSaveError(e instanceof Error ? e.message : "Could not save that change");
+    }
   }
 
   async function handleDelete() {
@@ -3613,7 +3628,14 @@ function CallsPageInner({ lane }: { lane: CallLane }) {
                     <p className="text-sm">Click &ldquo;Add Call&rdquo; to get started</p>
                   </div>
                 ) : (
-                  <GroupedCallList calls={filteredCalls} onSelect={setSelected} onUpdate={handleInlineUpdate} />
+                  <>
+                    {saveError && (
+                      <p role="alert" className="mb-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-200">
+                        {saveError} — the row was put back to what the server has.
+                      </p>
+                    )}
+                    <GroupedCallList calls={filteredCalls} onSelect={setSelected} onUpdate={handleInlineUpdate} />
+                  </>
                 )}
               </>
             )}

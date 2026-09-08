@@ -46,6 +46,7 @@ const NAV_ITEMS: NavItem[] = [
 
   { href: "/clients/dashboard", label: "Dashboard", emoji: "📊", section: "Clients" },
   { href: "/clients/members", label: "Members", emoji: "👥", section: "Clients" },
+  { href: "/client-calls", label: "Client Calls", emoji: "🧑‍💼", section: "Clients" },
   { href: "/clients/calendar", label: "Calendar", emoji: "📅", section: "Clients" },
   { href: "/revenue", label: "Finances", emoji: "💰", section: "Clients" },
 

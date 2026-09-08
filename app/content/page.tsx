@@ -1,6 +1,7 @@
 "use client";
 
 import { PostedTab } from "@/components/posted-table";
+import { MarketingDashboard } from "@/components/marketing-dashboard";
 
 import { Suspense, useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -2429,7 +2430,10 @@ function ContentWorkspace() {
       <div>
         <div className="min-w-0">
           {tab === "dashboard" && (
-            <DashboardTab items={items} ideas={ideas} proof={proof} stories={stories} events={events} posted={posted} onGo={selectTab} />
+            <MarketingDashboard
+              overview={<DashboardTab items={items} ideas={ideas} proof={proof} stories={stories} events={events} posted={posted} onGo={selectTab} />}
+              posted={posted}
+            />
           )}
           {tab === "calendar" && (
             <div className="space-y-8">

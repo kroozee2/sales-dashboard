@@ -1,0 +1,206 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
+
+// Marketing → Platforms. How big the audience is, and which way it is moving.
+
+type Point = { date: string; followers: number | null };
+type Platform = {
+  key: string; label: string; emoji: string; unit: string; handle: string | null;
+  followers: number | null; posts: number | null; total_views: number | null;
+  captured_on: string | null; change: number | null; series: Point[];
+};
+type Data = {
+  range: string;
+  platforms: Platform[];
+  totals: { audience: number; change: number; tracking_since: string | null; days_of_history: number };
+  error?: string;
+};
+
+const RANGES = [
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
+  { key: "quarter", label: "Quarter" },
+  { key: "year", label: "Year" },
+] as const;
+
+const ACCENT: Record<string, { bar: string; text: string; ring: string }> = {
+  instagram: { bar: "bg-pink-500", text: "text-pink-300", ring: "border-pink-500/30" },
+  youtube: { bar: "bg-red-500", text: "text-red-300", ring: "border-red-500/30" },
+  facebook: { bar: "bg-blue-500", text: "text-blue-300", ring: "border-blue-500/30" },
+  skool: { bar: "bg-amber-500", text: "text-amber-300", ring: "border-amber-500/30" },
+};
+
+const n = (v: number | null | undefined) => (v == null ? "—" : new Intl.NumberFormat("en-US").format(v));
+const signed = (v: number | null) => (v == null ? null : `${v > 0 ? "+" : ""}${new Intl.NumberFormat("en-US").format(v)}`);
+
+// A line through the stored points. One point is a dot, not a line — drawing a
+// flat line through a single reading would imply a trend that isn't measured.
+function Spark({ series, color }: { series: Point[]; color: string }) {
+  const pts = series.filter((p) => p.followers != null) as { date: string; followers: number }[];
+  if (pts.length === 0) return <div className="h-10" />;
+  if (pts.length === 1) {
+    return (
+      <div className="flex h-10 items-center gap-2">
+        <span className={cn("h-1.5 w-1.5 rounded-full", color)} />
+        <span className="text-[10px] text-zinc-600">first reading — the line starts here</span>
+      </div>
+    );
+  }
+  const vals = pts.map((p) => p.followers);
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+  const d = pts.map((p, i) => {
+    const x = (i / (pts.length - 1)) * 100;
+    const y = 100 - ((p.followers - lo) / span) * 100;
+    return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-10 w-full" aria-hidden="true">
+      <path d={d} fill="none" stroke="currentColor" strokeWidth="3" vectorEffect="non-scaling-stroke" className={color.replace("bg-", "text-")} />
+    </svg>
+  );
+}
+
+export function PlatformsPanel() {
+  const [range, setRange] = useState<"week" | "month" | "quarter" | "year">("month");
+  const [data, setData] = useState<Data | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (r: string) => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch(`/api/marketing/platforms?range=${r}`, { cache: "no-store" });
+      const json = (await res.json()) as Data;
+      if (json.error) throw new Error(json.error);
+      setData(json);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load platforms");
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(range); }, [range, load]);
+
+  async function capture() {
+    setSyncing(true); setNote(null);
+    try {
+      const res = await fetch("/api/marketing/platforms", { method: "POST" });
+      const j = (await res.json()) as { captured?: number; failures?: { platform: string; reason: string }[]; error?: string };
+      if (j.error) throw new Error(j.error);
+      const failed = (j.failures ?? []).map((f) => f.platform).join(", ");
+      setNote(`Captured ${j.captured} platform${j.captured === 1 ? "" : "s"}${failed ? ` · could not read ${failed}` : ""}`);
+      await load(range);
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Capture failed");
+    } finally { setSyncing(false); }
+  }
+
+  const history = data?.totals.days_of_history ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1 rounded-xl bg-zinc-900 p-1">
+          {RANGES.map((r) => (
+            <button key={r.key} onClick={() => setRange(r.key)}
+              className={cn("rounded-lg px-4 py-1.5 text-xs font-bold transition-colors",
+                range === r.key ? "bg-blue-600 text-white" : "text-zinc-400 hover:text-white")}>
+              {r.label}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => void capture()} disabled={syncing}
+          className="rounded-xl border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-300 hover:border-zinc-500 hover:text-white disabled:opacity-50">
+          {syncing ? "Reading platforms…" : "↻ Capture today"}
+        </button>
+      </div>
+
+      {note && <p role="status" className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-300">{note}</p>}
+      {error && <p role="alert" className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-200">{error}</p>}
+
+      {loading && !data ? (
+        <p className="animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60 py-16 text-center text-sm text-zinc-500">Reading your audience…</p>
+      ) : data && (
+        <>
+          <div className="rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-950 p-5">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">Total audience</p>
+            <div className="mt-1 flex flex-wrap items-baseline gap-3">
+              <span className="text-4xl font-black tabular-nums text-white">{n(data.totals.audience)}</span>
+              {history > 1 && data.totals.change !== 0 && (
+                <span className={cn("text-sm font-bold", data.totals.change > 0 ? "text-emerald-400" : "text-rose-400")}>
+                  {signed(data.totals.change)} this {data.range}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              {history <= 1
+                ? "Tracking starts today — growth appears here once there are two readings."
+                : `${history} day${history === 1 ? "" : "s"} of history since ${data.totals.tracking_since}`}
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {data.platforms.map((p) => {
+              const a = ACCENT[p.key] ?? ACCENT.skool;
+              const connected = p.followers != null;
+              return (
+                <div key={p.key} className={cn("rounded-2xl border bg-zinc-900/60 p-4", connected ? a.ring : "border-dashed border-zinc-800")}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-black text-white">{p.emoji} {p.label}</span>
+                    {p.change != null && p.change !== 0 && (
+                      <span className={cn("text-xs font-bold", p.change > 0 ? "text-emerald-400" : "text-rose-400")}>{signed(p.change)}</span>
+                    )}
+                  </div>
+                  {connected ? (
+                    <>
+                      <p className={cn("mt-1 text-3xl font-black tabular-nums", a.text)}>{n(p.followers)}</p>
+                      <p className="text-[11px] text-zinc-500">{p.unit}{p.handle ? ` · ${p.handle}` : ""}</p>
+                      <div className="mt-2"><Spark series={p.series} color={a.bar} /></div>
+                      {(p.posts != null || p.total_views != null) && (
+                        <p className="mt-1 text-[11px] text-zinc-600">
+                          {p.posts != null ? `${n(p.posts)} posts` : ""}
+                          {p.posts != null && p.total_views != null ? " · " : ""}
+                          {p.total_views != null ? `${n(p.total_views)} views` : ""}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="mt-1 text-2xl font-black text-zinc-700">—</p>
+                      <p className="text-[11px] text-zinc-500">{p.unit}</p>
+                      <p className="mt-2 text-[11px] leading-relaxed text-amber-300/70">
+                        Not connected. The public group URL returns 404, so member count can&apos;t be read yet.
+                      </p>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+            <p className="text-sm font-black text-white">Share of audience</p>
+            <p className="mb-3 text-[11px] text-zinc-500">Where the {n(data.totals.audience)} people actually are.</p>
+            <div className="flex h-3 overflow-hidden rounded-full bg-zinc-800">
+              {data.platforms.filter((p) => p.followers).map((p) => (
+                <div key={p.key} className={cn("h-full", (ACCENT[p.key] ?? ACCENT.skool).bar)}
+                  style={{ width: `${((p.followers ?? 0) / (data.totals.audience || 1)) * 100}%` }}
+                  title={`${p.label}: ${n(p.followers)}`} />
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+              {data.platforms.filter((p) => p.followers).map((p) => (
+                <span key={p.key} className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+                  <span className={cn("h-2 w-2 rounded-sm", (ACCENT[p.key] ?? ACCENT.skool).bar)} />
+                  {p.label} {Math.round(((p.followers ?? 0) / (data.totals.audience || 1)) * 100)}%
+                </span>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

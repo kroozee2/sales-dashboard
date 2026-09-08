@@ -6,10 +6,14 @@ import { PostedTab, type Posted } from "@/components/posted-table";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import GraphicsStudio from "@/components/graphics-studio";
 import YouTubeContentPlanner from "@/components/youtube-content-planner";
+import YouTubePipeline, { type CreateItem, type PatchInput } from "@/components/youtube-pipeline";
+import YouTubeResearch from "@/components/youtube-research";
 import YouTubePerformanceTable from "@/components/youtube-performance-table";
 import { aggregateYouTubeDashboard, sortYouTubeVideos, type YouTubeVideo } from "@/lib/youtube";
 
-type Tab = "dashboard" | "long-form" | "shorts" | "create";
+import type { YouTubeFormat } from "@/lib/youtube";
+
+type Tab = "create" | "research" | "dashboard" | "long-form" | "shorts";
 type AnalyticsResponse = {
   account: { id: string; name: string; handle: string; url: string };
   dateRange: { start: string; end: string; label: string };
@@ -25,10 +29,11 @@ type AnalyticsResponse = {
 type PlannerItem = Parameters<typeof YouTubeContentPlanner>[0]["items"][number];
 
 const TABS: Array<{ key: Tab; label: string; icon: string }> = [
+  { key: "create", label: "Create", icon: "✍️" },
+  { key: "research", label: "Research", icon: "🔍" },
   { key: "dashboard", label: "Dashboard", icon: "📊" },
   { key: "long-form", label: "Long-form", icon: "🎥" },
   { key: "shorts", label: "Shorts", icon: "⚡" },
-  { key: "create", label: "Create", icon: "✍️" },
 ];
 
 export default function YouTubePage() {
@@ -40,7 +45,7 @@ export default function YouTubePage() {
   }, []);
   useEffect(() => { void loadPosted(); }, [loadPosted]);
 
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>("create");
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -99,6 +104,50 @@ export default function YouTubePage() {
     finally { setSyncing(false); }
   }
 
+  const [createView, setCreateView] = useState<"board" | "sheet">("board");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [createMessage, setCreateMessage] = useState<string | null>(null);
+  const [openPackageId, setOpenPackageId] = useState<string | null>(null);
+
+  const upsert = (item: PlannerItem) =>
+    setItems((current) => current.some((c) => c.id === item.id) ? current.map((c) => c.id === item.id ? item : c) : [item, ...current]);
+
+  async function patchItem(id: string, patch: PatchInput) {
+    const current = items.find((item) => item.id === id);
+    if (!current?.updated_at) { setCreateMessage("This item has no revision token. Refresh before saving."); return; }
+    setBusyId(id); setCreateMessage(null);
+    try {
+      const response = await fetch("/api/youtube/content", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, expectedUpdatedAt: current.updated_at, ...patch }) });
+      const data = await response.json();
+      if (!response.ok || !data.item) throw new Error(data.error ?? "Could not save the change");
+      upsert(data.item as PlannerItem);
+    } catch (error) { setCreateMessage(error instanceof Error ? error.message : "Could not save the change"); }
+    finally { setBusyId(null); }
+  }
+
+  async function generateFor(id: string) {
+    const current = items.find((item) => item.id === id);
+    if (!current?.updated_at) { setCreateMessage("This item has no revision token. Refresh before generating."); return; }
+    setBusyId(id); setCreateMessage("Writing the hook, run of show, script, SEO and thumbnail brief…");
+    try {
+      const response = await fetch("/api/youtube/generate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, expectedUpdatedAt: current.updated_at }) });
+      const data = await response.json();
+      if (!response.ok || !data.item) throw new Error(data.error ?? "Could not write the script");
+      upsert(data.item as PlannerItem); setOpenPackageId(id); setCreateMessage("Script and package ready.");
+    } catch (error) { setCreateMessage(error instanceof Error ? error.message : "Could not write the script"); }
+    finally { setBusyId(null); }
+  }
+
+  async function createIdea(title: string, format: YouTubeFormat) {
+    setCreateMessage(null);
+    try {
+      const response = await fetch("/api/youtube/content", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title, format }) });
+      const data = await response.json();
+      if (!response.ok || !data.item) throw new Error(data.error ?? "Could not add the idea");
+      upsert(data.item as PlannerItem);
+    } catch (error) { setCreateMessage(error instanceof Error ? error.message : "Could not add the idea"); }
+  }
+
   const videos = analytics?.videos ?? [];
   return (
     <main className="min-h-screen bg-zinc-950 px-4 pb-24 pt-5 text-white sm:px-6 lg:px-8">
@@ -127,7 +176,91 @@ export default function YouTubePage() {
         )}
         {tab === "long-form" && <YouTubePerformanceTable videos={videos} format="long_form" loading={analyticsLoading} error={analyticsError} />}
         {tab === "shorts" && <YouTubePerformanceTable videos={videos} format="short" loading={analyticsLoading} error={analyticsError} />}
-        {tab === "create" && <div className="space-y-10"><YouTubeContentPlanner items={items} loading={contentLoading} error={contentError} onCreated={(item) => setItems((current) => [item, ...current])} onUpdated={(item) => setItems((current) => current.map((candidate) => candidate.id === item.id ? item : candidate))} /><section className="border-t border-zinc-800 pt-8"><div className="mb-5"><p className="text-[10px] font-black uppercase tracking-[0.22em] text-red-400">1280 × 720</p><h2 className="mt-1 text-xl font-black text-white">YouTube Thumbnail Studio</h2><p className="mt-1 text-xs text-zinc-500">Generate phone-readable thumbnails with your face, a style reference, and automatic Graphics Library saving.</p></div><GraphicsStudio /></section></div>}
+        {tab === "create" && (
+          <div className="space-y-8">
+            <section className="space-y-4">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-red-400">Idea to camera</p>
+                  <h2 className="mt-1 text-xl font-black text-white">Create</h2>
+                  <p className="mt-1 max-w-2xl text-xs leading-relaxed text-zinc-500">
+                    Four things turn an idea into something you can film: the angle, the script, the thumbnail, and a time in the
+                    calendar. Every card shows which of those are done and which one is next.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1">
+                  {([["board", "🎬 Board"], ["sheet", "▦ Sheet"]] as const).map(([key, label]) => (
+                    <button key={key} type="button" onClick={() => setCreateView(key)}
+                      className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${createView === key ? "bg-red-600 text-white" : "text-zinc-400 hover:text-white"}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {createMessage && <p role="status" className="rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300">{createMessage}</p>}
+
+              {createView === "board" ? (
+                <YouTubePipeline
+                  items={items as CreateItem[]}
+                  loading={contentLoading}
+                  error={contentError}
+                  busyId={busyId}
+                  onPatch={(id, patch) => void patchItem(id, patch)}
+                  onGenerate={(id) => void generateFor(id)}
+                  onCreate={(title, format) => void createIdea(title, format)}
+                  onOpenPackage={setOpenPackageId}
+                />
+              ) : (
+                <YouTubeContentPlanner
+                  items={items}
+                  loading={contentLoading}
+                  error={contentError}
+                  onCreated={(item) => setItems((current) => [item, ...current])}
+                  onUpdated={(item) => setItems((current) => current.map((candidate) => candidate.id === item.id ? item : candidate))}
+                />
+              )}
+            </section>
+
+            {openPackageId && (() => {
+              const item = items.find((candidate) => candidate.id === openPackageId);
+              const pkg = item?.meta?.youtube_package as Record<string, unknown> | undefined;
+              if (!item || !pkg) return null;
+              return (
+                <section className="rounded-2xl border border-red-500/25 bg-red-500/[0.04] p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-red-400">Record-ready package</p>
+                      <h3 className="mt-1 text-lg font-black text-white">{String(pkg.recommendedTitle ?? item.title)}</h3>
+                    </div>
+                    <button type="button" onClick={() => setOpenPackageId(null)} className="text-xs text-zinc-500 hover:text-white">Close</button>
+                  </div>
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    <PackageBlock title="Opening hook" value={pkg.openingHook} />
+                    <PackageBlock title="Thumbnail" value={`${String(pkg.thumbnailText ?? "")}\n${String(pkg.thumbnailBrief ?? "")}`} />
+                    <PackageBlock title="Framework" value={pkg.framework} />
+                    <PackageBlock title="SEO description" value={pkg.seoDescription} />
+                  </div>
+                  <details className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                    <summary className="cursor-pointer text-xs font-bold text-white">Full spoken script and directions</summary>
+                    <pre className="mt-3 whitespace-pre-wrap font-sans text-xs leading-relaxed text-zinc-300">{item.video_script}</pre>
+                  </details>
+                </section>
+              );
+            })()}
+
+            <section className="border-t border-zinc-800 pt-8">
+              <div className="mb-5">
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-red-400">1280 × 720</p>
+                <h2 className="mt-1 text-xl font-black text-white">Thumbnail Studio</h2>
+                <p className="mt-1 text-xs text-zinc-500">Generate a phone-readable thumbnail, then paste its URL onto the card above to tick that step.</p>
+              </div>
+              <GraphicsStudio />
+            </section>
+          </div>
+        )}
+
+        {tab === "research" && <YouTubeResearch onModelled={() => void loadContent()} />}
       </div>
     </main>
   );
@@ -156,6 +289,10 @@ function Dashboard({ analytics, videos, loading, error }: { analytics: Analytics
     <div className="grid gap-4 lg:grid-cols-2"><TopCard title="Top long-form" video={topLong} /><TopCard title="Top Short" video={topShort} /></div>
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5"><p className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Data trust</p><p className="mt-2 text-sm font-bold text-white">{analytics?.dateRange.label ?? "Past 365 days"}</p><p className="mt-1 text-xs leading-relaxed text-zinc-500">{analytics?.provenance.scope}. {analytics?.provenance.note}</p></div>
   </div>;
+}
+
+function PackageBlock({ title, value }: { title: string; value: unknown }) {
+  return <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4"><p className="text-[10px] font-black uppercase tracking-widest text-zinc-600">{title}</p><p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">{typeof value === "string" ? value : "Unavailable"}</p></div>;
 }
 
 function Kpi({ label, value, detail, privateMetric = false }: { label: string; value: string; detail?: string; privateMetric?: boolean }) { return <div className={`rounded-2xl border p-4 ${privateMetric ? "border-zinc-800 bg-zinc-900/30" : "border-zinc-800 bg-zinc-900/70"}`}><p className="text-[10px] font-black uppercase tracking-widest text-zinc-600">{label}</p><p className={`mt-2 text-2xl font-black ${privateMetric ? "text-zinc-600" : "text-white"}`}>{value}</p><p className="mt-1 text-[10px] text-zinc-600">{detail ?? "Authenticated Studio metric unavailable"}</p></div>; }

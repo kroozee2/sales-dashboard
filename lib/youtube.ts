@@ -287,3 +287,102 @@ export function sanitizeYouTubeIdea(input: YouTubeIdeaInput) {
     },
   };
 }
+
+// ─── Create pipeline ─────────────────────────────────────────────────────────
+// What has to be true before a video can be shot, and where each idea sits on
+// the way there. Kept beside the stage list so the two can't drift apart.
+
+export type PipelineStep = "angle" | "script" | "thumbnail" | "shoot";
+
+export interface PipelineItem {
+  id: string;
+  title: string;
+  scheduled_date: string | null;
+  media_urls: string[];
+  video_script: string | null;
+  meta: Record<string, unknown>;
+}
+
+/**
+ * The four things that turn an idea into something you can film. Deliberately
+ * derived from the record rather than ticked by hand: a checklist you maintain
+ * separately from the work is a checklist that lies.
+ */
+export function readiness(item: PipelineItem) {
+  const meta = item.meta ?? {};
+  const str = (key: string) => (typeof meta[key] === "string" ? (meta[key] as string).trim() : "");
+  return {
+    angle: Boolean(str("target_viewer") && str("promise")),
+    script: Boolean(item.video_script?.trim() || meta.youtube_package),
+    thumbnail: (item.media_urls ?? []).length > 0,
+    shoot: Boolean(typeof meta.shoot_at === "string" && meta.shoot_at),
+  } satisfies Record<PipelineStep, boolean>;
+}
+
+export const PIPELINE_STEPS: { key: PipelineStep; label: string; emoji: string; hint: string }[] = [
+  { key: "angle", label: "Angle", emoji: "💡", hint: "Who it's for and what they get" },
+  { key: "script", label: "Script", emoji: "📝", hint: "Hook, run of show and spoken script" },
+  { key: "thumbnail", label: "Thumbnail", emoji: "🎨", hint: "The image that earns the click" },
+  { key: "shoot", label: "Shoot booked", emoji: "🎬", hint: "A time in the calendar to film it" },
+];
+
+/** How far along, 0..1 — the number behind each card's bar. */
+export function readinessScore(item: PipelineItem): number {
+  const state = readiness(item);
+  const done = PIPELINE_STEPS.filter((step) => state[step.key]).length;
+  return done / PIPELINE_STEPS.length;
+}
+
+/** The next thing to do, or null when it's ready to film. */
+export function nextStep(item: PipelineItem): PipelineStep | null {
+  const state = readiness(item);
+  return PIPELINE_STEPS.find((step) => !state[step.key])?.key ?? null;
+}
+
+/** The six stored stages, grouped into the five a person actually thinks in. */
+export const PIPELINE_LANES: { key: string; label: string; emoji: string; stages: YouTubeStage[]; tone: string }[] = [
+  { key: "ideas", label: "Ideas", emoji: "💡", stages: ["idea"], tone: "amber" },
+  { key: "scripting", label: "Scripting", emoji: "📝", stages: ["planning"], tone: "blue" },
+  { key: "shoot", label: "Ready to shoot", emoji: "🎬", stages: ["recording"], tone: "red" },
+  { key: "editing", label: "Editing", emoji: "✂️", stages: ["editing"], tone: "violet" },
+  { key: "publish", label: "Ready to publish", emoji: "✅", stages: ["ready"], tone: "emerald" },
+];
+
+export function stageOf(item: PipelineItem): YouTubeStage {
+  const stage = item.meta?.video_stage;
+  return YOUTUBE_STAGES.includes(stage as YouTubeStage) ? (stage as YouTubeStage) : "idea";
+}
+
+export interface PipelineLane<T> { key: string; label: string; emoji: string; tone: string; items: T[] }
+
+/**
+ * Split the pipeline into lanes, most-ready first inside each one.
+ *
+ * Published work leaves the board the way finished projects do — it is a
+ * record, not a queue.
+ */
+export function buildPipeline<T extends PipelineItem>(items: T[]) {
+  const published = items.filter((item) => stageOf(item) === "published");
+  const live = items.filter((item) => stageOf(item) !== "published");
+
+  const lanes: PipelineLane<T>[] = PIPELINE_LANES.map((lane) => ({
+    key: lane.key,
+    label: lane.label,
+    emoji: lane.emoji,
+    tone: lane.tone,
+    items: live
+      .filter((item) => lane.stages.includes(stageOf(item)))
+      .sort((a, b) => {
+        const ready = readinessScore(b) - readinessScore(a);
+        if (ready !== 0) return ready;
+        return String(a.scheduled_date ?? "9999").localeCompare(String(b.scheduled_date ?? "9999"));
+      }),
+  }));
+
+  // Anything with a time in the calendar, soonest first — the shoot list.
+  const booked = live
+    .filter((item) => typeof item.meta?.shoot_at === "string" && item.meta.shoot_at)
+    .sort((a, b) => String(a.meta.shoot_at).localeCompare(String(b.meta.shoot_at)));
+
+  return { lanes, published, booked, liveCount: live.length };
+}

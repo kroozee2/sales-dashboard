@@ -10,6 +10,20 @@ const BOOLEAN_FIELDS = new Set(["success", "showed", "offer_made"]);
 const NUMBER_FIELDS = new Set(["cc_upfront", "deal_amount", "new_revenue", "follow_up_count", "monthly_revenue"]);
 const ENUM_FIELDS: Record<string, Set<string>> = { result: RESULTS, call_type: CALL_TYPES, prospect_quality: QUALITIES, follow_up_status: FOLLOW_UP_STATUSES };
 const MUTABLE_FIELDS = new Set([...STRING_FIELDS, ...BOOLEAN_FIELDS, ...NUMBER_FIELDS, ...Object.keys(ENUM_FIELDS), "objections"]);
+
+/**
+ * The only fields a client may send. A sales_calls row also carries system
+ * columns (calendar_event_id, helm_*, timestamps); posting one back verbatim
+ * is rejected as an unknown field, so callers must narrow to this set first.
+ */
+export const SALES_CALL_MUTABLE_FIELDS: ReadonlySet<string> = MUTABLE_FIELDS;
+
+/** Keep only what the API will accept, so one system column can't sink a save. */
+export function pickMutableSalesCallFields<T extends Record<string, unknown>>(input: T): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) if (MUTABLE_FIELDS.has(key)) out[key] = value;
+  return out as Partial<T>;
+}
 const NON_NULLABLE_FIELDS = new Set(["name", "objections", "offer_made"]);
 const URL_FIELDS = new Set(["ghl_url", "recording_url"]);
 

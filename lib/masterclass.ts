@@ -28,9 +28,47 @@ export type Buyer = {
   id: string;
   name: string | null;
   email: string | null;
+  phone: string | null;
+  phone_source: "stripe" | "ghl" | null;
   purchased_at: string;
   amount: number;
+  /** null = we could not check (no number, or the group was unreadable). */
+  in_whatsapp_group: boolean | null;
 };
+
+/**
+ * Digits only, in the form WhatsApp uses for a JID (country code first, no +).
+ *
+ * Two real shapes have to survive this:
+ *  - Stripe gives "3106937627" (US, no country code) or "+33650124394".
+ *  - GHL holds numbers like "+100491726930545" for German buyers — a Zapier
+ *    import glued "+1" onto "0049…". Dropping that "1" and reading "00" as the
+ *    international prefix recovers the real +49 number. Left as-is it matches
+ *    nobody, which would read as "did not join" for someone who did.
+ */
+export function normalizePhone(raw: string | null | undefined, defaultCountry = "1"): string | null {
+  if (!raw) return null;
+  let digits = raw.replace(/[^\d]/g, "");
+  if (!digits) return null;
+
+  // The GHL import bug: a US "1" in front of an international "00" prefix.
+  if (digits.startsWith("100")) digits = digits.slice(1);
+  // "00" is the international dialling prefix; the JID never carries it.
+  if (digits.startsWith("00")) digits = digits.slice(2);
+
+  // A bare 10-digit number is domestic, so it needs its country code.
+  if (digits.length === 10) digits = defaultCountry + digits;
+  // Nothing shorter than 8 digits is a reachable number.
+  return digits.length >= 8 && digits.length <= 15 ? digits : null;
+}
+
+/** The last 9 digits, which is what actually distinguishes two people. Used to
+ *  compare a stored number against a WhatsApp id when the country code on one
+ *  side is missing or wrong. */
+export function phoneKey(normalized: string | null): string | null {
+  if (!normalized) return null;
+  return normalized.length >= 9 ? normalized.slice(-9) : normalized;
+}
 
 /**
  * A charge counts as a purchase when it succeeded, was not refunded, and is not
@@ -60,8 +98,11 @@ export function toBuyers(charges: StripeCharge[]): Buyer[] {
       id: charge.id,
       name: (charge.billing_details?.name ?? "").trim() || null,
       email,
+      phone: null,
+      phone_source: null,
       purchased_at: new Date(charge.created * 1000).toISOString(),
       amount: charge.amount,
+      in_whatsapp_group: null,
     };
     const existing = byPerson.get(key);
     // Keep the earliest purchase: that is when they actually joined.

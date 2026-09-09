@@ -159,6 +159,7 @@ test("identity secret collision coverage matches the independent credential inve
     "SKOOL_ADMIN_SECRET",
     "STRIPE_SECRET_KEY",
     "SUPABASE_CALLS_SERVICE_KEY",
+    "UNIPILE_API_KEY",
   ].sort();
   assert.deepEqual([...IDENTITY_SECRET_CONFLICT_ENV_NAMES].sort(), expected);
 

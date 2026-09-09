@@ -1,7 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_CALLS_URL!;
-const key = process.env.NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY!;
+
+/**
+ * Server-side reader for the calls database, on the service key.
+ *
+ * RLS was switched on for sales_calls with no policies attached, so the anon
+ * key now sees zero rows there and every caller silently read an empty table.
+ * This module is imported only by route handlers, never by a client component,
+ * so the service key does not reach a browser.
+ */
+const key = process.env.SUPABASE_CALLS_SERVICE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY!;
 
 export const callsDb = createClient(url, key);
 

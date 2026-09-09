@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// A route handler writes as the server. The anon key is published by design,
+// so an endpoint that inserts, updates and deletes must not be holding one.
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_CALLS_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY!
+  process.env.SUPABASE_CALLS_SERVICE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY!
 );
 
 // GET — fetch all manual payments

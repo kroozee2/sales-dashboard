@@ -13,6 +13,22 @@ export interface Funnel {
   thumbnail_url: string | null;
   notes: string | null;
   sort_order: number;
+  cta: string | null;
+  followup_text: boolean;
+  followup_email: boolean;
+  optin_count: number | null;
+  optin_source: string | null;
+  optin_counted_at: string | null;
+}
+
+/** How long ago the opt-in number was taken, so it never looks fresher than it is. */
+function countedAgo(at: string | null): string {
+  if (!at) return "";
+  const days = Math.round((Date.now() - Date.parse(at)) / 86_400_000);
+  if (!Number.isFinite(days)) return "";
+  if (days <= 0) return "counted today";
+  if (days === 1) return "counted yesterday";
+  return `counted ${days} days ago`;
 }
 
 // What a funnel is FOR — drives the colour language across all three views.
@@ -41,14 +57,17 @@ function host(url: string | null): string {
 
 export function FunnelsBoard() {
   const [funnels, setFunnels] = useState<Funnel[] | null>(null);
-  const [view, setView] = useState<"grid" | "sheet" | "gallery">("grid");
+  const [view, setView] = useState<"grid" | "sheet" | "gallery">("sheet");
   const [copied, setCopied] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const d = await (await fetch("/api/funnels")).json();
-    setFunnels(Array.isArray(d) ? d : []);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/funnels", { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data: unknown) => { if (!controller.signal.aborted) setFunnels(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!controller.signal.aborted) setFunnels([]); });
+    return () => controller.abort();
   }, []);
-  useEffect(() => { void load(); }, [load]);
 
   const patch = useCallback(async (id: string, updates: Partial<Funnel>) => {
     setFunnels((prev) => prev?.map((f) => (f.id === id ? { ...f, ...updates } : f)) ?? prev);
@@ -77,7 +96,7 @@ export function FunnelsBoard() {
     <div>
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
         <p className="text-zinc-500 text-sm">
-          Every funnel and page you send people to. Grab a link in one tap.
+          Every funnel and page you send people to: what it is for, what it asks, how many have opted in, and what happens next. Grab a link in one tap.
         </p>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
@@ -167,7 +186,7 @@ function FunnelSheet({ funnels, onPatch, onRemove, onCopy, copied }: {
   return (
     <div className="border border-zinc-800 rounded-2xl overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse min-w-[900px]">
+        <table className="w-full border-collapse min-w-[1250px]">
           <thead>
             <tr className="bg-zinc-900/80 border-b border-zinc-800 text-left text-[11px] uppercase tracking-wide text-zinc-400">
               <th className="px-2 py-2 font-semibold w-10"></th>
@@ -175,7 +194,11 @@ function FunnelSheet({ funnels, onPatch, onRemove, onCopy, copied }: {
               <th className="px-3 py-2 font-semibold whitespace-nowrap">Type</th>
               <th className="px-3 py-2 font-semibold whitespace-nowrap">Status</th>
               <th className="px-3 py-2 font-semibold">Link</th>
+              <th className="px-3 py-2 font-semibold whitespace-nowrap text-right">Opt-ins</th>
+              <th className="px-3 py-2 font-semibold whitespace-nowrap text-center" title="A text message goes out after they opt in">Text</th>
+              <th className="px-3 py-2 font-semibold whitespace-nowrap text-center" title="An email goes out after they opt in">Email</th>
               <th className="px-3 py-2 font-semibold">What it&apos;s for</th>
+              <th className="px-3 py-2 font-semibold">The ask</th>
               <th className="px-3 py-2 font-semibold w-20"></th>
             </tr>
           </thead>
@@ -212,9 +235,32 @@ function FunnelSheet({ funnels, onPatch, onRemove, onCopy, copied }: {
                       {f.url && <a href={f.url} target="_blank" rel="noreferrer" className="text-zinc-500 hover:text-blue-400 flex-shrink-0 px-1" title="Open">↗</a>}
                     </div>
                   </td>
+                  <td className="px-3 py-1.5 align-middle whitespace-nowrap text-right tabular-nums">
+                    {f.optin_count === null ? (
+                      <span className="text-zinc-600 text-xs" title={f.optin_source ?? "No source connected"}>—</span>
+                    ) : (
+                      <span className="text-zinc-200 font-semibold" title={[f.optin_source, countedAgo(f.optin_counted_at)].filter(Boolean).join(" · ")}>
+                        {f.optin_count.toLocaleString()}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5 align-middle text-center">
+                    <input type="checkbox" checked={f.followup_text} onChange={(e) => onPatch(f.id, { followup_text: e.target.checked })}
+                      aria-label={`Text follow-up after opting in to ${f.name}`}
+                      className="h-4 w-4 cursor-pointer accent-blue-500" />
+                  </td>
+                  <td className="px-3 py-1.5 align-middle text-center">
+                    <input type="checkbox" checked={f.followup_email} onChange={(e) => onPatch(f.id, { followup_email: e.target.checked })}
+                      aria-label={`Email follow-up after opting in to ${f.name}`}
+                      className="h-4 w-4 cursor-pointer accent-blue-500" />
+                  </td>
                   <td className="px-1 py-1.5 align-middle min-w-[220px]">
                     <input defaultValue={f.purpose ?? ""} onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== f.purpose) onPatch(f.id, { purpose: v }); }}
                       placeholder="What this page does…" className={`${cell} text-zinc-400`} />
+                  </td>
+                  <td className="px-1 py-1.5 align-middle min-w-[170px]">
+                    <input defaultValue={f.cta ?? ""} onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== f.cta) onPatch(f.id, { cta: v }); }}
+                      placeholder="What it asks them to do…" className={`${cell} text-zinc-400`} />
                   </td>
                   <td className="px-3 py-1.5 align-middle whitespace-nowrap text-right">
                     <button onClick={() => onCopy(f)} disabled={!f.url}

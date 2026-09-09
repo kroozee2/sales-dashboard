@@ -1,28 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import {
-  CLIENT_STATUSES, EDITABLE_FIELDS, applyStep, isRunbookKey,
-  type ClientAccount, type OnboardingState,
+  CLIENT_STATUSES, OFF_BOARDED_STATUS, applyStep, isRunbookKey, type OnboardingState,
 } from "@/lib/client-accounts";
+import {
+  ROSTER_COLUMNS, ROSTER_FIELD_COLUMN, helmDb, toMergedClient, type HelmClientRow,
+} from "@/lib/helm-clients";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * The writable half of a client record.
+ * The client roster: read and written straight onto Helm's `clients` table.
  *
- * Helm's proxy is GET-only, so this is where every edit lands. Nothing here
- * touches Helm; the two are merged when the clients page reads them.
+ * This used to write to a separate Sales OS table, which meant a client had two
+ * rows and a status changed in one place never reached the other. There is one
+ * row per client now, and this is the surface that edits it.
  */
-
-const db = () =>
-  createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_CALLS_URL!,
-    process.env.SUPABASE_CALLS_SERVICE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY!,
-  );
 
 const NUMERIC = new Set(["deal_value", "mrr"]);
 const MAX_TEXT = 4_000;
+const NOT_CONNECTED: Record<"unconfigured" | "auth", string> = {
+  unconfigured: "The client database is not connected. Set NEXT_PUBLIC_SUPABASE_HELM_URL, SUPABASE_HELM_ANON_KEY, HELM_OWNER_EMAIL and HELM_OWNER_PASSWORD.",
+  auth: "The client database rejected our sign-in. Check HELM_OWNER_EMAIL and HELM_OWNER_PASSWORD.",
+};
+
+/** The connection, or the reason there isn't one, said plainly. */
+async function connect() {
+  const connection = await helmDb();
+  return connection.ok
+    ? { db: connection.db, fail: null }
+    : { db: null, fail: NextResponse.json({ error: NOT_CONNECTED[connection.reason] }, { status: 503 }) };
+}
 
 function cleanField(key: string, value: unknown): unknown {
   if (value === null || value === "") return null;
@@ -31,9 +39,10 @@ function cleanField(key: string, value: unknown): unknown {
     if (typeof n !== "number" || !Number.isFinite(n)) throw new Error(`${key} must be a number`);
     return n;
   }
+  // `archived` is the roster's word; the column is `is_active`, so it inverts.
   if (key === "archived") {
     if (typeof value !== "boolean") throw new Error("archived must be true or false");
-    return value;
+    return !value;
   }
   if (key === "status") {
     if (typeof value !== "string" || !(CLIENT_STATUSES as readonly string[]).includes(value)) {
@@ -46,25 +55,33 @@ function cleanField(key: string, value: unknown): unknown {
   return value.trim();
 }
 
-/** Keep only what a client may send, so one stray key can't sink a save. */
-function pickEditable(body: Record<string, unknown>): Record<string, unknown> {
+/** Only the roster's own fields, mapped to their columns. One stray key cannot sink a save. */
+export function pickEditable(body: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const key of EDITABLE_FIELDS) {
-    if (Object.hasOwn(body, key)) out[key] = cleanField(key, body[key]);
+  for (const [field, column] of Object.entries(ROSTER_FIELD_COLUMN)) {
+    if (Object.hasOwn(body, field)) out[column] = cleanField(field, body[field]);
   }
   return out;
 }
 
 export async function GET() {
-  const { data, error } = await db()
-    .from("client_accounts")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) return NextResponse.json({ error: "Client records are temporarily unavailable" }, { status: 502 });
-  return NextResponse.json({ accounts: (data ?? []) as ClientAccount[] });
+  const { db, fail } = await connect();
+  if (!db) return fail;
+
+  const { data, error } = await db
+    .from("clients")
+    .select(ROSTER_COLUMNS)
+    .order("name", { ascending: true });
+  if (error) return NextResponse.json({ error: "The client roster is temporarily unavailable" }, { status: 502 });
+
+  const rows = (data ?? []) as unknown as HelmClientRow[];
+  return NextResponse.json({ clients: rows.map(toMergedClient) });
 }
 
 export async function POST(req: NextRequest) {
+  const { db, fail } = await connect();
+  if (!db) return fail;
+
   let body: Record<string, unknown>;
   try { body = (await req.json()) as Record<string, unknown>; }
   catch { return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 }); }
@@ -76,19 +93,23 @@ export async function POST(req: NextRequest) {
   if (typeof record.name !== "string" || !record.name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
+  if (record.is_active === undefined) record.is_active = true;
 
-  const { data, error } = await db().from("client_accounts").insert(record).select().single();
+  const { data, error } = await db.from("clients").insert(record).select(ROSTER_COLUMNS).single();
   if (error) {
     const duplicate = error.code === "23505";
     return NextResponse.json(
-      { error: duplicate ? "That client is already linked to a Helm record" : "Could not create the client" },
+      { error: duplicate ? "A client with that email already exists" : "Could not create the client" },
       { status: duplicate ? 409 : 500 },
     );
   }
-  return NextResponse.json({ account: data }, { status: 201 });
+  return NextResponse.json({ client: toMergedClient(data as unknown as HelmClientRow) }, { status: 201 });
 }
 
 export async function PATCH(req: NextRequest) {
+  const { db, fail } = await connect();
+  if (!db) return fail;
+
   let body: Record<string, unknown>;
   try { body = (await req.json()) as Record<string, unknown>; }
   catch { return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 }); }
@@ -100,15 +121,15 @@ export async function PATCH(req: NextRequest) {
   try { update = pickEditable(body); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid field" }, { status: 400 }); }
 
-  // A runbook step is patched by key so two people ticking different steps
+  // A runbook step is patched by key, so two people ticking different steps
   // don't overwrite each other's work.
   if (Object.hasOwn(body, "step")) {
     const step = body.step as { key?: unknown; done?: unknown; note?: unknown } | null;
     if (!step || !isRunbookKey(step.key)) {
       return NextResponse.json({ error: "step.key must be a runbook step" }, { status: 400 });
     }
-    const { data: current, error: readError } = await db()
-      .from("client_accounts").select("onboarding").eq("id", id).maybeSingle();
+    const { data: current, error: readError } = await db
+      .from("clients").select("onboarding").eq("id", id).maybeSingle();
     if (readError || !current) return NextResponse.json({ error: "Client not found" }, { status: 404 });
 
     update.onboarding = applyStep(
@@ -126,21 +147,32 @@ export async function PATCH(req: NextRequest) {
   }
   update.updated_at = new Date().toISOString();
 
-  const { data, error } = await db()
-    .from("client_accounts").update(update).eq("id", id).select().maybeSingle();
+  const { data, error } = await db
+    .from("clients").update(update).eq("id", id).select(ROSTER_COLUMNS).maybeSingle();
   if (error) return NextResponse.json({ error: "Could not save the change" }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Client not found" }, { status: 404 });
-  return NextResponse.json({ account: data });
+  return NextResponse.json({ client: toMergedClient(data as unknown as HelmClientRow) });
 }
 
+/**
+ * Off-boarding, not deletion. Seventy-odd tables reference a client row —
+ * calls, check-ins, notes, portal accounts — so removing one would take their
+ * history with it. This marks them inactive, which is what "remove" means here.
+ */
 export async function DELETE(req: NextRequest) {
+  const { db, fail } = await connect();
+  if (!db) return fail;
+
   let body: Record<string, unknown>;
   try { body = (await req.json()) as Record<string, unknown>; }
   catch { return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 }); }
   const id = typeof body.id === "string" ? body.id : null;
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-  const { error } = await db().from("client_accounts").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: "Could not remove the client" }, { status: 500 });
+  const { error } = await db
+    .from("clients")
+    .update({ is_active: false, status: OFF_BOARDED_STATUS, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return NextResponse.json({ error: "Could not off-board the client" }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

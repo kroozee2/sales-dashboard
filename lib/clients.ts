@@ -265,36 +265,3 @@ export type ClientProxyResult =
   | { ok: true; payload: ClientsPayload }
   | { ok: false; status: 502 | 503 };
 
-export async function fetchClientsUpstream(
-  range: { from: string; to: string },
-  config: { base?: string; secret?: string; timeoutMs?: number; fetchImpl?: typeof fetch },
-): Promise<ClientProxyResult> {
-  if (!config.base || !config.secret) return { ok: false, status: 503 };
-  let endpoint: URL;
-  try {
-    endpoint = new URL("/api/salesos/clients", config.base);
-    if (endpoint.protocol !== "https:" && endpoint.hostname !== "localhost") throw new Error("invalid origin");
-  } catch {
-    return { ok: false, status: 503 };
-  }
-  endpoint.searchParams.set("from", range.from);
-  endpoint.searchParams.set("to", range.to);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 8_000);
-  try {
-    const response = await (config.fetchImpl ?? fetch)(endpoint, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${config.secret}`, Accept: "application/json" },
-      cache: "no-store",
-      redirect: "error",
-      signal: controller.signal,
-    });
-    if (!response.ok) return { ok: false, status: 502 };
-    const payload: unknown = await response.json();
-    return isClientsPayload(payload) ? { ok: true, payload } : { ok: false, status: 502 };
-  } catch {
-    return { ok: false, status: 502 };
-  } finally {
-    clearTimeout(timeout);
-  }
-}

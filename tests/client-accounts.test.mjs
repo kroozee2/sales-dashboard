@@ -1,23 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  RUNBOOK, applyStep, isRunbookKey, mergeClients, nextRunbookStep,
-  onboardingProgress, recentClients, sortByNewest,
+  CLIENT_STATUSES, OFF_BOARDED_STATUS, RUNBOOK, applyStep, isRunbookKey,
+  nextRunbookStep, onboardingProgress, recentClients, sortByNewest,
 } from "../lib/client-accounts.ts";
+import { statusToHealth } from "../lib/client-roster.ts";
+import { ROSTER_FIELD_COLUMN, toMergedClient } from "../lib/helm-clients.ts";
 
 const NOW = new Date("2026-09-08T12:00:00Z");
 
-const account = (o = {}) => ({
-  id: "a1", helm_client_id: null, name: "Luis Alvarado", email: "luis@unlimitedleverage.com",
-  phone: null, program: "7-Figure CEO", deal_value: 12000, mrr: 1000, start_date: "2026-09-02",
-  status: "Onboarding", owner: "Andrew", source: "Stripe", whatsapp: null, notes: null,
-  onboarding: {}, archived: false, created_at: "2026-09-02T00:00:00Z", updated_at: "2026-09-02T00:00:00Z", ...o,
-});
-
-const member = (o = {}) => ({
+/** One row of Helm's `clients` table, which is now the only client record. */
+const row = (o = {}) => ({
   id: "h1", name: "Luis Alvarado", email: "luis@unlimitedleverage.com", phone: null,
-  status: "On-Track", membership: "BOARDROOM", isActive: true, startDate: "2026-09-02",
-  lastContactAt: null, headshotUrl: null, portalStatus: "invited", callsAttended: 0, ...o,
+  status: "Onboarding", membership: "BOARDROOM", is_active: true, phase: null,
+  start_date: "2026-09-02", last_contact_at: null, headshot_url: null, notes: null,
+  ai_next_action: null, deal_value: 12000, mrr: 1000, owner: null, source: "Stripe",
+  whatsapp: null, onboarding: {}, created_at: "2026-09-02T00:00:00Z",
+  updated_at: "2026-09-02T00:00:00Z", ...o,
 });
 
 test("progress counts the runbook, not a percentage someone typed", () => {
@@ -57,65 +56,82 @@ test("only real runbook keys are accepted", () => {
   assert.equal(isRunbookKey(null), false);
 });
 
-test("a Sales OS row makes a Helm member editable", () => {
-  const [merged] = mergeClients([member()], [account()]);
-  assert.equal(merged.editable, true);
-  assert.equal(merged.accountId, "a1");
-  assert.equal(merged.helmId, "h1");
-  assert.equal(merged.dealValue, 12000, "our number, not Helm's");
-  assert.equal(merged.helm.membership, "BOARDROOM", "Helm's fields still come through");
+test("a client is one row, and every one of them is editable", () => {
+  // The old shape merged Helm's roster with a second Sales OS table, and a
+  // client without a row on our side could be seen but not changed. There is
+  // one row now, so "read-only client" no longer exists.
+  const client = toMergedClient(row());
+  assert.equal(client.editable, true);
+  assert.equal(client.key, "h1", "the client's own id is the key we patch by");
+  assert.equal(client.accountId, "h1");
+  assert.equal(client.helmId, "h1");
 });
 
-test("a Helm member with no row of ours is shown, and marked not editable", () => {
-  const [merged] = mergeClients([member({ email: "someone@else.com", name: "Other Person" })], []);
-  assert.equal(merged.editable, false);
-  assert.equal(merged.accountId, null);
-  assert.equal(merged.key, "helm:h1");
+test("the roster reads the fields it is going to write", () => {
+  const client = toMergedClient(row());
+  assert.equal(client.dealValue, 12000);
+  assert.equal(client.mrr, 1000);
+  assert.equal(client.program, "BOARDROOM", "program reads the membership column");
+  assert.equal(client.status, "Onboarding");
+  assert.equal(client.owner, "Andrew", "an unset owner falls back rather than showing blank");
 });
 
-test("someone who paid before Helm knows about them still appears", () => {
-  const merged = mergeClients([], [account()]);
-  assert.equal(merged.length, 1);
-  assert.equal(merged[0].editable, true);
-  assert.equal(merged[0].helm, null);
+test("a row with nothing filled in still renders", () => {
+  const client = toMergedClient(row({ name: null, deal_value: null, mrr: null, onboarding: null }));
+  assert.equal(client.name, "Unnamed client");
+  assert.equal(client.dealValue, null);
+  assert.deepEqual(client.onboarding, {}, "a null runbook must not crash the roster");
 });
 
-test("matching prefers an explicit id, then email, then name", () => {
-  const byId = mergeClients([member()], [account({ helm_client_id: "h1", email: "different@x.com", name: "Different" })]);
-  assert.equal(byId[0].accountId, "a1", "the id wins even when nothing else matches");
-
-  const byEmail = mergeClients([member()], [account({ name: "L. Alvarado" })]);
-  assert.equal(byEmail[0].accountId, "a1");
-
-  const byName = mergeClients([member({ email: null })], [account({ email: null })]);
-  assert.equal(byName[0].accountId, "a1");
+test("archiving is off-boarding, not deletion", () => {
+  // Seventy-odd tables reference a client row. `archived` maps to is_active so
+  // removing someone from the roster keeps their calls, notes and history.
+  assert.equal(ROSTER_FIELD_COLUMN.archived, "is_active");
 });
 
-test("one Sales OS row is never listed twice", () => {
-  const merged = mergeClients([member()], [account()]);
-  assert.equal(merged.length, 1, "matched, so it must not also appear as a standalone row");
+test("the roster can only write columns it names", () => {
+  const columns = Object.values(ROSTER_FIELD_COLUMN);
+  for (const forbidden of ["id", "created_at", "ai_brief", "ai_risk_score", "portal_bio", "promise_signature"]) {
+    assert.ok(!columns.includes(forbidden), `${forbidden} must not be writable from the roster`);
+  }
+  assert.equal(ROSTER_FIELD_COLUMN.program, "membership");
 });
 
-test("an archived row neither matches nor appears", () => {
-  const merged = mergeClients([member()], [account({ archived: true })]);
-  assert.equal(merged.length, 1);
-  assert.equal(merged[0].editable, false, "the archived row must not make this member editable");
+test("sorting and the recent window still work on one source", () => {
+  const clients = [
+    toMergedClient(row({ id: "a", name: "Old", start_date: "2026-01-04" })),
+    toMergedClient(row({ id: "b", name: "New", start_date: "2026-09-02" })),
+  ];
+  assert.deepEqual(sortByNewest(clients).map((c) => c.name), ["New", "Old"]);
+  assert.deepEqual(recentClients(clients, 60, NOW).map((c) => c.name), ["New"]);
 });
 
-test("newest first, by start date, with unknown dates last", () => {
-  const clients = mergeClients([], [
-    account({ id: "old", name: "Old", email: "old@x.com", start_date: "2026-01-01" }),
-    account({ id: "new", name: "New", email: "new@x.com", start_date: "2026-09-02" }),
-    account({ id: "none", name: "None", email: "none@x.com", start_date: null, created_at: null }),
+test("the status vocabulary is the one stored in the column", () => {
+  // Helm's statuses carry their emoji, and Helm's own screens filter on the
+  // exact strings. Writing a tidier "Off-Track" from Sales OS would create a
+  // second vocabulary in one column and drop the client out of those filters.
+  assert.deepEqual([...CLIENT_STATUSES], [
+    "🆕 Not Started",
+    "📆 Onboarding Booked",
+    "🚀 On-Track",
+    "🚊 Off-Track",
+    "❌ At Risk",
+    "👋 Off-Boarded",
   ]);
-  assert.deepEqual(sortByNewest(clients).map((c) => c.name), ["New", "Old", "None"]);
+  assert.equal(OFF_BOARDED_STATUS, "👋 Off-Boarded");
+  assert.ok(CLIENT_STATUSES.includes(OFF_BOARDED_STATUS));
 });
 
-test("recent means started inside the window, and nothing else", () => {
-  const clients = mergeClients([], [
-    account({ id: "1", name: "This week", email: "a@x.com", start_date: "2026-09-02" }),
-    account({ id: "2", name: "Last year", email: "b@x.com", start_date: "2025-09-02" }),
-  ]);
-  assert.deepEqual(recentClients(clients, 60, NOW).map((c) => c.name), ["This week"]);
-  assert.equal(recentClients(clients, 5, NOW).length, 0, "six days out is outside a five-day window");
+test("every stored status still lands in a health bucket", () => {
+  const expected = {
+    "🆕 Not Started": "watch",
+    "📆 Onboarding Booked": "good",
+    "🚀 On-Track": "good",
+    "🚊 Off-Track": "watch",
+    "❌ At Risk": "risk",
+    "👋 Off-Boarded": "idle",
+  };
+  for (const [status, bucket] of Object.entries(expected)) {
+    assert.equal(statusToHealth(status), bucket, `${status} should read as ${bucket}`);
+  }
 });

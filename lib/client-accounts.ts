@@ -1,10 +1,13 @@
-// The Sales OS side of a client record, and how it merges onto Helm's roster.
+// The Sales OS side of a client record: the onboarding runbook, and the shape
+// the client screens read.
 //
-// Helm owns fulfilment and answers over a GET-only proxy, which is why every
-// client view in Sales OS has been read-only. These are the fields Sales OS is
-// responsible for — deal value, who owns the relationship, how far onboarding
-// has got — kept in our own table and merged on read. Nothing here writes to
-// Helm, and Helm never sees these fields.
+// This file used to describe a second table. Helm answered over a GET-only
+// proxy, so Sales OS kept its own `client_accounts` row for deal value, MRR,
+// owner and onboarding, and merged the two on read. That gave every client two
+// rows, and an edit in one place never reached the other.
+//
+// Sales OS now reads and writes Helm's `clients` table directly (see
+// lib/helm-clients.ts), so there is one row per client and the merge is gone.
 
 export type OnboardingStepKey =
   | "payment" | "fam" | "call" | "graphic" | "posted" | "portal" | "calls";
@@ -35,34 +38,25 @@ export const RUNBOOK_KEYS = RUNBOOK.map((step) => step.key);
 export type StepState = { done: boolean; at?: string | null; note?: string | null };
 export type OnboardingState = Partial<Record<OnboardingStepKey, StepState>>;
 
-export interface ClientAccount {
-  id: string;
-  helm_client_id: string | null;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  program: string | null;
-  deal_value: number | null;
-  mrr: number | null;
-  start_date: string | null;
-  status: string;
-  owner: string;
-  source: string | null;
-  whatsapp: string | null;
-  notes: string | null;
-  onboarding: OnboardingState;
-  archived: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Fields a client may send. Anything else is refused rather than ignored. */
-export const EDITABLE_FIELDS = [
-  "name", "email", "phone", "program", "deal_value", "mrr", "start_date",
-  "status", "owner", "source", "whatsapp", "notes", "helm_client_id", "archived",
+/**
+ * The status vocabulary, exactly as it is stored.
+ *
+ * These strings carry their emoji because that is what is in the column and
+ * what Helm's own screens filter on. Writing a tidier "Off-Track" from here
+ * would quietly create a second vocabulary in the same column and drop the
+ * client out of Helm's filters.
+ */
+export const CLIENT_STATUSES = [
+  "\u{1F195} Not Started",
+  "\u{1F4C6} Onboarding Booked",
+  "\u{1F680} On-Track",
+  "\u{1F68A} Off-Track",
+  "\u274C At Risk",
+  "\u{1F44B} Off-Boarded",
 ] as const;
 
-export const CLIENT_STATUSES = ["Onboarding", "Active", "At Risk", "Off-Track", "Off-boarded"] as const;
+/** What "remove from the roster" sets. Off-boarding, never deletion. */
+export const OFF_BOARDED_STATUS = "\u{1F44B} Off-Boarded";
 
 export function isRunbookKey(value: unknown): value is OnboardingStepKey {
   return typeof value === "string" && (RUNBOOK_KEYS as string[]).includes(value);
@@ -103,8 +97,8 @@ export function applyStep(
 
 const normalize = (value: string | null | undefined) => (value ?? "").trim().toLowerCase();
 
+/** One client, as every client screen reads them. `key` is the client's id. */
 export interface MergedClient {
-  /** Sales OS row id when we have one; otherwise the Helm id, prefixed. */
   key: string;
   accountId: string | null;
   helmId: string | null;
@@ -121,7 +115,7 @@ export interface MergedClient {
   notes: string | null;
   whatsapp: string | null;
   onboarding: OnboardingState;
-  /** Helm-only fields, still read-only because Helm owns them. */
+  /** Fields the fulfilment side fills in: attendance, portal, contact history. */
   helm: {
     membership: string | null;
     isActive: boolean;
@@ -130,98 +124,8 @@ export interface MergedClient {
     callsAttended: number | null;
     headshotUrl: string | null;
   } | null;
-  /** True when Sales OS has a row to write to. */
+  /** Always true now. Kept so screens can still ask before offering an edit. */
   editable: boolean;
-}
-
-type HelmMember = {
-  id: string; name: string; email: string | null; phone: string | null;
-  status: string | null; membership: string | null; isActive: boolean;
-  startDate: string | null; lastContactAt: string | null; headshotUrl: string | null;
-  portalStatus: string | null; callsAttended: number;
-};
-
-/**
- * One list from two sources.
- *
- * A Sales OS row is matched to a Helm member by explicit id first, then by
- * email, then by name — in that order, because each is weaker than the last and
- * matching two different people would be worse than showing one twice.
- * Sales-OS-only rows are included: someone can pay before Helm knows about them.
- */
-export function mergeClients(helmMembers: HelmMember[], accounts: ClientAccount[]): MergedClient[] {
-  const live = accounts.filter((account) => !account.archived);
-  const byHelmId = new Map<string, ClientAccount>();
-  const byEmail = new Map<string, ClientAccount>();
-  const byName = new Map<string, ClientAccount>();
-  for (const account of live) {
-    if (account.helm_client_id) byHelmId.set(account.helm_client_id, account);
-    if (normalize(account.email)) byEmail.set(normalize(account.email), account);
-    if (normalize(account.name)) byName.set(normalize(account.name), account);
-  }
-
-  const claimed = new Set<string>();
-  const merged: MergedClient[] = helmMembers.map((member) => {
-    const account =
-      byHelmId.get(member.id) ??
-      (normalize(member.email) ? byEmail.get(normalize(member.email)) : undefined) ??
-      byName.get(normalize(member.name));
-    if (account) claimed.add(account.id);
-
-    return {
-      key: account?.id ?? `helm:${member.id}`,
-      accountId: account?.id ?? null,
-      helmId: member.id,
-      name: account?.name || member.name,
-      email: account?.email ?? member.email,
-      phone: account?.phone ?? member.phone,
-      program: account?.program ?? member.membership,
-      status: account?.status ?? member.status,
-      owner: account?.owner ?? "Andrew",
-      dealValue: account?.deal_value ?? null,
-      mrr: account?.mrr ?? null,
-      startDate: account?.start_date ?? member.startDate,
-      addedAt: account?.created_at ?? member.startDate,
-      notes: account?.notes ?? null,
-      whatsapp: account?.whatsapp ?? null,
-      onboarding: account?.onboarding ?? {},
-      helm: {
-        membership: member.membership,
-        isActive: member.isActive,
-        lastContactAt: member.lastContactAt,
-        portalStatus: member.portalStatus,
-        callsAttended: member.callsAttended,
-        headshotUrl: member.headshotUrl,
-      },
-      editable: Boolean(account),
-    };
-  });
-
-  for (const account of live) {
-    if (claimed.has(account.id)) continue;
-    merged.push({
-      key: account.id,
-      accountId: account.id,
-      helmId: account.helm_client_id,
-      name: account.name,
-      email: account.email,
-      phone: account.phone,
-      program: account.program,
-      status: account.status,
-      owner: account.owner,
-      dealValue: account.deal_value,
-      mrr: account.mrr,
-      startDate: account.start_date,
-      addedAt: account.created_at,
-      notes: account.notes,
-      whatsapp: account.whatsapp,
-      onboarding: account.onboarding ?? {},
-      helm: null,
-      editable: true,
-    });
-  }
-
-  return merged;
 }
 
 /** Newest first, by when we started with them; unknown dates sink. */

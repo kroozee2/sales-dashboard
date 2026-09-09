@@ -149,7 +149,7 @@ test("identity secret collision coverage matches the independent credential inve
     "GOOGLE_CALENDAR_ICAL_URL",
     "GHL_API_KEY",
     "HELM_ENROLL_SECRET",
-    "HELM_SALESOS_SECRET",
+    "HELM_OWNER_PASSWORD",
     "INSTAGRAM_HOT_LEADS_WORKER_KEY",
     "NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY",
     "PANDADOC_API_KEY",
@@ -158,6 +158,7 @@ test("identity secret collision coverage matches the independent credential inve
     "SALESOS_SESSION_TOKEN",
     "SKOOL_ADMIN_SECRET",
     "STRIPE_SECRET_KEY",
+    "SUPABASE_HELM_ANON_KEY",
     "SUPABASE_CALLS_SERVICE_KEY",
     "UNIPILE_API_KEY",
   ].sort();

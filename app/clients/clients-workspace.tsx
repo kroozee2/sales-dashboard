@@ -5,8 +5,8 @@ import ClientOnboarding, { RunbookDrawer, type Patch } from "@/components/client
 import ClientMembers from "@/components/client-members";
 import { HEALTH_META, needsAttention, rosterCounts, statusToHealth } from "@/lib/client-roster";
 import {
-  mergeClients, recentClients, sortByNewest,
-  type ClientAccount, type MergedClient, type OnboardingStepKey,
+  recentClients, sortByNewest,
+  type MergedClient, type OnboardingStepKey,
 } from "@/lib/client-accounts";
 import {
   bucketCalendarEvents,
@@ -225,7 +225,7 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [accounts, setAccounts] = useState<ClientAccount[]>([]);
+  const [roster, setRoster] = useState<MergedClient[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState(60);
@@ -244,73 +244,60 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
     return () => controller.abort();
   }, [range.from, range.to, refreshKey]);
 
-  const loadAccounts = useCallback(async () => {
+  const loadRoster = useCallback(async () => {
     try {
       const response = await fetch("/api/clients/accounts", { cache: "no-store" });
       const payload = await response.json();
-      if (response.ok) setAccounts(payload.accounts ?? []);
-    } catch { /* the Helm view still works without our own rows */ }
+      if (response.ok) setRoster(payload.clients ?? []);
+      else setNotice(typeof payload.error === "string" ? payload.error : null);
+    } catch { setNotice("The client roster is temporarily unavailable."); }
   }, []);
-  useEffect(() => { void Promise.resolve().then(loadAccounts); }, [loadAccounts, refreshKey]);
+  useEffect(() => { void Promise.resolve().then(loadRoster); }, [loadRoster, refreshKey]);
 
-  // Helm's roster and our own records, as one list. Sales OS owns the fields it
-  // can write; Helm's stay read-only because Helm owns them.
-  const merged = useMemo(
-    () => sortByNewest(mergeClients(data?.members ?? [], accounts)),
-    [data?.members, accounts],
-  );
+  // One list, from one table. There is no merge any more: a client is a single
+  // row that Sales OS, Helm and the Mastermind Portal all read and write.
+  const merged = useMemo(() => sortByNewest(roster), [roster]);
   const newest = useMemo(() => recentClients(merged, windowDays), [merged, windowDays]);
 
-  const applyAccount = (account: ClientAccount) =>
-    setAccounts((current) => current.some((a) => a.id === account.id)
-      ? current.map((a) => (a.id === account.id ? account : a))
-      : [account, ...current]);
+  const applyClient = (client: MergedClient) =>
+    setRoster((current) => current.some((c) => c.key === client.key)
+      ? current.map((c) => (c.key === client.key ? client : c))
+      : [client, ...current]);
 
-  /**
-   * Every edit goes to our own table. A Helm member with no record of ours gets
-   * one created on the spot, carrying the id so the two stay linked.
-   */
+  /** Every edit lands on the client's own row, which is the only row there is. */
   const patchClient = useCallback(async (client: MergedClient, patch: Patch) => {
+    const fields = Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "__create"));
+    if (Object.keys(fields).length === 0) return;
     setBusyKey(client.key); setNotice(null);
     try {
-      const creating = !client.accountId;
-      const body = creating
-        ? {
-            name: client.name, email: client.email, phone: client.phone,
-            program: client.program, start_date: client.startDate,
-            helm_client_id: client.helmId,
-            ...Object.fromEntries(Object.entries(patch).filter(([key]) => key !== "__create")),
-          }
-        : { id: client.accountId, ...patch };
       const response = await fetch("/api/clients/accounts", {
-        method: creating ? "POST" : "PATCH",
+        method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ id: client.key, ...fields }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.account) throw new Error(payload.error ?? "Could not save the change");
-      applyAccount(payload.account as ClientAccount);
+      if (!response.ok || !payload.client) throw new Error(payload.error ?? "Could not save the change");
+      applyClient(payload.client as MergedClient);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "Could not save the change");
     } finally { setBusyKey(null); }
   }, []);
 
   const stepClient = useCallback(async (client: MergedClient, key: OnboardingStepKey, done: boolean, note?: string) => {
-    if (!client.accountId) { await patchClient(client, { __create: true }); return; }
     setBusyKey(client.key); setNotice(null);
     try {
       const response = await fetch("/api/clients/accounts", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: client.accountId, step: { key, done, note } }),
+        body: JSON.stringify({ id: client.key, step: { key, done, note } }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.account) throw new Error(payload.error ?? "Could not save that step");
-      applyAccount(payload.account as ClientAccount);
+      if (!response.ok || !payload.client) throw new Error(payload.error ?? "Could not save that step");
+      applyClient(payload.client as MergedClient);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "Could not save that step");
     } finally { setBusyKey(null); }
-  }, [patchClient]);
+  }, []);
 
   const createClient = useCallback(async (draft: Record<string, unknown>) => {
     setNotice(null);
@@ -319,8 +306,8 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.account) throw new Error(payload.error ?? "Could not add the client");
-      applyAccount(payload.account as ClientAccount);
+      if (!response.ok || !payload.client) throw new Error(payload.error ?? "Could not add the client");
+      applyClient(payload.client as MergedClient);
     } catch (reason) {
       setNotice(reason instanceof Error ? reason.message : "Could not add the client");
     }
@@ -361,7 +348,7 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
               ))}
             </div>
           </div>
-          <ClientOnboarding clients={newest} loading={loading && accounts.length === 0} busyKey={busyKey}
+          <ClientOnboarding clients={newest} loading={loading && roster.length === 0} busyKey={busyKey}
             onPatch={patchClient} onCreate={createClient} onStep={stepClient} />
           {error && <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">Helm is unreachable, so only clients tracked in Sales OS are listed. {error}</p>}
         </div>

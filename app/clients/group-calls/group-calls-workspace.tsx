@@ -34,6 +34,11 @@ export default function GroupCallsWorkspace() {
   const [calls, setCalls] = useState<Call[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  // Load failures replace the page. Save and send failures must not -- they are
+  // transient, and blowing away the list loses the drafts you were reading.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = () =>
     fetch("/api/client-calls", { cache: "no-store" })
@@ -49,7 +54,21 @@ export default function GroupCallsWorkspace() {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...fields }),
     });
-    if (!res.ok) { setError(`Save failed: ${(await res.json().catch(() => ({}))).error ?? res.status}`); void load(); }
+    if (!res.ok) { setActionError(`Save failed: ${(await res.json().catch(() => ({}))).error ?? res.status}`); void load(); }
+  }
+
+  // Sends the stored draft, unchanged, only after an explicit confirm.
+  async function send(id: string, channel: "fam" | "mastermind") {
+    const key = `${id}:${channel}`;
+    setSending(key); setActionError(null); setConfirming(null);
+    const res = await fetch("/api/client-calls/send", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, channel }),
+    });
+    const body = await res.json().catch(() => ({}));
+    setSending(null);
+    if (!res.ok) setActionError(body.error ?? "Send failed.");
+    void load();
   }
 
   if (error) return <p className="p-6 text-sm text-red-400">{error}</p>;
@@ -64,6 +83,13 @@ export default function GroupCallsWorkspace() {
           waiting on your approval.
         </p>
       </header>
+
+      {actionError && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
+          <p className="flex-1 text-sm text-red-300">{actionError}</p>
+          <button onClick={() => setActionError(null)} className="text-xs text-red-400/70 hover:text-red-200">dismiss</button>
+        </div>
+      )}
 
       {calls.length === 0 && (
         <p className="rounded-lg border border-dashed border-zinc-800 p-6 text-sm text-zinc-500">
@@ -158,11 +184,33 @@ export default function GroupCallsWorkspace() {
                     defaultValue={(k === "fam" ? c.fam_draft : c.mastermind_draft) ?? ""}
                     onBlur={(e) => patch(c.id, { [field]: e.target.value })}
                   />
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {sentAt
-                      ? `Posted ${new Date(sentAt).toLocaleString()}.`
-                      : "Edit here, then send it from WhatsApp. Nothing posts on its own."}
-                  </p>
+                  {sentAt ? (
+                    <p className="mt-1 text-xs text-emerald-400">
+                      Posted {new Date(sentAt).toLocaleString()}.
+                    </p>
+                  ) : confirming === `${c.id}:${k}` ? (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-xs text-amber-400">Post this to the group?</span>
+                      <button onClick={() => send(c.id, k)}
+                        className="rounded bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-500">
+                        Yes, post it
+                      </button>
+                      <button onClick={() => setConfirming(null)}
+                        className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-400">
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        onClick={() => setConfirming(`${c.id}:${k}`)}
+                        disabled={sending === `${c.id}:${k}`}
+                        className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-emerald-500/50 hover:text-emerald-300 disabled:opacity-50">
+                        {sending === `${c.id}:${k}` ? "sending…" : "Send to WhatsApp"}
+                      </button>
+                      <span className="text-xs text-zinc-600">Nothing posts on its own.</span>
+                    </div>
+                  )}
                 </div>
               );
             })}

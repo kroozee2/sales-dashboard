@@ -1,42 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLeadsAdminClient } from "@/lib/supabase-leads";
+import { EVENT_TITLE, nextParty } from "@/lib/referral-party";
 
 export const runtime = "nodejs";
 
-// The 🎉 7-Figure CEO Referral Party runs on the 2nd Thursday of each month at
-// 3:00 PM ET (Google series r0mjc229cjidri36bbkbhmfaj0). We only ever target the
-// NEXT occurrence — never the whole series — so an invited lead gets exactly one
+// Queue a lead for the NEXT 🎉 7-Figure CEO Referral Party. Only ever the next
+// occurrence, never the whole series, so an invited lead gets exactly one
 // party on their calendar.
-const SERIES_ID = "r0mjc229cjidri36bbkbhmfaj0";
-const EVENT_TITLE = "🎉 7-Figure CEO Referral Party";
+//
+// The date maths and the calendar instance id both live in lib/referral-party
+// now. They used to be inlined here against the retired series, which meant
+// this route queued dead event ids that the invite-draining task could not act
+// on, and labelled the party "3:00 PM ET" long after it had moved.
 
-/** The 2nd Thursday of a given UTC year/month, as YYYY-MM-DD. */
-function secondThursday(year: number, month: number): string {
-  const first = new Date(Date.UTC(year, month, 1));
-  // 4 = Thursday. Walk forward to the first Thursday, then add a week.
-  const offset = (4 - first.getUTCDay() + 7) % 7;
-  const d = new Date(Date.UTC(year, month, 1 + offset + 7));
-  return d.toISOString().slice(0, 10);
-}
-
-/** The next party that hasn't happened yet (today counts until it starts). */
-function nextParty(now = new Date()): { date: string; label: string } {
-  const y = now.getUTCFullYear(), m = now.getUTCMonth();
-  let date = secondThursday(y, m);
-  // 19:00Z is 3pm ET during daylight time; once it's past, roll to next month.
-  if (new Date(`${date}T19:00:00Z`).getTime() < now.getTime()) {
-    date = secondThursday(m === 11 ? y + 1 : y, (m + 1) % 12);
-  }
-  const label = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
-    timeZone: "UTC", weekday: "long", month: "long", day: "numeric",
-  });
-  return { date, label: `${label} · 3:00 PM ET` };
+/** The shape the Leads panel already renders: a date and a human label. */
+function summarise(p: ReturnType<typeof nextParty>) {
+  return { date: p.date, label: p.label, eventId: p.eventId };
 }
 
 // GET ?email= — the next party, plus whether this lead is already on it.
 export async function GET(req: NextRequest) {
   const email = (req.nextUrl.searchParams.get("email") || "").trim().toLowerCase();
-  const party = nextParty();
+  const party = summarise(nextParty());
   if (!email) return NextResponse.json({ party, invite: null });
   const { data } = await createLeadsAdminClient()
     .from("referral_party_invites")
@@ -52,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (!email || !email.includes("@")) {
     return NextResponse.json({ error: "This lead has no email address, so they can't be added to the invite." }, { status: 400 });
   }
-  const party = nextParty();
+  const party = summarise(nextParty());
   const db = createLeadsAdminClient();
 
   const { data: existing } = await db.from("referral_party_invites")
@@ -66,7 +51,7 @@ export async function POST(req: NextRequest) {
     name: b.name ?? null,
     email,
     event_date: party.date,
-    event_id: `${SERIES_ID}_${party.date.replace(/-/g, "")}T190000Z`,
+    event_id: party.eventId,
     status: "queued",
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

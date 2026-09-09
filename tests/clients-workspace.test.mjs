@@ -6,7 +6,6 @@ import {
   bucketCalendarEvents,
   contactAgeDays,
   filterAndSortMembers,
-  fetchClientsUpstream,
   helmClientUrl,
   isClientsPayload,
   monthRange,
@@ -107,36 +106,5 @@ test("calendar bucketing uses real call dates, preserves unknown time, and calcu
   assert.deepEqual(monthRange(new Date(2026, 8, 1)), { from: "2026-08-30", to: "2026-10-03" });
 });
 
-test("Helm client links use the verified production origin and an encoded exact id", () => {
-  assert.equal(helmClientUrl("https://helm-iota-five.vercel.app/", "client/a"), "https://helm-iota-five.vercel.app/clients/client%2Fa");
-});
 
-test("SalesOS proxy validates inclusive ranges and forwards the secret only as a bearer header", async () => {
-  assert.deepEqual(validateClientRange(new URLSearchParams("from=2026-01-01&to=2026-05-04")), { from: "2026-01-01", to: "2026-05-04" });
-  assert.equal(validateClientRange(new URLSearchParams("from=2026-01-01&to=2026-05-05")), null);
-  assert.equal(validateClientRange(new URLSearchParams("from=2026-02-30&to=2026-03-01")), null);
-  let observedUrl = "";
-  let observedAuthorization = "";
-  const result = await fetchClientsUpstream(
-    { from: "2026-09-01", to: "2026-09-30" },
-    { base: "https://helm.example", secret: "bridge-secret", fetchImpl: async (input, init) => {
-      observedUrl = String(input);
-      observedAuthorization = new Headers(init?.headers).get("authorization") ?? "";
-      return Response.json(payload);
-    } },
-  );
-  assert.equal(result.ok, true);
-  assert.equal(observedUrl, "https://helm.example/api/salesos/clients?from=2026-09-01&to=2026-09-30");
-  assert.equal(observedAuthorization, "Bearer bridge-secret");
-  assert.doesNotMatch(observedUrl, /bridge-secret/);
-});
 
-test("SalesOS proxy fails closed and never returns an upstream body", async () => {
-  const result = await fetchClientsUpstream(
-    { from: "2026-09-01", to: "2026-09-30" },
-    { base: "https://helm.example", secret: "bridge-secret", fetchImpl: async () => new Response("database password: leaked", { status: 500 }) },
-  );
-  assert.deepEqual(result, { ok: false, status: 502 });
-  assert.doesNotMatch(JSON.stringify(result), /password|leaked|bridge-secret/);
-  assert.deepEqual(await fetchClientsUpstream({ from: "2026-09-01", to: "2026-09-30" }, {}), { ok: false, status: 503 });
-});

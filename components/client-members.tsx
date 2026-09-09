@@ -7,10 +7,12 @@
  *
  * Health tiles that double as filters, a filter separate from an ordering, one
  * dense row per member with the numbers you glance at and the actions you take,
- * and List or Gallery. The difference from Helm is where the writes go: status,
- * program, deal and MRR save to Sales OS's own table, because Helm answers over
- * a GET-only proxy. Attendance, portal state and last contact stay read-only
- * because Helm owns them.
+ * and List or Gallery.
+ *
+ * Every field here writes to the client's own row, which is the same row Helm
+ * and the Mastermind Portal read. There is no read-only client any more: the
+ * old split between "Helm's roster" and "our records" is gone, and with it the
+ * two-rows-per-person problem that made neither side trustworthy.
  */
 
 import { useMemo, useState } from "react";
@@ -205,9 +207,6 @@ function Row({ client, programs, busy, onPatch, onOpen, helmUrl }: {
                 📱{portal === "active" ? "✓" : ""}
               </span>
             )}
-            {!client.editable && (
-              <span title="Not tracked in Sales OS yet" className="flex-shrink-0 rounded px-1 py-0.5 text-[10px] text-zinc-600">read-only</span>
-            )}
           </span>
           <span className="block truncate text-xs text-zinc-500">
             {client.program || "No program"}
@@ -219,45 +218,81 @@ function Row({ client, programs, busy, onPatch, onOpen, helmUrl }: {
       <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 pl-[52px] sm:pl-0">
         <Glance icon="🎥" value={String(client.helm?.callsAttended ?? 0)} muted={!client.helm?.callsAttended}
           title={client.helm ? `${client.helm.callsAttended} calls attended` : "Helm has no call data"} />
-        <Glance icon="💰" value={money(client.dealValue)} muted={client.dealValue === null} title="Contract value" />
-        <Glance icon="🔁" value={money(client.mrr)} muted={client.mrr === null} title="Monthly recurring" />
+        <MoneyField icon="💰" value={client.dealValue} busy={busy} title="Contract value"
+          label={`Contract value for ${client.name}`} onSave={(next) => onPatch(client, { deal_value: next })} />
+        <MoneyField icon="🔁" value={client.mrr} busy={busy} title="Monthly recurring"
+          label={`Monthly recurring for ${client.name}`} onSave={(next) => onPatch(client, { mrr: next })} />
         <Glance icon="📱" value={ago(client.helm?.lastContactAt ?? null)} muted={!client.helm?.lastContactAt} title="Last contact" />
 
-        {client.editable ? (
-          <>
-            <select value={client.program ?? ""} disabled={busy} aria-label={`Program for ${client.name}`}
-              onChange={(e) => onPatch(client, { program: e.target.value })}
-              className="rounded-lg border border-zinc-700 bg-zinc-800/60 px-1.5 py-1 text-[11px] font-semibold text-zinc-200 focus:border-blue-500 focus:outline-none">
-              <option value="">No program</option>
-              {programs.map((program) => <option key={program} value={program}>{program}</option>)}
-            </select>
-            <DaysBadge days={gap} />
-            <QuickAction href={telLink(client.phone)} title="Call" icon="📞" />
-            <QuickAction href={smsLink(client.phone)} title="iMessage" icon="💬" />
-            <QuickAction href={mailLink(client.email)} title="Email" icon="✉️" />
-            <QuickAction href={waLink(client.whatsapp ?? client.phone)} title="WhatsApp" icon="🟢" external />
-            <select value={CLIENT_STATUSES.includes(client.status as never) ? (client.status as string) : "Active"}
-              disabled={busy} aria-label={`Status for ${client.name}`}
-              onChange={(e) => onPatch(client, { status: e.target.value })}
-              className={`rounded-lg border px-1.5 py-1 text-[11px] font-semibold focus:outline-none ${HEALTH_META[health].chip}`}>
-              {CLIENT_STATUSES.map((status) => <option key={status} value={status} className="bg-zinc-900 text-white">{status}</option>)}
-            </select>
-          </>
-        ) : (
-          <>
-            <DaysBadge days={gap} />
-            <button type="button" onClick={() => onPatch(client, { __create: true })} disabled={busy}
-              className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] font-semibold text-blue-300 transition-colors hover:bg-blue-500/20 disabled:opacity-50">
-              ＋ Track to edit
-            </button>
-          </>
-        )}
+        <select value={client.program ?? ""} disabled={busy} aria-label={`Program for ${client.name}`}
+          onChange={(e) => onPatch(client, { program: e.target.value })}
+          className="rounded-lg border border-zinc-700 bg-zinc-800/60 px-1.5 py-1 text-[11px] font-semibold text-zinc-200 focus:border-blue-500 focus:outline-none">
+          <option value="">No program</option>
+          {programs.map((program) => <option key={program} value={program}>{program}</option>)}
+        </select>
+        <DaysBadge days={gap} />
+        <QuickAction href={telLink(client.phone)} title="Call" icon="📞" />
+        <QuickAction href={smsLink(client.phone)} title="iMessage" icon="💬" />
+        <QuickAction href={mailLink(client.email)} title="Email" icon="✉️" />
+        <QuickAction href={waLink(client.whatsapp ?? client.phone)} title="WhatsApp" icon="🟢" external />
+        {/* A status we do not recognise is shown as its own option rather than
+            silently swapped for one we do: it is a real value someone typed. */}
+        <select value={client.status ?? ""}
+          disabled={busy} aria-label={`Status for ${client.name}`}
+          onChange={(e) => onPatch(client, { status: e.target.value })}
+          className={`rounded-lg border px-1.5 py-1 text-[11px] font-semibold focus:outline-none ${HEALTH_META[health].chip}`}>
+          {!CLIENT_STATUSES.includes(client.status as never) && (
+            <option value={client.status ?? ""} className="bg-zinc-900 text-white">{client.status || "No status"}</option>
+          )}
+          {CLIENT_STATUSES.map((status) => <option key={status} value={status} className="bg-zinc-900 text-white">{status}</option>)}
+        </select>
         {client.helmId && (
           <a href={`${helmUrl.replace(/\/+$/, "")}/clients/${client.helmId}`} target="_blank" rel="noreferrer"
             title="Open in Helm" className="rounded-lg border border-zinc-800 px-1.5 py-1 text-[11px] text-zinc-600 transition-colors hover:text-zinc-300">↗</a>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * A number you can edit in place. It commits on blur or Enter rather than on
+ * every keystroke, so typing "12000" is one save and not five.
+ */
+function MoneyField({ icon, value, title, label, busy, onSave }: {
+  icon: string; value: number | null; title: string; label: string; busy: boolean;
+  onSave: (next: number | null) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? (value === null || value === undefined ? "" : String(value));
+  const commit = () => {
+    if (draft === null) return;
+    const trimmed = draft.trim();
+    const next = trimmed === "" ? null : Number(trimmed.replace(/[^\d.-]/g, ""));
+    setDraft(null);
+    if (next !== null && !Number.isFinite(next)) return;
+    if (next === (value ?? null)) return;
+    onSave(next);
+  };
+  return (
+    <span title={title}
+      className={`hidden items-center gap-1 rounded-lg border px-1.5 py-1 text-[11px] tabular-nums lg:inline-flex ${draft === null ? "border-zinc-800 bg-zinc-950/60" : "border-blue-500/50 bg-blue-500/10"}`}>
+      <span aria-hidden>{icon}</span>
+      <input
+        aria-label={label}
+        value={shown}
+        disabled={busy}
+        inputMode="decimal"
+        placeholder="—"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") setDraft(null);
+        }}
+        className={`w-14 bg-transparent text-right tabular-nums focus:outline-none ${value === null && draft === null ? "text-zinc-700" : "text-zinc-200"}`}
+      />
+    </span>
   );
 }
 

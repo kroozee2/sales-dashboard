@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { fetchClientsUpstream, validateClientRange, type CalendarEvent } from "@/lib/clients";
+import { validateClientRange, type CalendarEvent } from "@/lib/clients";
+import { ROSTER_COLUMNS, helmDb, type HelmClientRow } from "@/lib/helm-clients";
+import { buildClientsPayload, type CallRow, type PortalRow } from "@/lib/helm-roster";
 import { CLIENT_CALL_TYPES } from "@/lib/call-lanes";
 
 export const runtime = "nodejs";
@@ -21,7 +23,7 @@ const db = () =>
 /**
  * Client and coaching calls are booked in the sales table but belong to
  * delivery, so they're pulled out of the sales pipeline and shown here next to
- * the group calls that come from Helm.
+ * the fulfilment calls on the client's own record.
  */
 async function clientCallEvents(range: { from: string; to: string }): Promise<CalendarEvent[]> {
   try {
@@ -57,39 +59,46 @@ export async function GET(request: Request) {
   const range = validateClientRange(new URL(request.url).searchParams);
   if (!range) return json({ error: "Use a valid from/to range of up to 124 inclusive days." }, 400);
 
-  const [result, ownCalls] = await Promise.all([
-    fetchClientsUpstream(range, {
-      base: process.env.HELM_SALESOS_URL,
-      secret: process.env.HELM_SALESOS_SECRET,
-    }),
-    clientCallEvents(range),
-  ]);
+  const [connection, ownCalls] = await Promise.all([helmDb(), clientCallEvents(range)]);
 
-  if (!result.ok) {
-    // Helm is the roster's source, but the client calls booked here live in our
-    // own table. A call moved out of the sales lane must still be somewhere, so
-    // serve those rather than an empty page.
-    if (ownCalls.length > 0) {
-      return json({
-        generatedAt: new Date().toISOString(),
-        dashboard: {
-          activeClients: 0, onboarding: 0, atRisk: 0, offTrack: 0, overdueContact: 0,
-          portalActive: 0, portalInvited: 0, upcoming7Days: 0, openSupport: 0, attention: [],
-        },
-        members: [],
-        calendar: ownCalls,
-        degraded: result.status === 503
-          ? "Client data connection is not configured — showing calls booked in Sales OS only."
-          : "Client data is temporarily unavailable — showing calls booked in Sales OS only.",
-      });
-    }
-    return result.status === 503
-      ? json({ error: "Client data connection is not configured." }, 503)
-      : json({ error: "Client data is temporarily unavailable." }, 502);
+  if (!connection.ok) {
+    // The roster is unreachable, but calls booked in Sales OS live in our own
+    // table. A call moved out of the sales lane must still be somewhere.
+    return json({
+      generatedAt: new Date().toISOString(),
+      dashboard: {
+        activeClients: 0, onboarding: 0, atRisk: 0, offTrack: 0, overdueContact: 0,
+        portalActive: 0, portalInvited: 0, upcoming7Days: 0, openSupport: 0, attention: [],
+      },
+      members: [],
+      calendar: ownCalls,
+      degraded: connection.reason === "auth"
+        ? "The client database rejected our sign-in — showing calls booked in Sales OS only."
+        : "The client database is not connected — showing calls booked in Sales OS only.",
+    });
   }
 
-  const calendar = [...result.payload.calendar, ...ownCalls].sort((a, b) =>
-    a.callDate.localeCompare(b.callDate),
+  const helm = connection.db;
+  const [clients, portal, calls, tickets] = await Promise.all([
+    helm.from("clients").select(ROSTER_COLUMNS).order("name", { ascending: true }),
+    helm.from("portal_accounts").select("client_id,last_login_at"),
+    helm.from("calls")
+      .select("id,title,client_id,call_date,starts_at,is_group,status,attended,attendee_name")
+      .gte("call_date", range.from)
+      .lte("call_date", range.to)
+      .order("call_date", { ascending: true }),
+    helm.from("support_tickets").select("id", { count: "exact", head: true }).is("resolved_at", null),
+  ]);
+
+  if (clients.error) return json({ error: "Client data is temporarily unavailable." }, 502);
+
+  const payload = buildClientsPayload(
+    (clients.data ?? []) as unknown as HelmClientRow[],
+    (portal.data ?? []) as PortalRow[],
+    (calls.data ?? []) as unknown as CallRow[],
+    tickets.count ?? 0,
   );
-  return json({ ...result.payload, calendar });
+
+  const calendar = [...payload.calendar, ...ownCalls].sort((a, b) => a.callDate.localeCompare(b.callDate));
+  return json({ ...payload, calendar });
 }

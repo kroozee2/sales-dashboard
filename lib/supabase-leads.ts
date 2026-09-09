@@ -2,16 +2,12 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_CALLS_URL!;
 const supabaseServiceKey = process.env.SUPABASE_CALLS_SERVICE_KEY!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY!;
 
-// Server-side client (with service key, bypasses RLS)
+// Server-side client. Everything that touches leads runs in a route handler, so
+// there is no browser-side client here; the one that existed was never called
+// and only served to keep the published anon key in reach.
 export function createLeadsAdminClient() {
   return createClient(supabaseUrl, supabaseServiceKey);
-}
-
-// Client-side client (with anon key)
-export function createLeadsAnonClient() {
-  return createClient(supabaseUrl, supabaseAnonKey);
 }
 
 export type Lead = {

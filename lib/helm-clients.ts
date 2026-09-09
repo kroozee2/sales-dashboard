@@ -140,5 +140,6 @@ export const ROSTER_FIELD_COLUMN: Record<string, string> = {
   deal_value: "deal_value",
   mrr: "mrr",
   start_date: "start_date",
+  last_contact_at: "last_contact_at",
   archived: "is_active",
 };

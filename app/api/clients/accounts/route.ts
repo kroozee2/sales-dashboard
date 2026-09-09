@@ -50,6 +50,13 @@ function cleanField(key: string, value: unknown): unknown {
     }
     return value;
   }
+  // A timestamp, not free text: "contacted today" writes a real instant.
+  if (key === "last_contact_at") {
+    if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+      throw new Error("last_contact_at must be a date");
+    }
+    return new Date(value).toISOString();
+  }
   if (typeof value !== "string") throw new Error(`${key} must be text`);
   if (value.length > MAX_TEXT) throw new Error(`${key} is too long`);
   return value.trim();

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ClientOnboarding, { RunbookDrawer, type Patch } from "@/components/client-onboarding";
+import ClientOnboarding, { type Patch } from "@/components/client-onboarding";
 import ClientMembers from "@/components/client-members";
+import ClientDetailDrawer from "@/components/client-detail-drawer";
 import { HEALTH_META, needsAttention, rosterCounts, statusToHealth } from "@/lib/client-roster";
 import {
   recentClients, sortByNewest,
@@ -355,12 +356,12 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
       ) : loading ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Loading client workspace">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />)}</div> : error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-10 text-center text-sm text-rose-200">{error}</div> : data ? <div className="transition">{view === "Dashboard" ? <Dashboard data={data} clients={merged} onOpen={setOpenClient} /> : view === "Members" ? <ClientMembers clients={merged} busyKey={busyKey} onPatch={patchClient} onOpen={setOpenClient} helmUrl={HELM_URL} /> : <Calendar month={month} setMonth={changeMonth} events={data.calendar} />}</div> : <Empty>No client data returned.</Empty>}
     </section>
     {openClient && (
-      <RunbookDrawer
+      <ClientDetailDrawer
+        key={openClient.key}
         client={merged.find((c) => c.key === openClient.key) ?? openClient}
-        busy={busyKey === openClient.key}
         onClose={() => setOpenClient(null)}
-        onStep={stepClient}
         onPatch={patchClient}
+        helmUrl={HELM_URL}
       />
     )}
     {data && <p className="text-right text-[11px] text-zinc-700">Updated {formatDate(data.generatedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>}

@@ -27,6 +27,30 @@ test("the sheet carries every column the board is for", () => {
   assert.match(board, /What it&apos;s for/);
 });
 
+test("the sheet shows when each funnel was created", () => {
+  assert.match(board, />Created</);
+  assert.match(board, /created_at: string \| null;/);
+  assert.match(board, /\{fmtDate\(f\.created_at\)\}/);
+});
+
+test("the board is split into live, paused and draft sections", () => {
+  assert.match(board, /const SECTION_ORDER = \["live", "paused", "draft"\]/);
+  assert.match(board, /function sections\(funnels: Funnel\[\]\)/);
+  // Every view groups, so switching view never loses the grouping.
+  assert.equal(board.match(/sections\(funnels\)\.map/g)?.length, 3);
+});
+
+test("a funnel with an unknown status still gets a section, never disappears", () => {
+  // Filtering to the three known statuses would silently drop a row.
+  assert.match(board, /!SECTION_ORDER\.includes\(k\)/);
+});
+
+test("created_at is read-only on the board", () => {
+  // It appears in the GET ordering, so scope the check to what PATCH accepts.
+  const editable = route.slice(route.indexOf("const EDITABLE"), route.indexOf("export async function PATCH"));
+  assert.doesNotMatch(editable, /created_at/, "the creation date is a fact, not a field to edit");
+});
+
 test("the follow-up switches write straight back", () => {
   assert.match(board, /onPatch\(f\.id, \{ followup_text: e\.target\.checked \}\)/);
   assert.match(board, /onPatch\(f\.id, \{ followup_email: e\.target\.checked \}\)/);

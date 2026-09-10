@@ -84,11 +84,11 @@ function LoginForm() {
           </div>
         </div>
         <h1 className="text-3xl xl:text-4xl font-bold tracking-tight leading-tight">
-          The command center for the whole business.
+          The whole business, on one screen.
         </h1>
         <p className="text-zinc-400 mt-3 leading-relaxed max-w-md">
-          Leads, calls, content, revenue and execution — one place, live, so nothing gets
-          worked twice and nothing slips.
+          Leads, calls, content, revenue and execution, live. Nothing gets worked
+          twice and nothing slips.
         </p>
         <div className="mt-8 space-y-3.5 max-w-md">
           {CAPABILITIES.map((c) => (

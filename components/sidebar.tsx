@@ -60,6 +60,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/partners", label: "Calendar", emoji: "📅", tab: "calendar", tabDefault: true, section: "Partners" },
   { href: "/partners?tab=calls", label: "List", emoji: "📋", tab: "calls", section: "Partners" },
   { href: "/partners?tab=data", label: "Dashboard", emoji: "📊", tab: "data", section: "Partners" },
+  { href: "/partners/referral-party", label: "Referral Party", emoji: "🎉", section: "Partners" },
 
   { href: "/revenue", label: "Dashboard", emoji: "📊", tab: "dashboard", tabDefault: true, section: "Finances" },
   { href: "/revenue?tab=sales", label: "Recent Sales", emoji: "🧾", tab: "sales", section: "Finances" },

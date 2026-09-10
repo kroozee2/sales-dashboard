@@ -24,7 +24,7 @@ import {
   type RosterFilter, type RosterView,
 } from "@/lib/client-roster";
 import {
-  EMPTY_CASH, money as cashMoney, MONTH_NAMES,
+  EMPTY_CASH, memberStage, money as cashMoney, MONTH_NAMES,
   type MemberCash, type MemberStage,
 } from "@/lib/member-numbers";
 
@@ -54,16 +54,25 @@ export default function ClientMembers({ clients, busyKey, onPatch, onOpen, helmU
   month?: number;
 }) {
   const [filter, setFilter] = useState<RosterFilter>("all");
-  // Opens on where everyone is, which is the question this screen answers.
-  const [view, setView] = useState<RosterView>("stage");
+  // Opens grouped by status, which is what this screen is read by.
+  const [view, setView] = useState<RosterView>("status");
   const [layout, setLayout] = useState<"list" | "gallery">("list");
   const [query, setQuery] = useState("");
 
   const counts = useMemo(() => rosterCounts(clients), [clients]);
   const filtered = useMemo(() => applyFilter(clients, filter, query), [clients, filter, query]);
+  /**
+   * Where a member sits, read off the row as it is right now.
+   *
+   * The payload carries a stage too, but it is a snapshot: change someone's
+   * status in this sheet and that snapshot is stale until the next fetch, so
+   * the row would sit in the wrong group until a reload. Reading the live row
+   * instead is what makes a status change move the member immediately.
+   */
   const stageOf = useMemo(
-    () => (client: MergedClient): MemberStage => extras?.get(client.key)?.stage ?? "on_track",
-    [extras],
+    () => (client: MergedClient): MemberStage =>
+      memberStage({ status: client.status, isActive: client.helm?.isActive ?? true }),
+    [],
   );
   // `now` is left undefined so groupRoster uses its own default, the way it
   // did before: calling new Date() here would be impure during render.

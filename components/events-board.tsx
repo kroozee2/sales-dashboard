@@ -24,11 +24,13 @@ const money = (n: number | null) => (n === null || n === 0 ? "—" : `$${n.toLoc
 const dayOf = (date: string | null) =>
   date ? new Date(`${date}T12:00`).toLocaleDateString("en-US", { weekday: "short", day: "numeric" }) : "—";
 
-export default function EventsBoard({ events, onPatch, onDelete, onAdd }: {
+export default function EventsBoard({ events, onPatch, onDelete, onAdd, onOpen }: {
   events: BoardEvent[];
   onPatch: (id: string, update: Partial<BoardEvent>) => void;
   onDelete: (event: BoardEvent) => void;
   onAdd: (monthKey: string) => void;
+  /** The full record — location, notes, the promo runway — which the row does not hold. */
+  onOpen: (event: BoardEvent) => void;
 }) {
   const [showPast, setShowPast] = useState(false);
 
@@ -97,7 +99,7 @@ export default function EventsBoard({ events, onPatch, onDelete, onAdd }: {
                 <th className="whitespace-nowrap px-3 py-2 text-right font-semibold">Goal</th>
                 <th className="w-40 whitespace-nowrap px-3 py-2 font-semibold">Spots left</th>
                 <th className="px-3 py-2 font-semibold">Link</th>
-                <th className="w-10 px-2 py-2" />
+                <th className="w-16 px-2 py-2" />
               </tr>
             </thead>
             {shown.map((group) => (
@@ -126,7 +128,7 @@ export default function EventsBoard({ events, onPatch, onDelete, onAdd }: {
                   </td>
                 </tr>
                 {group.events.map((event, index) => (
-                  <Row key={event.id} event={event} striped={index % 2 === 1} onPatch={onPatch} onDelete={onDelete} />
+                  <Row key={event.id} event={event} striped={index % 2 === 1} onPatch={onPatch} onDelete={onDelete} onOpen={onOpen} />
                 ))}
               </tbody>
             ))}
@@ -142,7 +144,7 @@ export default function EventsBoard({ events, onPatch, onDelete, onAdd }: {
                   </td>
                 </tr>
                 {loose.map((event, index) => (
-                  <Row key={event.id} event={event} striped={index % 2 === 1} onPatch={onPatch} onDelete={onDelete} />
+                  <Row key={event.id} event={event} striped={index % 2 === 1} onPatch={onPatch} onDelete={onDelete} onOpen={onOpen} />
                 ))}
               </tbody>
             )}
@@ -153,10 +155,11 @@ export default function EventsBoard({ events, onPatch, onDelete, onAdd }: {
   );
 }
 
-function Row({ event, striped, onPatch, onDelete }: {
+function Row({ event, striped, onPatch, onDelete, onOpen }: {
   event: BoardEvent; striped: boolean;
   onPatch: (id: string, update: Partial<BoardEvent>) => void;
   onDelete: (event: BoardEvent) => void;
+  onOpen: (event: BoardEvent) => void;
 }) {
   const seat = spots(event);
   const converts = isConversionEvent(event);
@@ -243,9 +246,12 @@ function Row({ event, striped, onPatch, onDelete }: {
           )}
         </div>
       </td>
-      <td className="px-2 py-1.5 text-center align-middle">
+      <td className="whitespace-nowrap px-2 py-1.5 text-center align-middle">
+        <button type="button" onClick={() => onOpen(event)} aria-label={`Open ${event.title}`}
+          title="Location, notes and the promo runway"
+          className="text-xs text-zinc-700 opacity-0 transition-opacity hover:text-blue-300 group-hover:opacity-100">✏️</button>
         <button type="button" onClick={() => onDelete(event)} aria-label={`Remove ${event.title}`}
-          className="text-xs text-zinc-700 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100">🗑</button>
+          className="ml-1 text-xs text-zinc-700 opacity-0 transition-opacity hover:text-rose-400 group-hover:opacity-100">🗑</button>
       </td>
     </tr>
   );

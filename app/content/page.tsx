@@ -1382,10 +1382,10 @@ function ProofTab({ proof, onChanged }: { proof: Proof[]; onChanged: () => void 
 // ─── POSTED tab (what actually went out — pulled from the platforms) ──────────
 
 // ─── EVENTS tab ───────────────────────────────────────────────────────────────
-function EventsTab({ events, onChanged, onEditEvent, onBumpEvent, onPatchEvent }: {
-  events: CEvent[]; onChanged: () => void; onEditEvent: (id: string) => void;
-  onBumpEvent: (id: string, next: number) => void;
+function EventsTab({ events, onChanged, onPatchEvent, onEditEvent }: {
+  events: CEvent[]; onChanged: () => void;
   onPatchEvent: (id: string, patch: Partial<CEvent>) => void;
+  onEditEvent: (id: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState(""); const [type, setType] = useState("free_webinar"); const [date, setDate] = useState(""); const [url, setUrl] = useState("");
@@ -1412,9 +1412,6 @@ function EventsTab({ events, onChanged, onEditEvent, onBumpEvent, onPatchEvent }
 
   return (
     <div className="space-y-4">
-      {/* Seat progress + one-tap signups — lives here now, not on the calendar */}
-      <UpcomingEventsTracker events={events} onEdit={onEditEvent} onBump={onBumpEvent} />
-
       <div className="flex items-center justify-between">
         <p className="text-white font-semibold text-sm">🎟️ Events & launch runways</p>
         <button onClick={() => setAdding((v) => !v)} className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold">{adding ? "Cancel" : "+ Add event"}</button>
@@ -1435,6 +1432,7 @@ function EventsTab({ events, onChanged, onEditEvent, onBumpEvent, onPatchEvent }
         onPatch={(id: string, update: Partial<BoardEvent>) => onPatchEvent(id, update as Partial<CEvent>)}
         onDelete={(event: BoardEvent) => void delEvent(event.id)}
         onAdd={(monthKey: string) => { setAdding(true); setDate(`${monthKey}-01`); }}
+        onOpen={(event: BoardEvent) => onEditEvent(event.id)}
       />
     </div>
   );
@@ -2037,52 +2035,6 @@ function SpotsBar({ pct, className = "" }: { pct: number; className?: string }) 
 }
 
 // Seat tracker shown on the Dashboard + Calendar. Click a card to edit in the sidebar.
-function UpcomingEventsTracker({ events, onEdit, onBump }: { events: CEvent[]; onEdit: (id: string) => void; onBump: (id: string, next: number) => void }) {
-  const upcoming = events.filter(isUpcomingEvent).sort((a, b) => ((a.start_date ?? "9999") < (b.start_date ?? "9999") ? -1 : 1));
-  if (upcoming.length === 0) return null;
-  return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-      <p className="text-white font-semibold text-sm mb-3">🎟️ Upcoming events <span className="text-zinc-600 font-normal">({upcoming.length})</span></p>
-      <div className="grid sm:grid-cols-2 gap-3">
-        {upcoming.map((ev) => {
-          const sp = eventSpots(ev);
-          return (
-            <div key={ev.id} className="bg-zinc-950/50 border border-zinc-800 hover:border-zinc-700 rounded-xl p-3.5 transition-colors">
-              <button onClick={() => onEdit(ev.id)} className="w-full text-left">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-white font-semibold text-sm leading-snug">{ev.title}</p>
-                  <span className="text-[11px] text-zinc-500 flex-shrink-0 whitespace-nowrap">{eventDayLabel(ev)}</span>
-                </div>
-              </button>
-              {sp.has ? (
-                <div className="mt-2.5">
-                  <button onClick={() => onEdit(ev.id)} className="w-full text-left">
-                    <div className="flex items-center justify-between text-[11px] mb-1">
-                      <span className="text-zinc-200 font-semibold">{sp.filled}/{sp.goal} spots <span className="text-zinc-500 font-normal">· {sp.pct}%</span></span>
-                      <span className="text-zinc-500">{sp.remaining} to fill</span>
-                    </div>
-                    <SpotsBar pct={sp.pct} />
-                  </button>
-                  {/* Quick stepper — bump the headcount without opening the editor */}
-                  <div className="flex items-center justify-end gap-2 mt-2.5">
-                    <button onClick={() => onBump(ev.id, Math.max(0, sp.filled - 1))} disabled={sp.filled <= 0}
-                      className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-zinc-300 text-base font-bold flex items-center justify-center leading-none">−</button>
-                    <span className="min-w-[2.75rem] text-center text-white font-bold tabular-nums text-sm">{sp.filled}</span>
-                    <button onClick={() => onBump(ev.id, sp.filled + 1)}
-                      className="px-3 h-7 rounded-lg bg-gradient-to-r from-blue-600 to-violet-600 hover:brightness-110 text-white text-xs font-bold flex items-center justify-center whitespace-nowrap">＋1 signup</button>
-                  </div>
-                </div>
-              ) : (
-                <button onClick={() => onEdit(ev.id)} className="text-zinc-600 text-[11px] mt-2 hover:text-zinc-300 transition-colors">Tap to set a seat goal →</button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // Click an event → edit everything (spots, dates, link, price…) here.
 function EventDrawer({ event, onClose, onPatch }: { event: CEvent; onClose: () => void; onPatch: (id: string, p: Partial<CEvent>) => Promise<CEvent | null> }) {
   const [form, setForm] = useState<CEvent>(event);
@@ -2394,8 +2346,6 @@ function ContentWorkspace() {
     if (j.event) { setEvents((prev) => prev.map((e) => (e.id === id ? j.event : e))); return j.event as CEvent; }
     return null;
   }, []);
-  // Quick headcount bump from a tracker card (absolute new signups value).
-  const bumpEvent = useCallback((id: string, next: number) => { void patchEvent(id, { signups: Math.max(0, next) }); }, [patchEvent]);
 
   const openItem = items.find((i) => i.id === openId) ?? null;
   const openEvent = events.find((e) => e.id === editEventId) ?? null;
@@ -2426,7 +2376,7 @@ function ContentWorkspace() {
           )}
           {tab === "ideas" && <IdeasTab ideas={ideas} onChanged={load} />}
           {tab === "proof" && <ProofTab proof={proof} onChanged={load} />}
-          {tab === "events" && <EventsTab events={events} onChanged={load} onEditEvent={setEditEventId} onBumpEvent={bumpEvent} onPatchEvent={(id, patch) => void patchEvent(id, patch)} />}
+          {tab === "events" && <EventsTab events={events} onChanged={load} onPatchEvent={(id, patch) => void patchEvent(id, patch)} onEditEvent={setEditEventId} />}
           {tab === "posted" && <PostedTab posted={posted} onChanged={loadPosted} />}
         </div>
 

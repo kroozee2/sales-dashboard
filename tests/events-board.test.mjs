@@ -141,3 +141,20 @@ test("every editable cell says what it is for a screen reader", () => {
     assert.ok(board.includes(label), `missing aria-label: ${label}`);
   }
 });
+
+test("the tab is the board, with no card strip above it", () => {
+  // The strip repeated what the board's Spots left column already says.
+  const page = readFileSync(new URL("../app/content/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(page, /UpcomingEventsTracker/);
+  assert.match(page, /<EventsBoard/);
+});
+
+test("the full record stays reachable from a row", () => {
+  // Location, notes and the promo runway live in the drawer, and removing the
+  // cards took away the only thing that opened it.
+  assert.match(board, /onOpen: \(event: BoardEvent\) => void/);
+  assert.match(board, /aria-label=\{`Open \$\{event\.title\}`\}/);
+  const page = readFileSync(new URL("../app/content/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /onOpen=\{\(event: BoardEvent\) => onEditEvent\(event\.id\)\}/);
+  assert.match(page, /onEditEvent=\{setEditEventId\}/, "the drawer needs something that opens it");
+});

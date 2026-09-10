@@ -5,7 +5,7 @@ import { PostedTab, type Posted } from "@/components/posted-table";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import GraphicsStudio from "@/components/graphics-studio";
-import YouTubeContentPlanner from "@/components/youtube-content-planner";
+import YouTubeSheet from "@/components/youtube-sheet";
 import YouTubePipeline, { type CreateItem, type PatchInput } from "@/components/youtube-pipeline";
 import YouTubeResearch from "@/components/youtube-research";
 import YouTubePerformanceTable from "@/components/youtube-performance-table";
@@ -26,7 +26,7 @@ type AnalyticsResponse = {
   };
   videos: YouTubeVideo[];
 };
-type PlannerItem = Parameters<typeof YouTubeContentPlanner>[0]["items"][number];
+type PlannerItem = Parameters<typeof YouTubeSheet>[0]["items"][number];
 
 const TABS: Array<{ key: Tab; label: string; icon: string }> = [
   { key: "create", label: "Create", icon: "✍️" },
@@ -104,7 +104,9 @@ export default function YouTubePage() {
     finally { setSyncing(false); }
   }
 
-  const [createView, setCreateView] = useState<"board" | "sheet">("board");
+  // The sheet opens first: it is the view that carries every stage at once,
+  // and the board only shows what is moving.
+  const [createView, setCreateView] = useState<"board" | "sheet">("sheet");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [createMessage, setCreateMessage] = useState<string | null>(null);
   const [openPackageId, setOpenPackageId] = useState<string | null>(null);
@@ -212,10 +214,11 @@ export default function YouTubePage() {
                   onOpenPackage={setOpenPackageId}
                 />
               ) : (
-                <YouTubeContentPlanner
+                <YouTubeSheet
                   items={items}
                   loading={contentLoading}
                   error={contentError}
+                  studioHref={analytics?.account?.url ? `${analytics.account.url.replace(/\/+$/, "")}/videos` : "https://studio.youtube.com/"}
                   onCreated={(item) => setItems((current) => [item, ...current])}
                   onUpdated={(item) => setItems((current) => current.map((candidate) => candidate.id === item.id ? item : candidate))}
                 />

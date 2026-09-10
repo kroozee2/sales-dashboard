@@ -1,5 +1,7 @@
 "use client";
 
+import EventsBoard from "@/components/events-board";
+import type { BoardEvent } from "@/lib/events-board";
 import { PostedTab } from "@/components/posted-table";
 import { MarketingDashboard } from "@/components/marketing-dashboard";
 
@@ -1380,7 +1382,11 @@ function ProofTab({ proof, onChanged }: { proof: Proof[]; onChanged: () => void 
 // ─── POSTED tab (what actually went out — pulled from the platforms) ──────────
 
 // ─── EVENTS tab ───────────────────────────────────────────────────────────────
-function EventsTab({ events, onChanged, onEditEvent, onBumpEvent }: { events: CEvent[]; onChanged: () => void; onEditEvent: (id: string) => void; onBumpEvent: (id: string, next: number) => void }) {
+function EventsTab({ events, onChanged, onEditEvent, onBumpEvent, onPatchEvent }: {
+  events: CEvent[]; onChanged: () => void; onEditEvent: (id: string) => void;
+  onBumpEvent: (id: string, next: number) => void;
+  onPatchEvent: (id: string, patch: Partial<CEvent>) => void;
+}) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState(""); const [type, setType] = useState("free_webinar"); const [date, setDate] = useState(""); const [url, setUrl] = useState("");
   const [promo, setPromo] = useState<{ eventId: string; items: { title: string; category: string; days_before: number; platforms: string[] }[]; picked: Set<number> } | null>(null);
@@ -1403,6 +1409,7 @@ function EventsTab({ events, onChanged, onEditEvent, onBumpEvent }: { events: CE
   }
   async function delEvent(id: string) { if (!confirm("Delete event?")) return; await fetch("/api/content/events", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }); onChanged(); }
 
+
   return (
     <div className="space-y-4">
       {/* Seat progress + one-tap signups — lives here now, not on the calendar */}
@@ -1423,49 +1430,12 @@ function EventsTab({ events, onChanged, onEditEvent, onBumpEvent }: { events: CE
           <button onClick={() => void addEvent()} disabled={!title.trim()} className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold disabled:opacity-40">Save event</button>
         </div>
       )}
-      {events.length === 0 ? <p className="text-zinc-600 text-sm text-center py-8">No events yet.</p> : (
-        <div className="space-y-3">
-          {events.map((ev) => (
-            <div key={ev.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-              <div className="flex items-start justify-between gap-3">
-                <button onClick={() => onEditEvent(ev.id)} className="text-left min-w-0 flex-1 group">
-                  <p className="text-white font-semibold text-sm group-hover:text-blue-300 transition-colors">{ev.title} <span className="text-zinc-600 font-normal">✏️</span></p>
-                  <p className="text-zinc-500 text-xs mt-0.5">{EVENT_TYPES.find((t) => t.key === ev.event_type)?.label}{ev.start_date ? ` · ${new Date(ev.start_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}{isUpcomingEvent(ev) ? ` · ${eventDayLabel(ev)}` : ""}</p>
-                </button>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={() => void genPromo(ev.id)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold disabled:opacity-40">{busy ? "Planning…" : "📣 Promo runway"}</button>
-                  <button onClick={() => void delEvent(ev.id)} className="text-zinc-600 hover:text-rose-400 text-xs">🗑</button>
-                </div>
-              </div>
-              {(() => { const sp = eventSpots(ev); return sp.has ? (
-                <button onClick={() => onEditEvent(ev.id)} className="w-full text-left mt-3">
-                  <div className="flex items-center justify-between text-[11px] mb-1">
-                    <span className="text-zinc-200 font-semibold">{sp.filled}/{sp.goal} spots <span className="text-zinc-500 font-normal">· {sp.pct}%</span></span>
-                    <span className="text-zinc-500">{sp.remaining} to fill</span>
-                  </div>
-                  <SpotsBar pct={sp.pct} />
-                </button>
-              ) : (
-                <button onClick={() => onEditEvent(ev.id)} className="mt-2 text-[11px] text-zinc-600 hover:text-zinc-300 transition-colors">＋ Set a seat goal</button>
-              ); })()}
-              {promo?.eventId === ev.id && (
-                <div className="mt-3 border-t border-zinc-800 pt-3 space-y-1.5">
-                  <p className="text-zinc-400 text-xs mb-1">Tick what to schedule, then add to calendar:</p>
-                  {promo.items.map((it, i) => (
-                    <label key={i} className="flex items-center gap-2 bg-zinc-950/50 border border-zinc-800 rounded-lg px-3 py-2 cursor-pointer">
-                      <input type="checkbox" checked={promo.picked.has(i)} onChange={() => setPromo((p) => { if (!p) return p; const s = new Set(p.picked); if (s.has(i)) s.delete(i); else s.add(i); return { ...p, picked: s }; })} className="accent-blue-500" />
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 flex-shrink-0">{it.days_before}d before</span>
-                      <span className="text-sm text-zinc-200 truncate flex-1">{it.title}</span>
-                      <span className="text-xs flex-shrink-0">{it.platforms.map(platformEmoji).join("")}</span>
-                    </label>
-                  ))}
-                  <button onClick={() => void addPicked()} className="mt-1 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold">🗓️ Add {promo.picked.size} to calendar</button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <EventsBoard
+        events={events as unknown as BoardEvent[]}
+        onPatch={(id: string, update: Partial<BoardEvent>) => onPatchEvent(id, update as Partial<CEvent>)}
+        onDelete={(event: BoardEvent) => void delEvent(event.id)}
+        onAdd={(monthKey: string) => { setAdding(true); setDate(`${monthKey}-01`); }}
+      />
     </div>
   );
 }
@@ -2456,7 +2426,7 @@ function ContentWorkspace() {
           )}
           {tab === "ideas" && <IdeasTab ideas={ideas} onChanged={load} />}
           {tab === "proof" && <ProofTab proof={proof} onChanged={load} />}
-          {tab === "events" && <EventsTab events={events} onChanged={load} onEditEvent={setEditEventId} onBumpEvent={bumpEvent} />}
+          {tab === "events" && <EventsTab events={events} onChanged={load} onEditEvent={setEditEventId} onBumpEvent={bumpEvent} onPatchEvent={(id, patch) => void patchEvent(id, patch)} />}
           {tab === "posted" && <PostedTab posted={posted} onChanged={loadPosted} />}
         </div>
 

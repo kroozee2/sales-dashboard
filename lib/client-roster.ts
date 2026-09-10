@@ -6,6 +6,7 @@
 // Kept pure so the rules can be checked without a browser.
 
 import type { MergedClient } from "@/lib/client-accounts";
+import { MEMBER_STAGES, type MemberStage } from "@/lib/member-numbers";
 
 export type Health = "good" | "watch" | "risk" | "idle";
 
@@ -61,9 +62,12 @@ export const ROSTER_FILTERS: { key: RosterFilter; label: string }[] = [
 ];
 
 /** Ordering, and whether the list is grouped. Separate from who shows. */
-export type RosterView = "az" | "newest" | "status" | "contact" | "calls" | "value" | "program";
+export type RosterView = "stage" | "az" | "newest" | "status" | "contact" | "calls" | "value" | "program";
 
 export const ROSTER_VIEWS: { key: RosterView; label: string; hint: string }[] = [
+  // First, and the default: where each member is in onboarding is the question
+  // this screen gets opened to answer.
+  { key: "stage", label: "🚦 Onboarding stage", hint: "Grouped by where they are" },
   { key: "az", label: "🔤 A–Z", hint: "Alphabetical" },
   { key: "newest", label: "🆕 Newest", hint: "Most recently started first" },
   { key: "status", label: "🚦 Status", hint: "Grouped by health" },
@@ -113,7 +117,27 @@ const time = (value: string | null | undefined) => (value ? Date.parse(value) ||
  * Order the roster, grouping only for Status and Program where a heading tells
  * you something a sort order cannot.
  */
-export function groupRoster(clients: MergedClient[], view: RosterView, now = new Date()): RosterGroup[] {
+export function groupRoster(
+  clients: MergedClient[],
+  view: RosterView,
+  now: Date = new Date(),
+  /**
+   * Where each member is in onboarding. Passed in rather than computed here
+   * because it needs the Portal signals, which live on the payload and not on
+   * the client row. Without it the stage view falls back to alphabetical.
+   */
+  stageOf?: (client: MergedClient) => MemberStage,
+): RosterGroup[] {
+  if (view === "stage" && stageOf) {
+    return MEMBER_STAGES
+      .map((stage) => ({
+        key: stage.key,
+        label: `${stage.emoji} ${stage.label}`,
+        clients: clients.filter((client) => stageOf(client) === stage.key).sort(byName),
+      }))
+      .filter((group) => group.clients.length > 0);
+  }
+
   if (view === "status") {
     const order: Health[] = ["risk", "watch", "good", "idle"];
     return order

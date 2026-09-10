@@ -137,3 +137,28 @@ test("days since handles both date shapes and refuses nonsense", () => {
   assert.equal(daysSince("not a date", localNow), null);
   assert.equal(daysSince("2026-09-20", localNow), 0, "a future date is not negative days");
 });
+
+test("the stage view groups by where each member is in onboarding", () => {
+  const rows = [
+    client({ name: "Zoe", status: "🚀 On-Track" }),
+    client({ name: "Ada", status: "📆 Onboarding Booked" }),
+    client({ name: "Bea", status: "❌ At Risk" }),
+    client({ name: "Cal", status: "🚀 On-Track" }),
+  ];
+  const stageOf = (c) => ({ Zoe: "on_track", Ada: "not_started", Bea: "at_risk", Cal: "on_track" })[c.name];
+  const groups = groupRoster(rows, "stage", NOW, stageOf);
+  // Ordered the way the work flows, not alphabetically by group name.
+  assert.deepEqual(groups.map((g) => g.label), [
+    "🆕 Not started onboarding", "🚀 On-Track", "❌ At Risk",
+  ]);
+  // Empty stages are dropped rather than shown as headings with nothing under them.
+  assert.equal(groups.some((g) => g.clients.length === 0), false);
+  assert.deepEqual(groups.find((g) => g.label.includes("On-Track")).clients.map((c) => c.name), ["Cal", "Zoe"]);
+});
+
+test("the stage view falls back to one list when nothing can say the stage", () => {
+  const rows = [client({ name: "Ada" }), client({ name: "Zoe" })];
+  const groups = groupRoster(rows, "stage", NOW);
+  assert.equal(groups.length, 1, "no resolver means no grouping, not an empty screen");
+  assert.deepEqual(groups[0].clients.map((c) => c.name), ["Ada", "Zoe"]);
+});

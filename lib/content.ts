@@ -268,3 +268,89 @@ day is 1-28. Spread categories across the month. No drafts needed, just the plan
   const raw = await complete(system, `Plan content for ${input.monthName}.`, 6000);
   return parseJson<{ items: PlannedItem[] }>(raw).items;
 }
+
+// ─── Reel scripts: Hook / Show / CTA ──────────────────────────────────────────
+//
+// The one format Andrew films from. The rules here are not stylistic
+// preferences, they are the pattern he modelled off reels that worked: the
+// hook lands with his face on camera, the finished thing is shown before it is
+// explained, and every beat is one line to say against one thing on screen.
+export interface DraftedReelScript {
+  hook: string;
+  steps: { say: string; show: string }[];
+  cta: string;
+  cta_kind: "follow" | "skool";
+}
+
+const REEL_SCRIPT_RULES = `THE FORMAT — exactly three sections, no others:
+
+HOOK
+- One or two sentences. Never more.
+- States the result, the gap, or the contrarian take immediately. It does not tease.
+- Patterns that work: the blind spot ("barely anybody is talking about this"), the gap ("everybody shows you X, nobody shows you Y"), the personal win, the numbered list, the killer ("this just replaced..."), the result ("I did X in Y minutes. Let me show you exactly how.").
+- Write ONE hook. Not three. Not options.
+
+SHOW
+- A list of beats. Each beat is one short spoken line and one thing on screen.
+- If there is a finished thing to show (a dashboard, a system, an output), show it FIRST, before explaining how it was built. The beat that does this says "But first, here's what it actually looks like."
+- After the showcase, a beat that returns to his face and says "Okay. Here's how I built it."
+- Then the steps. Each "say" is ONE short sentence, active voice. Each "show" is one specific thing on screen.
+- Between 4 and 9 beats. Cut anything that can be cut.
+
+CALL TO ACTION
+- One line. Choose based on depth: a full system or tool walkthrough drives to Skool, a quick tip drives to follow.
+- follow: "Follow me for more daily AI tips for coaches and consultants."
+- skool: "Join my AI for Coaches and Consultants community on Skool. Link is in my bio."
+- Use those two lines verbatim. Set cta_kind to match.`;
+
+export async function generateReelScript(input: {
+  title: string;
+  category: Category;
+  sourceNote?: string | null;
+  hookSoFar?: string | null;
+  notes?: string | null;
+}): Promise<DraftedReelScript> {
+  const system = `You write Instagram Reel scripts for Andrew Kroeze, and he films them word for word.
+
+${ANDREW_CONTEXT}
+
+${VOICE}
+
+${CATEGORY_FRAMING[input.category]}
+
+${REEL_SCRIPT_RULES}
+
+Return JSON only, no prose around it:
+{"hook":"...","steps":[{"say":"...","show":"..."}],"cta":"...","cta_kind":"follow"}`;
+
+  const parts = [`REEL IDEA:\n${input.title}`];
+  // A modelled post is structure to borrow, never words to copy. Say so
+  // explicitly or the model lifts the competitor's phrasing wholesale.
+  if (input.sourceNote) {
+    parts.push(
+      `WE ARE MODELLING THIS POST:\n${input.sourceNote}\n` +
+      `Model the STRUCTURE and the angle that made it work. Do not reuse their wording. ` +
+      `The hook must be Andrew's, about Andrew's business.`
+    );
+  }
+  if (input.hookSoFar) parts.push(`ANDREW ALREADY STARTED THIS HOOK, keep his angle:\n${input.hookSoFar}`);
+  if (input.notes) parts.push(`WHAT HE WANTS COVERED:\n${input.notes}`);
+
+  const raw = await complete(system, parts.join("\n\n"), 2000);
+  const draft = parseJson<Partial<DraftedReelScript>>(raw);
+
+  const steps = Array.isArray(draft.steps)
+    ? draft.steps
+        .filter((s): s is { say: string; show: string } => Boolean(s) && typeof s === "object")
+        .map((s) => ({ say: String(s.say ?? "").trim(), show: String(s.show ?? "").trim() }))
+        .filter((s) => s.say || s.show)
+    : [];
+  const ctaKind = draft.cta_kind === "skool" ? "skool" : "follow";
+
+  return {
+    hook: String(draft.hook ?? "").trim(),
+    steps,
+    cta: String(draft.cta ?? "").trim(),
+    cta_kind: ctaKind,
+  };
+}

@@ -3,7 +3,7 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-// What the Sales OS actually is — shown beside the form so a new teammate
+// What the AI Command Center actually is — shown beside the form so a new teammate
 // signing in for the first time knows what they've been handed.
 const CAPABILITIES = [
   { emoji: "🎯", title: "Leads & Messages", body: "Every lead, and every GoHighLevel conversation, in one inbox." },
@@ -74,11 +74,12 @@ function LoginForm() {
       {/* Left: what this is */}
       <div className="hidden lg:flex flex-col justify-center px-12 xl:px-20 border-r border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-950">
         <div className="flex items-center gap-3 mb-8">
-          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 grid place-items-center shadow-lg">
-            <span className="text-base font-extrabold">7F</span>
+          <div className="relative h-12 w-12 overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500 via-indigo-500 to-violet-600 grid place-items-center shadow-lg shadow-violet-950/50 ring-1 ring-white/15">
+            <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/30 to-transparent" />
+            <span className="relative text-base font-black tracking-[-0.05em]">7F</span>
           </div>
           <div>
-            <p className="text-xl font-bold tracking-tight">Sales <span className="text-blue-400">OS</span></p>
+            <p className="text-xl font-bold tracking-tight whitespace-nowrap"><span className="text-blue-400">AI</span> Command Center</p>
             <p className="text-[11px] tracking-[0.25em] text-zinc-600 uppercase">7-Figure CEO</p>
           </div>
         </div>
@@ -107,11 +108,12 @@ function LoginForm() {
         <div className="w-full max-w-sm mx-auto">
           {/* compact brand for phones */}
           <div className="flex lg:hidden items-center gap-2.5 mb-8">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 grid place-items-center">
-              <span className="text-sm font-extrabold">7F</span>
+            <div className="relative h-10 w-10 overflow-hidden rounded-xl bg-gradient-to-br from-blue-500 via-indigo-500 to-violet-600 grid place-items-center ring-1 ring-white/15">
+              <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/30 to-transparent" />
+              <span className="relative text-sm font-black tracking-[-0.05em]">7F</span>
             </div>
             <div>
-              <p className="font-bold tracking-tight">Sales <span className="text-blue-400">OS</span></p>
+              <p className="font-bold tracking-tight whitespace-nowrap"><span className="text-blue-400">AI</span> Command Center</p>
               <p className="text-[10px] tracking-[0.25em] text-zinc-600 uppercase">7-Figure CEO</p>
             </div>
           </div>

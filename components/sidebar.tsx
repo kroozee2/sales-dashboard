@@ -75,6 +75,9 @@ const NAV_ITEMS: NavItem[] = [
 
   { href: "/team", label: "Team", emoji: "👥", section: "Team" },
   { href: "/playbook", label: "Playbook", emoji: "📋", section: "Team" },
+  { href: "/team/sales-training", label: "Sales Training", emoji: "🎓", section: "Team" },
+  { href: "/team/dm-training", label: "DM Training", emoji: "💬", section: "Team" },
+  { href: "/team/messages", label: "Messages", emoji: "✉️", section: "Team" },
   { href: "/resources", label: "Resources", emoji: "🎁", match: ["/two-step"], section: "Team" },
   { href: "/install", label: "Install App", emoji: "📲" },
 ];

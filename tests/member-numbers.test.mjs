@@ -4,46 +4,55 @@ import {
   EMPTY_CASH, MEMBER_STAGES, buildMemberCash, cashTotals, currentPeriod, memberStage, money,
 } from "../lib/member-numbers.ts";
 
-const stage = (over = {}) => memberStage({
-  status: "🚀 On-Track", isActive: true, portalStatus: "active", hasCashGoal: true, ...over,
+const stage = (over = {}) => memberStage({ status: "🚀 On-Track", isActive: true, ...over });
+
+/* ── Stage: the status you set decides, and nothing overrides it ────────── */
+
+test("each status Helm offers maps to its own group", () => {
+  assert.equal(stage({ status: "🆕 Not Started" }), "not_started");
+  assert.equal(stage({ status: "📆 Onboarding Booked" }), "onboarding");
+  assert.equal(stage({ status: "🚀 On-Track" }), "on_track");
+  assert.equal(stage({ status: "🚊 Off-Track" }), "off_track");
+  assert.equal(stage({ status: "❌ At Risk" }), "at_risk");
+  assert.equal(stage({ status: "👋 Off-Boarded" }), "off_boarded");
 });
 
-/* ── Stage ─────────────────────────────────────────────────────────────── */
+test("Not Started is not swallowed by the onboarding match", () => {
+  // Both contain a word the other test looks for, so order matters here.
+  assert.equal(stage({ status: "🆕 Not Started" }), "not_started");
+  assert.equal(stage({ status: "Not-Started" }), "not_started");
+  assert.equal(stage({ status: "📆 Onboarding Booked" }), "onboarding");
+});
 
-test("a definite status wins over anything derived", () => {
-  assert.equal(stage({ status: "❌ At Risk" }), "at_risk");
-  assert.equal(stage({ status: "🚊 Off-Track" }), "off_track");
-  assert.equal(stage({ status: "👋 Off-Boarded" }), "off_boarded");
-  assert.equal(stage({ status: "🚀 On-Track" }), "on_track");
+test("Portal activity never overrides the status that was set", () => {
+  // The bug this replaces: a member deliberately set to Not Started used to be
+  // filed under Onboarding because they had once logged in.
+  assert.equal(stage({ status: "🆕 Not Started", portalStatus: "active", hasCashGoal: true }), "not_started");
+  assert.equal(stage({ status: "📆 Onboarding Booked", portalStatus: "not_invited", hasCashGoal: false }), "onboarding");
+  assert.equal(stage({ status: "🚀 On-Track", portalStatus: "not_invited", hasCashGoal: false }), "on_track");
 });
 
 test("an inactive member is off-boarded whatever the status says", () => {
   assert.equal(stage({ status: "🚀 On-Track", isActive: false }), "off_boarded");
+  assert.equal(stage({ status: "❌ At Risk", isActive: false }), "off_boarded");
 });
 
-test("onboarding splits on whether they have actually done anything", () => {
-  const base = { status: "📆 Onboarding Booked" };
-  // Never logged in, no numbers set: they have not started.
-  assert.equal(stage({ ...base, portalStatus: "not_invited", hasCashGoal: false }), "not_started");
-  assert.equal(stage({ ...base, portalStatus: "invited", hasCashGoal: false }), "not_started");
-  // Either signal is enough to count as under way.
-  assert.equal(stage({ ...base, portalStatus: "active", hasCashGoal: false }), "onboarding");
-  assert.equal(stage({ ...base, portalStatus: "invited", hasCashGoal: true }), "onboarding");
+test("a status we do not recognise reads as on track rather than vanishing", () => {
+  assert.equal(stage({ status: "Something someone typed" }), "on_track");
+  assert.equal(stage({ status: null }), "on_track");
+  assert.equal(stage({ status: "" }), "on_track");
 });
 
-test("an active member who was never invited and set nothing has not started", () => {
-  assert.equal(stage({ status: "🚀 On-Track", portalStatus: "not_invited", hasCashGoal: false }), "not_started");
+test("matching ignores case and the emoji in front", () => {
+  assert.equal(stage({ status: "at risk" }), "at_risk");
+  assert.equal(stage({ status: "OFF-TRACK" }), "off_track");
+  assert.equal(stage({ status: "off boarded" }), "off_boarded");
 });
 
-test("an invited member with no goals is still on track, not reset to not started", () => {
-  // Being invited is something we did, not something they did — but it is not
-  // enough on its own to drag an On-Track member backwards.
-  assert.equal(stage({ status: "🚀 On-Track", portalStatus: "invited", hasCashGoal: false }), "on_track");
-});
-
-test("a missing status does not crash and lands somewhere sensible", () => {
-  assert.equal(stage({ status: null, portalStatus: "active", hasCashGoal: true }), "on_track");
-  assert.equal(stage({ status: null, portalStatus: "not_invited", hasCashGoal: false }), "not_started");
+test("the groups run in the order the list is worked", () => {
+  assert.deepEqual(MEMBER_STAGES.map((s) => s.key), [
+    "not_started", "onboarding", "at_risk", "off_track", "on_track", "off_boarded",
+  ]);
 });
 
 test("every stage the deriver can return has display metadata", () => {

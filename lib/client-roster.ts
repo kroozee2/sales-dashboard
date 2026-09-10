@@ -62,15 +62,13 @@ export const ROSTER_FILTERS: { key: RosterFilter; label: string }[] = [
 ];
 
 /** Ordering, and whether the list is grouped. Separate from who shows. */
-export type RosterView = "stage" | "az" | "newest" | "status" | "contact" | "calls" | "value" | "program";
+export type RosterView = "status" | "az" | "newest" | "contact" | "calls" | "value" | "program";
 
 export const ROSTER_VIEWS: { key: RosterView; label: string; hint: string }[] = [
-  // First, and the default: where each member is in onboarding is the question
-  // this screen gets opened to answer.
-  { key: "stage", label: "🚦 Onboarding stage", hint: "Grouped by where they are" },
+  // First, and the default: the status you set is what this screen is read by.
+  { key: "status", label: "🚦 Status", hint: "Grouped by the status you set" },
   { key: "az", label: "🔤 A–Z", hint: "Alphabetical" },
   { key: "newest", label: "🆕 Newest", hint: "Most recently started first" },
-  { key: "status", label: "🚦 Status", hint: "Grouped by health" },
   { key: "contact", label: "⏳ Last contact", hint: "Longest since you spoke, first" },
   { key: "calls", label: "🎥 Calls", hint: "Fewest calls attended first" },
   { key: "value", label: "💰 Value", hint: "Biggest deal first" },
@@ -128,7 +126,7 @@ export function groupRoster(
    */
   stageOf?: (client: MergedClient) => MemberStage,
 ): RosterGroup[] {
-  if (view === "stage" && stageOf) {
+  if (view === "status" && stageOf) {
     return MEMBER_STAGES
       .map((stage) => ({
         key: stage.key,
@@ -138,6 +136,8 @@ export function groupRoster(
       .filter((group) => group.clients.length > 0);
   }
 
+  // Fallback when no resolver was supplied: the four coarse health buckets.
+  // The Members sheet always passes one, so this is what other callers get.
   if (view === "status") {
     const order: Health[] = ["risk", "watch", "good", "idle"];
     return order

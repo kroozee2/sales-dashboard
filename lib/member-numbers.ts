@@ -18,11 +18,14 @@ export type MemberStage =
   | "not_started" | "onboarding" | "on_track" | "off_track" | "at_risk" | "off_boarded";
 
 export const MEMBER_STAGES: { key: MemberStage; label: string; emoji: string; chip: string; dot: string }[] = [
+  // Ordered the way Andrew works the list: the people who have not got going
+  // sit at the very top, then whoever is in trouble, and the members who are
+  // fine are last because they are the ones who need nothing today.
   { key: "not_started", label: "Not started onboarding", emoji: "🆕", chip: "border-amber-500/40 bg-amber-500/10 text-amber-200", dot: "#f59e0b" },
   { key: "onboarding", label: "Onboarding booked", emoji: "📆", chip: "border-sky-500/40 bg-sky-500/10 text-sky-200", dot: "#38bdf8" },
-  { key: "on_track", label: "On-Track", emoji: "🚀", chip: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200", dot: "#10b981" },
-  { key: "off_track", label: "Off-Track", emoji: "🚊", chip: "border-orange-500/40 bg-orange-500/10 text-orange-200", dot: "#fb923c" },
   { key: "at_risk", label: "At Risk", emoji: "❌", chip: "border-rose-500/40 bg-rose-500/10 text-rose-200", dot: "#f43f5e" },
+  { key: "off_track", label: "Off-Track", emoji: "🚊", chip: "border-orange-500/40 bg-orange-500/10 text-orange-200", dot: "#fb923c" },
+  { key: "on_track", label: "On-Track", emoji: "🚀", chip: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200", dot: "#10b981" },
   { key: "off_boarded", label: "Off-Boarded", emoji: "👋", chip: "border-zinc-700 bg-zinc-800 text-zinc-400", dot: "#71717a" },
 ];
 
@@ -38,30 +41,33 @@ export interface StageInput {
   status: string | null;
   isActive: boolean;
   /** "not_invited" | "invited" | "active" — from portal_accounts. */
-  portalStatus: string | null;
+  portalStatus?: string | null;
   /** True when they have set at least one monthly cash goal in the Portal. */
-  hasCashGoal: boolean;
+  hasCashGoal?: boolean;
 }
 
 /**
  * Which bucket a member belongs in.
  *
- * Status wins wherever it says something definite. "Not started" is only
- * reached by an active member whose status has not moved off onboarding AND
- * who has done nothing in the Portal — never logged in, never set a number.
- * Someone mid-onboarding who has already set their goals is further along than
- * someone who has not, and the sheet should say so.
+ * The status you set decides, and nothing else overrides it. Helm's own
+ * vocabulary already has all six values, "🆕 Not Started" included, so a
+ * derived guess can only ever disagree with what someone deliberately chose:
+ * setting a member to Not Started and watching them file under Onboarding
+ * because they once logged into the Portal is worse than no grouping at all.
+ *
+ * The one thing status cannot say is whether an active member has actually
+ * done anything, and the row already shows that without regrouping them: the
+ * 📱 chip is unticked and the 🎯 goal reads as a dash.
  */
 export function memberStage(member: StageInput): MemberStage {
-  if (has(member.status, "off-board", "offboard") || !member.isActive) return "off_boarded";
+  if (!member.isActive) return "off_boarded";
+  // Spaced, hyphenated and joined, the same way off-track is matched below.
+  if (has(member.status, "off-board", "off board", "offboard")) return "off_boarded";
   if (has(member.status, "risk")) return "at_risk";
   if (has(member.status, "off-track", "off track")) return "off_track";
-
-  const untouched = member.portalStatus !== "active" && !member.hasCashGoal;
-  if (has(member.status, "onboard", "not started")) return untouched ? "not_started" : "onboarding";
-  // An active member who has never opened the Portal or set a number has not
-  // really started, whatever the status says.
-  if (untouched && member.portalStatus === "not_invited") return "not_started";
+  // Checked before "onboard" so "🆕 Not Started" is not swallowed by it.
+  if (has(member.status, "not started", "not-started")) return "not_started";
+  if (has(member.status, "onboard")) return "onboarding";
   return "on_track";
 }
 

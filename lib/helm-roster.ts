@@ -182,12 +182,7 @@ export function buildClientsPayload(
       const client = toMergedClient(row);
       const cash = cashByClient.get(row.id) ?? EMPTY_CASH;
       const portalStatus = !account ? "not_invited" : account.last_login_at ? "active" : "invited";
-      const stage: MemberStage = memberStage({
-        status: row.status,
-        isActive: row.is_active ?? false,
-        portalStatus,
-        hasCashGoal: cash.monthsSet > 0,
-      });
+      const stage: MemberStage = memberStage({ status: row.status, isActive: row.is_active ?? false });
       return {
         id: row.id,
         name: client.name,

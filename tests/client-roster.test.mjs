@@ -138,7 +138,7 @@ test("days since handles both date shapes and refuses nonsense", () => {
   assert.equal(daysSince("2026-09-20", localNow), 0, "a future date is not negative days");
 });
 
-test("the stage view groups by where each member is in onboarding", () => {
+test("the Status view groups by the status set on each member", () => {
   const rows = [
     client({ name: "Zoe", status: "🚀 On-Track" }),
     client({ name: "Ada", status: "📆 Onboarding Booked" }),
@@ -146,19 +146,21 @@ test("the stage view groups by where each member is in onboarding", () => {
     client({ name: "Cal", status: "🚀 On-Track" }),
   ];
   const stageOf = (c) => ({ Zoe: "on_track", Ada: "not_started", Bea: "at_risk", Cal: "on_track" })[c.name];
-  const groups = groupRoster(rows, "stage", NOW, stageOf);
+  const groups = groupRoster(rows, "status", NOW, stageOf);
   // Ordered the way the work flows, not alphabetically by group name.
+  // Not started at the very top, then trouble, then the people who are fine.
   assert.deepEqual(groups.map((g) => g.label), [
-    "🆕 Not started onboarding", "🚀 On-Track", "❌ At Risk",
+    "🆕 Not started onboarding", "❌ At Risk", "🚀 On-Track",
   ]);
   // Empty stages are dropped rather than shown as headings with nothing under them.
   assert.equal(groups.some((g) => g.clients.length === 0), false);
   assert.deepEqual(groups.find((g) => g.label.includes("On-Track")).clients.map((c) => c.name), ["Cal", "Zoe"]);
 });
 
-test("the stage view falls back to one list when nothing can say the stage", () => {
-  const rows = [client({ name: "Ada" }), client({ name: "Zoe" })];
-  const groups = groupRoster(rows, "stage", NOW);
-  assert.equal(groups.length, 1, "no resolver means no grouping, not an empty screen");
-  assert.deepEqual(groups[0].clients.map((c) => c.name), ["Ada", "Zoe"]);
+test("without a resolver the Status view falls back to the coarse health buckets", () => {
+  // Other callers get the old four-bucket grouping; only the Members sheet
+  // passes a resolver and gets the six real statuses.
+  const rows = [client({ name: "Ada", status: "❌ At Risk" }), client({ name: "Zoe", status: "🚀 On-Track" })];
+  const groups = groupRoster(rows, "status", NOW);
+  assert.deepEqual(groups.map((g) => g.label), ["At Risk", "On Track"]);
 });

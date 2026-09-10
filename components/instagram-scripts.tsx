@@ -263,7 +263,10 @@ export function InstagramScripts() {
       {/* ── Glance ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Stat label="Scripts" value={String(counts.total)} tone="text-white" />
-        <Stat label="Ready to shoot" value={String(counts.shootable)} tone="text-emerald-400" />
+        {/* Distinct from the "Ready to shoot" status below: this counts scripts
+            that actually have all three sections written, whatever Andrew set
+            the status to. Sharing the label made the row read as a duplicate. */}
+        <Stat label="Fully written" value={String(counts.shootable)} tone="text-emerald-400" />
         {SCRIPT_STATUSES.slice(1).map((status) => (
           <Stat key={status.key} label={status.label} value={String(counts.byStatus[status.key] ?? 0)} tone="text-zinc-300" />
         ))}

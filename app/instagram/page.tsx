@@ -638,7 +638,7 @@ export default function InstagramPage() {
         </div>
 
         {/* Tab Selection */}
-        <div className="flex items-center gap-2 mt-8 pt-4 border-t border-zinc-800/80">
+        <div className="flex items-center gap-2 mt-8 pt-4 border-t border-zinc-800/80 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {[
             { key: "ideas", label: "💡 Ideas" },
             { key: "scripts", label: "📝 Scripts" },
@@ -653,7 +653,7 @@ export default function InstagramPage() {
               key={t.key}
               onClick={() => setTab(t.key as Tab)}
               className={cn(
-                "px-4 py-2.5 rounded-xl text-xs font-bold transition-all border",
+                "shrink-0 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border",
                 tab === t.key
                   ? "bg-pink-500/20 border-pink-500/40 text-pink-200 shadow-md shadow-pink-500/10"
                   : "bg-zinc-900/50 border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900"

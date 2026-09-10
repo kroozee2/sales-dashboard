@@ -46,8 +46,17 @@ export interface CalendarEvent {
   source: string | null;
 }
 
+/** The money picture that Helm's Dashboards draws. Absent when unavailable. */
+export interface GrowthSummary {
+  months: { key: string; label: string; cash: number; newRevenue: number; nps: number | null; checkIns: number }[];
+  compliance: { submitted: number; expected: number; pct: number };
+  recency: { label: string; count: number; tone: "good" | "watch" | "risk" }[];
+  averageNps: number | null;
+}
+
 export interface ClientsPayload {
   generatedAt: string;
+  growth?: GrowthSummary;
   dashboard: {
     activeClients: number;
     onboarding: number;

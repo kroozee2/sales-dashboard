@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ClientOnboarding, { type Patch } from "@/components/client-onboarding";
 import ClientMembers from "@/components/client-members";
 import ClientDetailDrawer from "@/components/client-detail-drawer";
+import ClientGrowth from "@/components/client-growth";
 import { HEALTH_META, needsAttention, rosterCounts, statusToHealth } from "@/lib/client-roster";
 import {
   recentClients, sortByNewest,
@@ -119,6 +120,7 @@ function Dashboard({ data, clients, onOpen }: { data: ClientsPayload; clients: M
   const recurring = clients.reduce((sum, c) => sum + (c.mrr ?? 0), 0);
 
   return <div className="space-y-5">
+    {data.growth && <ClientGrowth growth={data.growth} />}
     {/* The three fulfilment numbers, each against the number it should hit */}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <KpiTile icon="🤝" label="Contacted ≤ 14d" value={`${contactPct}%`} target="> 85%" good={contactPct >= 85}

@@ -9,18 +9,36 @@
 // This gathers the sections that carry real data. Pure, so the shaping can be
 // checked without a database.
 
+/**
+ * The sections, in Helm's order. Helm reads as one running page with a sticky
+ * pill nav that jumps between sections and lights up as you scroll, rather than
+ * tabs that hide everything you are not looking at. Same list, same order, so
+ * moving between the two apps does not mean relearning the screen.
+ */
 export const DETAIL_TABS = [
   { id: "overview", label: "Overview", icon: "📋" },
-  { id: "calls", label: "Calls", icon: "📞" },
-  { id: "todos", label: "To-dos", icon: "✅" },
-  { id: "checkins", label: "Check-ins", icon: "📈" },
-  { id: "goals", label: "Cash", icon: "🎯" },
+  { id: "graphics", label: "Graphics", icon: "🎨" },
+  { id: "goals", label: "Goals", icon: "🎯" },
   { id: "projects", label: "Projects", icon: "🗂️" },
   { id: "proof", label: "Proof", icon: "⭐️" },
   { id: "onboarding", label: "Onboarding", icon: "🎬" },
+  { id: "todos", label: "To-dos", icon: "✅" },
+  { id: "calls", label: "Calls", icon: "📞" },
+  { id: "checkins", label: "Check-ins", icon: "📈" },
 ] as const;
 
 export type DetailTab = (typeof DETAIL_TABS)[number]["id"];
+
+/** The welcome kit and headshot, which Helm shows and Sales OS did not carry. */
+export type ClientGraphics = {
+  headshotUrl: string | null;
+  welcomeSquareUrl: string | null;
+  welcomeStoryUrl: string | null;
+  welcomeMessage: string | null;
+  welcomeCaption: string | null;
+  skoolUrl: string | null;
+  socials: Record<string, string> | null;
+};
 
 export type CallRecord = {
   id: string; title: string | null; callDate: string | null; startsAt: string | null;
@@ -51,6 +69,7 @@ export type TicketRecord = {
 };
 
 export type ClientDetail = {
+  graphics: ClientGraphics;
   calls: CallRecord[];
   todos: TodoRecord[];
   checkIns: CheckInRecord[];
@@ -61,7 +80,13 @@ export type ClientDetail = {
   notes: { id: string; body: string; category: string | null; pinned: boolean; createdAt: string | null }[];
 };
 
+export const EMPTY_GRAPHICS: ClientGraphics = {
+  headshotUrl: null, welcomeSquareUrl: null, welcomeStoryUrl: null,
+  welcomeMessage: null, welcomeCaption: null, skoolUrl: null, socials: null,
+};
+
 export const EMPTY_DETAIL: ClientDetail = {
+  graphics: EMPTY_GRAPHICS,
   calls: [], todos: [], checkIns: [], cashGoals: [], projects: [], proof: [], tickets: [], notes: [],
 };
 
@@ -195,6 +220,27 @@ export function shapeProof(proofRows: Row[], testimonialRows: Row[]): ProofRecor
   );
 }
 
+/** Only real links survive: an empty string is not a graphic. */
+export function shapeGraphics(row: Row | null | undefined): ClientGraphics {
+  if (!row) return EMPTY_GRAPHICS;
+  const socials = row.socials && typeof row.socials === "object" && !Array.isArray(row.socials)
+    ? Object.fromEntries(
+        Object.entries(row.socials as Record<string, unknown>)
+          .map(([k, v]) => [k, text(v) ?? ""])
+          .filter(([, v]) => v),
+      )
+    : null;
+  return {
+    headshotUrl: text(row.headshot_url),
+    welcomeSquareUrl: text(row.welcome_square_url),
+    welcomeStoryUrl: text(row.welcome_story_url),
+    welcomeMessage: text(row.welcome_message),
+    welcomeCaption: text(row.welcome_caption),
+    skoolUrl: text(row.skool_url),
+    socials: socials && Object.keys(socials).length ? socials : null,
+  };
+}
+
 export function shapeTickets(rows: Row[]): TicketRecord[] {
   return byDateDesc(
     rows.map((r) => ({
@@ -226,8 +272,10 @@ export function shapeNotes(rows: Row[]) {
 
 /** How many rows each tab would show, so an empty tab can say so up front. */
 export function tabCounts(detail: ClientDetail): Record<DetailTab, number> {
+  const g = detail.graphics;
   return {
     overview: detail.notes.length,
+    graphics: [g.headshotUrl, g.welcomeSquareUrl, g.welcomeStoryUrl].filter(Boolean).length,
     calls: detail.calls.length,
     todos: detail.todos.filter((t) => !t.done).length,
     checkins: detail.checkIns.length,

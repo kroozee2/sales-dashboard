@@ -9,10 +9,10 @@ import { AIAssistant } from "@/components/AIAssistant";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "7-Figure CEO Sales OS",
+  title: "7-Figure CEO AI Command Center",
   description: "Close more deals through DMs and calls. Leads, scripts, revenue, and your AI team in one place.",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "Sales OS", statusBarStyle: "black-translucent" },
+  appleWebApp: { capable: true, title: "Command Center", statusBarStyle: "black-translucent" },
   icons: {
     icon: [
       { url: "/icon-192.png", sizes: "192x192", type: "image/png" },

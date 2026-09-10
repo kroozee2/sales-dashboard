@@ -31,10 +31,10 @@ export default function InstallPage() {
       {/* Header */}
       <div className="flex items-center gap-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/icon-512-rounded.png" alt="Sales OS icon" className="w-16 h-16 rounded-2xl shadow-lg flex-shrink-0" />
+        <img src="/icon-512-rounded.png" alt="AI Command Center icon" className="w-16 h-16 rounded-2xl shadow-lg flex-shrink-0" />
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Install Sales OS</h1>
-          <p className="text-zinc-500 text-sm mt-0.5">Put <span className="text-blue-400 font-semibold">Sales OS</span> on your home screen — full-screen, one tap from your phone, no app store needed.</p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Install the Command Center</h1>
+          <p className="text-zinc-500 text-sm mt-0.5">Put the <span className="text-blue-400 font-semibold">AI Command Center</span> on your home screen — full-screen, one tap from your phone, no app store needed.</p>
         </div>
       </div>
 
@@ -55,7 +55,7 @@ export default function InstallPage() {
               <p className="text-zinc-500 text-xs mb-4">Point your phone camera at this code, then follow the steps to install.</p>
               <div className="bg-white rounded-xl p-4 grid place-items-center">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={QR_SRC} alt="QR code to open Sales OS" className="w-full max-w-[260px]" />
+                <img src={QR_SRC} alt="QR code to open the AI Command Center" className="w-full max-w-[260px]" />
               </div>
               <p className="text-zinc-600 text-[11px] text-center mt-3 break-all">{APP_URL}</p>
             </div>
@@ -82,7 +82,7 @@ export default function InstallPage() {
                 </ol>
               </div>
               <div className="rounded-xl bg-zinc-800/60 border border-zinc-700 p-3 text-xs text-zinc-400 leading-relaxed">
-                Once installed, Sales OS opens full-screen with no browser bar — leads, calls, scripts, revenue, and your AI team, one tap away.
+                Once installed, the Command Center opens full-screen with no browser bar — leads, calls, scripts, revenue, and your AI team, one tap away.
               </div>
             </div>
           </div>

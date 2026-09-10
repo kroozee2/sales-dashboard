@@ -136,18 +136,52 @@ export function BottomNav() {
   );
 }
 
+/**
+ * The mark. Three layers do the work a flat gradient square cannot: the
+ * gradient itself, a hairline ring that keeps the edge from dissolving into a
+ * dark sidebar, and a top-down highlight that reads as light falling on a
+ * physical tile. The coloured shadow is the same violet as the gradient's end,
+ * so the tile looks lit rather than pasted on.
+ */
+export function BrandMark({ size = "md" }: { size?: "sm" | "md" }) {
+  const box = size === "sm" ? "h-7 w-7 rounded-[9px]" : "h-9 w-9 rounded-[11px]";
+  const type = size === "sm" ? "text-[10px]" : "text-[13px]";
+  return (
+    <span
+      className={`relative grid ${box} shrink-0 place-items-center overflow-hidden bg-gradient-to-br from-blue-500 via-indigo-500 to-violet-600 shadow-lg shadow-violet-950/50 ring-1 ring-white/15 transition-transform duration-200 ease-out group-hover:scale-[1.04]`}
+    >
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/30 to-transparent" />
+      <span className={`relative ${type} font-black leading-none tracking-[-0.05em] text-white`}>7F</span>
+    </span>
+  );
+}
+
+/**
+ * "AI" carries the accent colour the way "OS" used to, so the eye still lands
+ * on the same spot after the rename.
+ */
+export function BrandWordmark({ className = "" }: { className?: string }) {
+  return (
+    <span className={`block whitespace-nowrap font-bold tracking-tight text-white ${className}`}>
+      <span className="text-blue-400">AI</span> Command Center
+    </span>
+  );
+}
+
 function Brand() {
   return (
-    <Link href="/home" className="flex items-center gap-2.5 px-5 py-5">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg">
-        <span className="text-sm font-extrabold text-white tracking-tight">7F</span>
-      </div>
-      <div className="leading-tight">
-        <div className="text-sm font-bold text-white tracking-tight">
-          Sales <span className="text-blue-400">OS</span>
-        </div>
-        <div className="text-[10px] tracking-[0.25em] text-zinc-600 uppercase">7-Figure CEO</div>
-      </div>
+    <Link
+      href="/home"
+      aria-label="AI Command Center, home"
+      className="group flex items-center gap-3 px-5 py-5 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+    >
+      <BrandMark />
+      <span className="min-w-0 leading-tight">
+        <BrandWordmark className="text-[13.5px]" />
+        <span className="mt-0.5 block text-[9px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+          7-Figure CEO
+        </span>
+      </span>
     </Link>
   );
 }
@@ -297,11 +331,9 @@ export function Sidebar() {
       {/* Mobile top bar */}
       <div className="lg:hidden sticky top-0 z-50 flex items-center justify-between px-4 h-14 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800">
         <button onClick={() => setOpen(true)} className="text-2xl text-zinc-300 leading-none -ml-1 px-1">☰</button>
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-600">
-            <span className="text-[10px] font-extrabold text-white">7F</span>
-          </div>
-          <span className="text-sm font-bold text-white">Sales <span className="text-blue-400">OS</span></span>
+        <div className="group flex items-center gap-2">
+          <BrandMark size="sm" />
+          <BrandWordmark className="text-[13px]" />
         </div>
         <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
           <span className="text-xs font-bold text-white">AK</span>

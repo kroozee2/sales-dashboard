@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "7-Figure CEO Sales OS",
-    short_name: "Sales OS",
+    name: "7-Figure CEO AI Command Center",
+    short_name: "Command Center",
     description: "Close more deals through DMs and calls. Leads, scripts, revenue, and your AI team in one place.",
     start_url: "/home",
     display: "standalone",

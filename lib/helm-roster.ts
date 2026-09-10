@@ -13,6 +13,10 @@ import {
   type Compliance, type MonthPoint, type RecencyBand,
 } from "./client-dashboard.ts";
 import { toMergedClient, type HelmClientRow } from "./helm-clients.ts";
+import {
+  EMPTY_CASH, buildMemberCash, memberStage,
+  type CashGoalRow, type MemberStage,
+} from "./member-numbers.ts";
 
 export type PortalRow = { client_id: string | null; last_login_at: string | null };
 export type CheckInRow = Record<string, unknown> & { client_id?: string | null };
@@ -99,6 +103,12 @@ export function buildClientsPayload(
   calls: CallRow[],
   openTickets: number,
   now = new Date(),
+  /**
+   * The numbers members set for themselves in the Mastermind Portal. Optional
+   * so a Helm-only caller keeps working; members simply carry no cash then.
+   */
+  cashGoals: CashGoalRow[] = [],
+  checkIns: CheckInRow[] = [],
 ): ClientsPayload {
   const stamp = now.getTime();
   // Off-boarded clients are history, not roster. Every count below is of people
@@ -107,6 +117,9 @@ export function buildClientsPayload(
 
   const portalByClient = new Map<string, PortalRow>();
   for (const account of portal) if (account.client_id) portalByClient.set(account.client_id, account);
+
+  // This calendar month, from the same clock the rest of the payload uses.
+  const cashByClient = buildMemberCash(cashGoals, checkIns, now.getFullYear(), now.getMonth() + 1);
 
   const nameById = new Map(rows.map((row) => [row.id, row.name ?? "Client"]));
 
@@ -167,6 +180,14 @@ export function buildClientsPayload(
     members: rows.map((row) => {
       const account = portalByClient.get(row.id);
       const client = toMergedClient(row);
+      const cash = cashByClient.get(row.id) ?? EMPTY_CASH;
+      const portalStatus = !account ? "not_invited" : account.last_login_at ? "active" : "invited";
+      const stage: MemberStage = memberStage({
+        status: row.status,
+        isActive: row.is_active ?? false,
+        portalStatus,
+        hasCashGoal: cash.monthsSet > 0,
+      });
       return {
         id: row.id,
         name: client.name,
@@ -179,7 +200,9 @@ export function buildClientsPayload(
         startDate: row.start_date,
         lastContactAt: row.last_contact_at,
         headshotUrl: row.headshot_url,
-        portalStatus: !account ? "not_invited" : account.last_login_at ? "active" : "invited",
+        portalStatus,
+        stage,
+        cash,
         portalLastLogin: account?.last_login_at ?? null,
         callsAttended: calls.filter((call) => call.client_id === row.id && (call.attended ?? 0) > 0).length,
         lastCallAt: null,

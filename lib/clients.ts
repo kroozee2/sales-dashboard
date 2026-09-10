@@ -1,3 +1,5 @@
+import type { MemberCash, MemberStage } from "@/lib/member-numbers";
+
 export const CLIENT_TABS = ["Dashboard", "New", "Members", "Calendar"] as const;
 export type ClientTab = (typeof CLIENT_TABS)[number];
 export type MemberFilter = "All active" | "Onboarding" | "At Risk" | "Off-Track" | "Off-boarded";
@@ -21,6 +23,10 @@ export interface ClientMember {
   callsAttended: number;
   lastCallAt: string | null;
   aiNextAction: string | null;
+  /** Where they are in onboarding. Derived on read; see lib/member-numbers. */
+  stage: MemberStage;
+  /** The cash goals they set in the Mastermind Portal, and this month's actual. */
+  cash: MemberCash;
 }
 
 export interface ClientAttention {
@@ -212,15 +218,31 @@ function count(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100_000;
 }
 
+const MEMBER_STAGE_KEYS = ["not_started", "onboarding", "on_track", "off_track", "at_risk", "off_boarded"];
+
+/** Money can be null (never set) or any finite number, including a deliberate 0. */
+function nullableMoney(value: unknown): boolean {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isCash(value: unknown): value is MemberCash {
+  if (!record(value) || !exactKeys(value, ["yearGoal", "monthsSet", "monthGoal", "monthActual", "monthPct"])) return false;
+  return nullableMoney(value.yearGoal) && count(value.monthsSet)
+    && nullableMoney(value.monthGoal) && nullableMoney(value.monthActual)
+    && (value.monthPct === null || count(value.monthPct));
+}
+
 function isMember(value: unknown): value is ClientMember {
-  if (!record(value) || !exactKeys(value, ["id", "name", "email", "phone", "status", "membership", "isActive", "phase", "startDate", "lastContactAt", "headshotUrl", "portalStatus", "portalLastLogin", "callsAttended", "lastCallAt", "aiNextAction"])) return false;
+  if (!record(value) || !exactKeys(value, ["id", "name", "email", "phone", "status", "membership", "isActive", "phase", "startDate", "lastContactAt", "headshotUrl", "portalStatus", "portalLastLogin", "callsAttended", "lastCallAt", "aiNextAction", "stage", "cash"])) return false;
   return text(value.id, 200) && text(value.name, 300) && nullableText(value.email, 320) && nullableText(value.phone, 80)
     && nullableText(value.status, 120) && nullableText(value.membership, 200) && typeof value.isActive === "boolean"
     && nullableText(value.phase, 120) && (value.startDate === null || dateOnly(value.startDate))
     && nullableTimestamp(value.lastContactAt) && nullableText(value.headshotUrl, 2_000)
     && ["not_invited", "invited", "active"].includes(String(value.portalStatus))
     && nullableTimestamp(value.portalLastLogin) && count(value.callsAttended) && nullableTimestampOrDate(value.lastCallAt)
-    && nullableText(value.aiNextAction, 2_000);
+    && nullableText(value.aiNextAction, 2_000)
+    && MEMBER_STAGE_KEYS.includes(String(value.stage))
+    && isCash(value.cash);
 }
 
 function isAttention(value: unknown): value is ClientAttention {

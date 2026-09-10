@@ -23,6 +23,10 @@ import {
   groupRoster, rosterCounts, statusToHealth,
   type RosterFilter, type RosterView,
 } from "@/lib/client-roster";
+import {
+  EMPTY_CASH, money as cashMoney, MONTH_NAMES,
+  type MemberCash, type MemberStage,
+} from "@/lib/member-numbers";
 
 const money = (n: number | null) =>
   n === null || n === undefined ? "—" : n >= 1000 ? `$${Math.round(n / 1000)}k` : `$${Math.round(n)}`;
@@ -35,21 +39,35 @@ const mailLink = (e: string | null) => (e ? `mailto:${e}` : undefined);
 
 export type Patch = Record<string, unknown>;
 
-export default function ClientMembers({ clients, busyKey, onPatch, onOpen, helmUrl }: {
+/** What the roster row cannot know on its own: stage, and the Portal numbers. */
+export interface MemberExtra { stage: MemberStage; cash: MemberCash }
+
+export default function ClientMembers({ clients, busyKey, onPatch, onOpen, helmUrl, extras, month }: {
   clients: MergedClient[];
   busyKey: string | null;
   onPatch: (client: MergedClient, patch: Patch) => void;
   onOpen: (client: MergedClient) => void;
   helmUrl: string;
+  /** Keyed by the client's id, which is the same id the payload uses. */
+  extras?: Map<string, MemberExtra>;
+  /** 1-12, the month the cash columns are showing. */
+  month?: number;
 }) {
   const [filter, setFilter] = useState<RosterFilter>("all");
-  const [view, setView] = useState<RosterView>("az");
+  // Opens on where everyone is, which is the question this screen answers.
+  const [view, setView] = useState<RosterView>("stage");
   const [layout, setLayout] = useState<"list" | "gallery">("list");
   const [query, setQuery] = useState("");
 
   const counts = useMemo(() => rosterCounts(clients), [clients]);
   const filtered = useMemo(() => applyFilter(clients, filter, query), [clients, filter, query]);
-  const groups = useMemo(() => groupRoster(filtered, view), [filtered, view]);
+  const stageOf = useMemo(
+    () => (client: MergedClient): MemberStage => extras?.get(client.key)?.stage ?? "on_track",
+    [extras],
+  );
+  // `now` is left undefined so groupRoster uses its own default, the way it
+  // did before: calling new Date() here would be impure during render.
+  const groups = useMemo(() => groupRoster(filtered, view, undefined, stageOf), [filtered, view, stageOf]);
   const shown = groups.reduce((sum, group) => sum + group.clients.length, 0);
 
   const programs = useMemo(() => {
@@ -133,7 +151,8 @@ export default function ClientMembers({ clients, busyKey, onPatch, onOpen, helmU
               <div className="divide-y divide-zinc-800/70">
                 {group.clients.map((client) => (
                   <Row key={client.key} client={client} programs={programs} busy={busyKey === client.key}
-                    onPatch={onPatch} onOpen={() => onOpen(client)} helmUrl={helmUrl} />
+                    onPatch={onPatch} onOpen={() => onOpen(client)} helmUrl={helmUrl}
+                    cash={extras?.get(client.key)?.cash ?? EMPTY_CASH} month={month} />
                 ))}
               </div>
             </section>
@@ -141,6 +160,77 @@ export default function ClientMembers({ clients, busyKey, onPatch, onOpen, helmU
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The three numbers a member sets for themselves in the Mastermind Portal.
+ *
+ * A dash means they have not set it, which is not the same as zero and is the
+ * thing worth chasing. The year goal carries how many of the twelve months it
+ * covers, because a "$60K year" built from three filled-in months is not a
+ * year's goal yet.
+ */
+function CashChip({ icon, value, muted, tone, title, suffix }: {
+  icon: string; value: string; muted: boolean; tone?: string; title: string; suffix?: string;
+}) {
+  return (
+    <span title={title}
+      className={`inline-flex items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900/60 px-1.5 py-1 text-[11px] font-semibold tabular-nums ${muted ? "text-zinc-600" : tone ?? "text-zinc-300"}`}>
+      <span aria-hidden>{icon}</span>{value}
+      {suffix && <span className="text-[10px] font-normal text-zinc-500">{suffix}</span>}
+    </span>
+  );
+}
+
+/**
+ * The three numbers a member sets for themselves in the Mastermind Portal.
+ *
+ * A dash means they have not set it, which is not the same as zero and is the
+ * thing worth chasing. The year goal carries how many of the twelve months it
+ * covers, because a "$60K year" built from three filled-in months is not a
+ * year's goal yet.
+ *
+ * These stay visible at every width, unlike the older Glance chips that hide
+ * below lg: they are the reason this screen gets opened now, so losing them on
+ * a laptop would defeat the point. The row already wraps, so they drop onto a
+ * second line on a phone rather than overflowing.
+ */
+function CashCells({ cash, month, name }: { cash: MemberCash; month?: number; name: string }) {
+  const monthName = month ? MONTH_NAMES[month - 1] : "This month";
+  const pct = cash.monthPct;
+  const tone = pct === null ? "text-zinc-300"
+    : pct >= 100 ? "text-emerald-300"
+      : pct >= 60 ? "text-amber-300" : "text-rose-300";
+
+  return (
+    <>
+      <CashChip
+        icon="🎯"
+        value={cashMoney(cash.yearGoal)}
+        muted={cash.yearGoal === null}
+        suffix={cash.monthsSet > 0 && cash.monthsSet < 12 ? `${cash.monthsSet}/12` : undefined}
+        title={cash.yearGoal === null
+          ? `${name} has not set a cash goal in the Portal`
+          : `${name}'s goal for the year — the sum of the ${cash.monthsSet} month${cash.monthsSet === 1 ? "" : "s"} they have filled in`}
+      />
+      <CashChip
+        icon="📅"
+        value={cashMoney(cash.monthGoal)}
+        muted={cash.monthGoal === null}
+        title={cash.monthGoal === null ? `No ${monthName} goal set` : `${monthName} goal`}
+      />
+      <CashChip
+        icon="💵"
+        value={cashMoney(cash.monthActual)}
+        muted={cash.monthActual === null}
+        tone={tone}
+        suffix={pct === null ? undefined : `${pct}%`}
+        title={cash.monthActual === null
+          ? `${name} has not submitted a ${monthName} check-in`
+          : `${monthName} cash collected${pct === null ? "" : ` — ${pct}% of goal`}`}
+      />
+    </>
   );
 }
 
@@ -183,11 +273,13 @@ function Avatar({ name, src, size = 40 }: { name: string; src: string | null; si
   );
 }
 
-function Row({ client, programs, busy, onPatch, onOpen, helmUrl }: {
+function Row({ client, programs, busy, onPatch, onOpen, helmUrl, cash, month }: {
   client: MergedClient; programs: string[]; busy: boolean;
   onPatch: (client: MergedClient, patch: Patch) => void;
   onOpen: () => void;
   helmUrl: string;
+  cash: MemberCash;
+  month?: number;
 }) {
   const health = statusToHealth(client.status);
   const gap = daysSince(client.helm?.lastContactAt ?? null);
@@ -216,6 +308,7 @@ function Row({ client, programs, busy, onPatch, onOpen, helmUrl }: {
       </button>
 
       <div className="flex flex-shrink-0 flex-wrap items-center gap-1.5 pl-[52px] sm:pl-0">
+        <CashCells cash={cash} month={month} name={client.name} />
         <Glance icon="🎥" value={String(client.helm?.callsAttended ?? 0)} muted={!client.helm?.callsAttended}
           title={client.helm ? `${client.helm.callsAttended} calls attended` : "Helm has no call data"} />
         <MoneyField icon="💰" value={client.dealValue} busy={busy} title="Contract value"

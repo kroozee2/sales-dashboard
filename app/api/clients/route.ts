@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { validateClientRange, type CalendarEvent } from "@/lib/clients";
 import { ROSTER_COLUMNS, helmDb, type HelmClientRow } from "@/lib/helm-clients";
 import { buildClientsPayload, buildGrowth, type CallRow, type CheckInRow, type PortalRow } from "@/lib/helm-roster";
+import type { CashGoalRow } from "@/lib/member-numbers";
 import { CLIENT_CALL_TYPES } from "@/lib/call-lanes";
 
 export const runtime = "nodejs";
@@ -79,7 +80,7 @@ export async function GET(request: Request) {
   }
 
   const helm = connection.db;
-  const [clients, portal, calls, tickets, checkIns] = await Promise.all([
+  const [clients, portal, calls, tickets, checkIns, cashGoals] = await Promise.all([
     helm.from("clients").select(ROSTER_COLUMNS).order("name", { ascending: true }),
     helm.from("portal_accounts").select("client_id,last_login_at"),
     helm.from("calls")
@@ -90,6 +91,10 @@ export async function GET(request: Request) {
     helm.from("support_tickets").select("id", { count: "exact", head: true }).is("resolved_at", null),
     // Every check-in, because the money charts are across the whole book.
     helm.from("check_ins").select("client_id,month_label,month_date,cash_collected,new_revenue,nps,sales_calls_booked").limit(2000),
+    // The cash goals members set for themselves in the Mastermind Portal. One
+    // row per member per month; there is no annual column, so the year is the
+    // sum of the months they have filled in.
+    helm.from("client_cash_goals").select("client_id,year,month,goal").limit(5000),
   ]);
 
   if (clients.error) return json({ error: "Client data is temporarily unavailable." }, 502);
@@ -99,6 +104,9 @@ export async function GET(request: Request) {
     (portal.data ?? []) as PortalRow[],
     (calls.data ?? []) as unknown as CallRow[],
     tickets.count ?? 0,
+    new Date(),
+    (cashGoals.data ?? []) as CashGoalRow[],
+    (checkIns.data ?? []) as CheckInRow[],
   );
 
   const calendar = [...payload.calendar, ...ownCalls].sort((a, b) => a.callDate.localeCompare(b.callDate));

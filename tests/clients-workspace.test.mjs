@@ -16,7 +16,10 @@ const member = (overrides = {}) => ({
   id: "active", name: "Zoe", email: null, phone: null, status: "🚀 On-Track", membership: null,
   isActive: true, phase: null, startDate: null, lastContactAt: "2026-09-04T12:00:00Z",
   headshotUrl: null, portalStatus: "active", portalLastLogin: null, callsAttended: 0,
-  lastCallAt: null, aiNextAction: null, ...overrides,
+  lastCallAt: null, aiNextAction: null,
+  stage: "on_track",
+  cash: { yearGoal: null, monthsSet: 0, monthGoal: null, monthActual: null, monthPct: null },
+  ...overrides,
 });
 
 const members = [
@@ -69,6 +72,25 @@ test("SalesOS proxy rejects malformed or oversized nested Helm payloads", () => 
   assert.equal(isClientsPayload({ ...payload, calendar: [{ callDate: 7 }] }), false);
   assert.equal(isClientsPayload({ ...payload, dashboard: { ...payload.dashboard, activeClients: Number.NaN } }), false);
   assert.equal(isClientsPayload({ ...payload, members: Array.from({ length: 1001 }, () => member()) }), false);
+});
+
+test("a member's stage and Portal cash numbers are validated too", () => {
+  assert.equal(isClientsPayload({ ...payload, members: [member({ stage: "not_started" })] }), true);
+  assert.equal(isClientsPayload({ ...payload, members: [member({ stage: "made_up" })] }), false);
+  assert.equal(isClientsPayload({ ...payload, members: [member({ cash: null })] }), false);
+  // A real set of numbers, including a deliberate zero month.
+  assert.equal(isClientsPayload({ ...payload, members: [member({
+    cash: { yearGoal: 60000, monthsSet: 12, monthGoal: 0, monthActual: 4500, monthPct: 0 },
+  })] }), true);
+  // Missing a key, or carrying one we do not know, is refused rather than ignored.
+  assert.equal(isClientsPayload({ ...payload, members: [member({ cash: { yearGoal: 1 } })] }), false);
+  assert.equal(isClientsPayload({ ...payload, members: [member({
+    cash: { yearGoal: null, monthsSet: 0, monthGoal: null, monthActual: null, monthPct: null, extra: 1 },
+  })] }), false);
+  // Money must be a real number; a string out of a bad payload is not money.
+  assert.equal(isClientsPayload({ ...payload, members: [member({
+    cash: { yearGoal: "60000", monthsSet: 0, monthGoal: null, monthActual: null, monthPct: null },
+  })] }), false);
 });
 
 test("month changes clear stale payloads before the next range loads", () => {

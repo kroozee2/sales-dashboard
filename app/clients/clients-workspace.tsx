@@ -260,6 +260,21 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
   // One list, from one table. There is no merge any more: a client is a single
   // row that Sales OS, Helm and the Mastermind Portal all read and write.
   const merged = useMemo(() => sortByNewest(roster), [roster]);
+
+  // Stage and the Portal cash numbers come from the payload, not the roster
+  // table, so the Members sheet is handed them keyed by client id.
+  const memberExtras = useMemo(
+    () => new Map((data?.members ?? []).map((m) => [m.id, { stage: m.stage, cash: m.cash }])),
+    [data],
+  );
+
+  // The month the cash numbers are FOR is the server's month, not whichever
+  // month the calendar is browsing. Taken from the payload's own clock so the
+  // column heading can never disagree with the numbers under it.
+  const cashMonth = useMemo(() => {
+    const at = data?.generatedAt ? Date.parse(data.generatedAt) : NaN;
+    return Number.isNaN(at) ? undefined : new Date(at).getMonth() + 1;
+  }, [data]);
   const newest = useMemo(() => recentClients(merged, windowDays), [merged, windowDays]);
 
   const applyClient = (client: MergedClient) =>
@@ -355,7 +370,7 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
             onPatch={patchClient} onCreate={createClient} onStep={stepClient} />
           {error && <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">Helm is unreachable, so only clients tracked in Sales OS are listed. {error}</p>}
         </div>
-      ) : loading ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Loading client workspace">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />)}</div> : error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-10 text-center text-sm text-rose-200">{error}</div> : data ? <div className="transition">{view === "Dashboard" ? <Dashboard data={data} clients={merged} onOpen={setOpenClient} /> : view === "Members" ? <ClientMembers clients={merged} busyKey={busyKey} onPatch={patchClient} onOpen={setOpenClient} helmUrl={HELM_URL} /> : <Calendar month={month} setMonth={changeMonth} events={data.calendar} />}</div> : <Empty>No client data returned.</Empty>}
+      ) : loading ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Loading client workspace">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />)}</div> : error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-10 text-center text-sm text-rose-200">{error}</div> : data ? <div className="transition">{view === "Dashboard" ? <Dashboard data={data} clients={merged} onOpen={setOpenClient} /> : view === "Members" ? <ClientMembers clients={merged} busyKey={busyKey} onPatch={patchClient} onOpen={setOpenClient} helmUrl={HELM_URL} extras={memberExtras} month={cashMonth} /> : <Calendar month={month} setMonth={changeMonth} events={data.calendar} />}</div> : <Empty>No client data returned.</Empty>}
     </section>
     {openClient && (
       <ClientDetailDrawer

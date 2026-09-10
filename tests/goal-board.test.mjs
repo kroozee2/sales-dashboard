@@ -13,6 +13,7 @@ import {
   autoValue,
   goalMonths,
   isAutoSource,
+  mergeLiveYears,
 } from "../lib/goal-board.ts";
 
 // Wed 2026-09-16 at midnight — exactly 15 of September's 30 days gone, so
@@ -251,4 +252,61 @@ test("closed goals do not count towards anything still in play", () => {
   assert.equal(board.counts.open, 1);
   assert.equal(board.counts.week, 1);
   assert.equal(board.counts.closed, 1);
+});
+
+// ─── Content and units sources ───────────────────────────────────────────────
+
+const CONTENT_LIVE = {
+  cashByMonth: {},
+  callsByMonth: {},
+  reelsByMonth: { "2026-08": 7, "2026-09": 6 },
+  youtubeByMonth: { "2026-08": 6, "2026-09": 3 },
+  unitsByMonth: { "2026-08": 4, "2026-09": 2 },
+};
+
+test("a content goal reads the table that matches its source", () => {
+  const september = { period: "monthly", target_date: "2026-09-30" };
+  assert.equal(autoValue({ ...september, source: "instagram_reels" }, CONTENT_LIVE, {}, NOW), 6);
+  assert.equal(autoValue({ ...september, source: "youtube_videos" }, CONTENT_LIVE, {}, NOW), 3);
+  assert.equal(autoValue({ ...september, source: "units_sold" }, CONTENT_LIVE, {}, NOW), 2);
+});
+
+test("content sources read the goal's own month, like every other source", () => {
+  const august = { period: "monthly", target_date: "2026-08-31", source: "instagram_reels" };
+  assert.equal(autoValue(august, CONTENT_LIVE, {}, NOW), 7, "August's goal reads August");
+});
+
+test("an annual content goal sums its months", () => {
+  const annual = { period: "annual", target_date: "2026-12-31", source: "youtube_videos" };
+  assert.equal(autoValue(annual, CONTENT_LIVE, {}, NOW), 9);
+});
+
+test("the new sources are all recognised as automated", () => {
+  for (const source of ["instagram_reels", "youtube_videos", "units_sold"]) {
+    assert.equal(isAutoSource(source), true, `${source} should be automated`);
+  }
+  assert.equal(isAutoSource("something_else"), false);
+});
+
+test("a table the API did not send is treated as not loaded, not as zero", () => {
+  const partial = { cashByMonth: { "2026-09": 1 }, callsByMonth: {} };
+  const g = { period: "monthly", target_date: "2026-09-30", source: "instagram_reels" };
+  assert.equal(autoValue(g, partial, {}, NOW), null, "an older API response must not read as zero Reels");
+});
+
+test("merging live years carries every table, including ones added later", () => {
+  const merged = mergeLiveYears([
+    { cashByMonth: { "2025-12": 1 }, callsByMonth: {}, reelsByMonth: { "2025-12": 4 } },
+    { cashByMonth: { "2026-01": 2 }, callsByMonth: { "2026-01": 3 }, reelsByMonth: { "2026-01": 5 } },
+  ]);
+  assert.deepEqual(merged.cashByMonth, { "2025-12": 1, "2026-01": 2 });
+  assert.deepEqual(merged.callsByMonth, { "2026-01": 3 });
+  assert.deepEqual(merged.reelsByMonth, { "2025-12": 4, "2026-01": 5 },
+    "a table this file never names must still come through");
+});
+
+test("merging survives a missing or malformed year", () => {
+  const merged = mergeLiveYears([null, undefined, { cashByMonth: { "2026-01": 1 } }, { junk: "nope" }]);
+  assert.deepEqual(merged.cashByMonth, { "2026-01": 1 });
+  assert.equal(merged.junk, undefined, "only …ByMonth tables are copied");
 });

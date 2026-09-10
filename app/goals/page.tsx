@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { PersonSelect } from "@/components/sub-tabs";
 import { usePerson } from "@/lib/use-person";
 import {
-  AUTO_SOURCES, autoValue, buildGoalBoard, daysUntil, goalStatus, isAutoSource,
+  AUTO_SOURCES, autoValue, buildGoalBoard, daysUntil, goalStatus, isAutoSource, mergeLiveYears,
   isoDaysFromNow, projectedTotal, sectionProgress,
   type GoalSection, type GoalSource, type GoalStatus, type LiveMonthly,
 } from "@/lib/goal-board";
@@ -185,7 +185,7 @@ function OwnerSelect({ value, onChange, className = "" }: { value: Owner; onChan
 
 /** Where this goal's number comes from. Changing it is the whole automation UI. */
 function SourceSelect({ value, onChange, className = "" }: { value: string | null; onChange: (v: GoalSource) => void; className?: string }) {
-  const key: GoalSource = value === "stripe_cash" || value === "booked_calls" ? value : "manual";
+  const key: GoalSource = AUTO_SOURCES.some((s) => s.key === value) ? (value as GoalSource) : "manual";
   const auto = key !== "manual";
   return (
     <select
@@ -527,7 +527,7 @@ function GoalDrawer({ goal, live, liveLoading, onClose, onEdit, onPatch }: {
 
 // ─── Goal Card ──────────────────────────────────────────────────────────────
 
-function GoalCard({ goal, live, onOpen, onPatch, onToggleFeature, onSetClosed }: { goal: Goal; live: Record<string, number>; onOpen: () => void; onPatch: (id: string, patch: Partial<Goal>) => Promise<void>; onToggleFeature: (id: string, on: boolean) => void; onSetClosed: (id: string, closed: boolean) => void }) {
+function GoalCard({ goal, live, onOpen, onPatch, onSetClosed }: { goal: Goal; live: Record<string, number>; onOpen: () => void; onPatch: (id: string, patch: Partial<Goal>) => Promise<void>; onSetClosed: (id: string, closed: boolean) => void }) {
   const current = currentValue(goal, live);
   const target = goal.target_amount || 0;
   const pct = target > 0 ? Math.min(100, (current / target) * 100) : 0;
@@ -549,12 +549,6 @@ function GoalCard({ goal, live, onOpen, onPatch, onToggleFeature, onSetClosed }:
 
   return (
     <div className="relative min-w-0 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-4 transition-colors">
-      {/* Star — feature this goal at the top */}
-      <button onClick={(e) => { e.stopPropagation(); onToggleFeature(goal.id, !goal.featured); }}
-        title={goal.featured ? "Featured at the top — click to unstar" : "Star to feature at the top"}
-        className={`absolute top-3 right-3 z-10 text-lg leading-none transition-colors ${goal.featured ? "text-amber-400" : "text-zinc-600 hover:text-amber-300"}`}>
-        {goal.featured ? "★" : "☆"}
-      </button>
       {/* Clickable info area — opens the drawer */}
       <button onClick={onOpen} className="w-full text-left">
         <div className="flex items-start gap-3.5">
@@ -788,13 +782,12 @@ function QuickAddGoal({ defaultOwner, onAdd }: { defaultOwner: Owner; onAdd: (g:
 // Rows arrive pre-sorted by urgency. Every field is editable in place, and an
 // automated Actual is read-only on purpose — typing over a number that Stripe
 // is about to overwrite is a lie waiting to happen.
-function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature, onRemove, onSetClosed }: {
+function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onRemove, onSetClosed }: {
   goals: Goal[];
   live: Record<string, number>;
   onPatch: (id: string, patch: Partial<Goal>) => Promise<void>;
   onSetSource: (g: Goal, source: GoalSource) => void;
   onOpen: (id: string) => void;
-  onToggleFeature: (id: string, on: boolean) => void;
   onRemove: (id: string) => void;
   onSetClosed: (id: string, closed: boolean) => void;
 }) {
@@ -806,7 +799,6 @@ function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature,
         <table className="w-full min-w-[1180px] border-collapse">
           <thead>
             <tr className="border-b border-zinc-800 bg-zinc-900/80 text-left text-[11px] uppercase tracking-wide text-zinc-400">
-              <th className="w-8 px-2 py-2 font-semibold"></th>
               <th className="w-12 px-2 py-2 font-semibold"></th>
               <th className="min-w-[260px] px-3 py-2 font-semibold">Goal</th>
               <th className="whitespace-nowrap px-3 py-2 font-semibold">Who</th>
@@ -822,7 +814,7 @@ function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature,
             {goals.map((g, i) => (
               <GoalRow key={g.id} goal={g} live={live} zebra={i % 2 === 1} cell={cell}
                 onPatch={onPatch} onSetSource={onSetSource} onOpen={onOpen}
-                onToggleFeature={onToggleFeature} onRemove={onRemove} onSetClosed={onSetClosed} />
+                onRemove={onRemove} onSetClosed={onSetClosed} />
             ))}
           </tbody>
         </table>
@@ -831,12 +823,11 @@ function GoalSheet({ goals, live, onPatch, onSetSource, onOpen, onToggleFeature,
   );
 }
 
-function GoalRow({ goal, live, zebra, cell, onPatch, onSetSource, onOpen, onToggleFeature, onRemove, onSetClosed }: {
+function GoalRow({ goal, live, zebra, cell, onPatch, onSetSource, onOpen, onRemove, onSetClosed }: {
   goal: Goal; live: Record<string, number>; zebra: boolean; cell: string;
   onPatch: (id: string, patch: Partial<Goal>) => Promise<void>;
   onSetSource: (g: Goal, source: GoalSource) => void;
   onOpen: (id: string) => void;
-  onToggleFeature: (id: string, on: boolean) => void;
   onRemove: (id: string) => void;
   onSetClosed: (id: string, closed: boolean) => void;
 }) {
@@ -852,13 +843,6 @@ function GoalRow({ goal, live, zebra, cell, onPatch, onSetSource, onOpen, onTogg
   return (
     <tr className={`group border-b border-zinc-800/60 border-l-[3px] transition-colors hover:bg-zinc-800/30 ${zebra ? "bg-zinc-900/30" : ""} ${current >= target && target > 0 ? "opacity-60" : ""}`}
       style={{ borderLeftColor: ow.dot.includes("violet") ? "#a78bfa" : "#60a5fa" }}>
-      <td className="px-2 py-1.5 text-center align-middle">
-        <button onClick={() => onToggleFeature(goal.id, !goal.featured)}
-          title={goal.featured ? "Pinned to the top — click to unpin" : "Pin to the top"}
-          className={`text-base leading-none transition-colors ${goal.featured ? "text-amber-400" : "text-zinc-700 hover:text-amber-300"}`}>
-          {goal.featured ? "★" : "☆"}
-        </button>
-      </td>
       <td className="px-2 py-1.5 align-middle">
         <input defaultValue={goal.emoji}
           onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== goal.emoji) void onPatch(goal.id, { emoji: v }); }}
@@ -1067,12 +1051,7 @@ export default function GoalsPage() {
       ]);
       if (cancelled) return;
 
-      // Years are disjoint by month key, so one merged table serves every goal.
-      const merged: LiveMonthly = { cashByMonth: {}, callsByMonth: {} };
-      for (const m of monthlyByYear) {
-        Object.assign(merged.cashByMonth, m.cashByMonth ?? {});
-        Object.assign(merged.callsByMonth, m.callsByMonth ?? {});
-      }
+      const merged = mergeLiveYears(monthlyByYear);
       const legacyByPeriod = Object.fromEntries(legacyEntries);
 
       const byGoal: Record<string, number> = {};
@@ -1091,14 +1070,6 @@ export default function GoalsPage() {
   const patchGoal = useCallback(async (id: string, patch: Partial<Goal>) => {
     setGoals((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
     await fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
-  }, []);
-
-  // Star any number of goals to pin them above the board. Starring used to
-  // clear every other star, which quietly hid goals Andrew had deliberately
-  // pinned — four were starred and only one was ever drawn.
-  const toggleFeature = useCallback(async (id: string, on: boolean) => {
-    setGoals((prev) => prev.map((g) => (g.id === id ? { ...g, featured: on } : g)));
-    await fetch("/api/goals", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, featured: on, keepOthersFeatured: true }) });
   }, []);
 
   const saveGoal = useCallback(async (g: NewGoal, id?: string) => {
@@ -1150,7 +1121,6 @@ export default function GoalsPage() {
     [monthly, statusOf, today, in7],
   );
 
-  const pinned = useMemo(() => monthly.filter((g) => g.featured && !g.archived), [monthly]);
 
   const openGoal = goals.find((g) => g.id === openId) ?? null;
 
@@ -1176,12 +1146,12 @@ export default function GoalsPage() {
   const renderCards = (items: Goal[]) =>
     view === "sheet" ? (
       <GoalSheet goals={items} live={live} onPatch={patchGoal} onSetSource={setSource}
-        onOpen={setOpenId} onToggleFeature={toggleFeature} onRemove={deleteGoal} onSetClosed={setClosed} />
+        onOpen={setOpenId} onRemove={deleteGoal} onSetClosed={setClosed} />
     ) : (
       <div className="grid gap-3 lg:grid-cols-2">
         {items.map((g) => (
           <GoalCard key={g.id} goal={g} live={live} onOpen={() => setOpenId(g.id)} onPatch={patchGoal}
-            onToggleFeature={toggleFeature} onSetClosed={setClosed} />
+            onSetClosed={setClosed} />
         ))}
       </div>
     );
@@ -1231,22 +1201,6 @@ export default function GoalsPage() {
       {annual.map((g) => (
         <FeaturedHero key={g.id} goal={g} live={live} liveLoading={liveLoading} onOpen={() => setOpenId(g.id)} />
       ))}
-
-      {/* Pinned — a single star reads as a hero, several as a row */}
-      {pinned.length === 1 ? (
-        <FeaturedHero goal={pinned[0]} live={live} liveLoading={liveLoading} onOpen={() => setOpenId(pinned[0].id)} />
-      ) : pinned.length > 1 ? (
-        <section>
-          <div className="mb-2.5 flex items-center gap-2.5">
-            <h2 className="text-sm font-bold text-amber-300">★ Pinned</h2>
-            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300">{pinned.length}</span>
-            <span className="text-[11px] text-zinc-600">also in their month below</span>
-            <div className="h-px flex-1 bg-amber-500/20" />
-            {liveLoading && <span className="text-[11px] text-zinc-600">Syncing Stripe…</span>}
-          </div>
-          {renderCards(pinned)}
-        </section>
-      ) : null}
 
       {/* Category chips */}
       {presentCats.length > 1 && (

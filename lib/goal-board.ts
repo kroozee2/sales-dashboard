@@ -261,19 +261,33 @@ export function sectionProgress<T>(
  * and Calls pages read, scoped to the goal's own window — so "August Cash
  * Collected" shows August, not month-to-date.
  */
-export type GoalSource = "manual" | "stripe_cash" | "booked_calls";
+export type GoalSource =
+  | "manual" | "stripe_cash" | "booked_calls"
+  | "instagram_reels" | "youtube_videos" | "units_sold";
 
 export const AUTO_SOURCES: { key: GoalSource; label: string; emoji: string; hint: string }[] = [
   { key: "manual", label: "Manual", emoji: "✍️", hint: "You type the number" },
   { key: "stripe_cash", label: "Cash collected", emoji: "💵", hint: "Stripe + logged payments, in this goal's window" },
   { key: "booked_calls", label: "Booked calls", emoji: "📞", hint: "Sales calls on the calendar, in this goal's window" },
+  { key: "instagram_reels", label: "Instagram Reels", emoji: "📸", hint: "Reels published, in this goal's window" },
+  { key: "youtube_videos", label: "YouTube videos", emoji: "▶️", hint: "Videos published to the channel, long-form and Shorts" },
+  { key: "units_sold", label: "Units sold", emoji: "🤝", hint: "Sales calls marked as a sale, in this goal's window" },
 ];
 
 /** Legacy fixed-period sources, kept working so old goals don't break. */
 const LEGACY_CASH_SOURCES = new Set(["cash_mtd", "cash_wtd", "cash_qtd", "cash_ytd", "cash_alltime"]);
 
+/** Sources that read a per-month table returned by /api/goals/live. */
+const MONTHLY_SOURCES: Record<string, keyof LiveMonthly> = {
+  stripe_cash: "cashByMonth",
+  booked_calls: "callsByMonth",
+  instagram_reels: "reelsByMonth",
+  youtube_videos: "youtubeByMonth",
+  units_sold: "unitsByMonth",
+};
+
 export function isAutoSource(source: string | null | undefined): boolean {
-  return source === "stripe_cash" || source === "booked_calls" || LEGACY_CASH_SOURCES.has(source ?? "");
+  return Boolean(source && (source in MONTHLY_SOURCES || LEGACY_CASH_SOURCES.has(source)));
 }
 
 /**
@@ -314,7 +328,13 @@ export function goalMonths(
 }
 
 /** Live totals by month, as returned by /api/goals/live. */
-export type LiveMonthly = { cashByMonth: Record<string, number>; callsByMonth: Record<string, number> };
+export type LiveMonthly = {
+  cashByMonth: Record<string, number>;
+  callsByMonth: Record<string, number>;
+  reelsByMonth?: Record<string, number>;
+  youtubeByMonth?: Record<string, number>;
+  unitsByMonth?: Record<string, number>;
+};
 
 /**
  * The automated part of a goal's current value, or null when it has none.
@@ -330,9 +350,10 @@ export function autoValue(
 ): number | null {
   if (!g.source) return null;
   if (LEGACY_CASH_SOURCES.has(g.source)) return legacyByPeriod[g.source] ?? null;
-  if (g.source !== "stripe_cash" && g.source !== "booked_calls") return null;
+  const field = MONTHLY_SOURCES[g.source];
+  if (!field) return null;
 
-  const table = g.source === "stripe_cash" ? live.cashByMonth : live.callsByMonth;
+  const table = live[field] ?? {};
   const months = goalMonths(g, now);
   let total = 0;
   let sawAny = false;
@@ -343,4 +364,23 @@ export function autoValue(
   // An empty window is a real zero once the data has loaded — but before it
   // loads, every month is missing, and claiming zero would flash "behind".
   return sawAny || Object.keys(table).length > 0 ? total : null;
+}
+
+/**
+ * Fold several years of live tables into one.
+ *
+ * Copies every "…ByMonth" table it finds rather than naming them, because
+ * naming them meant adding a source in two places and forgetting the second:
+ * the new table never reached the page and its goals sat on "loading" forever.
+ * Month keys carry the year, so years never collide.
+ */
+export function mergeLiveYears(years: (Partial<LiveMonthly> | null | undefined)[]): LiveMonthly {
+  const merged: Record<string, Record<string, number>> = { cashByMonth: {}, callsByMonth: {} };
+  for (const tables of years) {
+    for (const [field, table] of Object.entries(tables ?? {})) {
+      if (!field.endsWith("ByMonth") || !table || typeof table !== "object") continue;
+      merged[field] = Object.assign(merged[field] ?? {}, table as Record<string, number>);
+    }
+  }
+  return merged as LiveMonthly;
 }

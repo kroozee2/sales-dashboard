@@ -107,6 +107,65 @@ async function manualCashByMonth(year: number): Promise<Record<string, number>> 
   }
 }
 
+/**
+ * Content actually published, by the month it went out.
+ *
+ * posted_content is the same table the Marketing and YouTube pages read, so a
+ * goal here can never disagree with what those pages show.
+ */
+async function postedByMonth(year: number): Promise<{ reels: Record<string, number>; youtube: Record<string, number> }> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_CALLS_URL;
+  const key = process.env.SUPABASE_CALLS_SERVICE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_CALLS_ANON_KEY;
+  const reels: Record<string, number> = {};
+  const youtube: Record<string, number> = {};
+  if (!url || !key) return { reels, youtube };
+  try {
+    const db = createClient(url, key);
+    const { data } = await db
+      .from("posted_content")
+      .select("platform,media_type,posted_at")
+      .gte("posted_at", `${year}-01-01`)
+      .lt("posted_at", `${year + 1}-01-01`);
+    for (const row of data ?? []) {
+      if (!row.posted_at) continue;
+      const month = String(row.posted_at).slice(0, 7);
+      // A Reel is an Instagram video. Images and carousels are not Reels.
+      if (row.platform === "instagram" && row.media_type === "video") {
+        reels[month] = (reels[month] ?? 0) + 1;
+      }
+      // Everything published to the channel counts as a video produced,
+      // long-form and Shorts alike. The analytics row is a snapshot, not a post.
+      if (row.platform === "youtube") {
+        youtube[month] = (youtube[month] ?? 0) + 1;
+      }
+    }
+  } catch { /* a missing table should not take the whole page down */ }
+  return { reels, youtube };
+}
+
+/** Calls that closed, by the month the call happened. */
+async function unitsSoldByMonth(year: number): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await callsDb
+      .from("sales_calls")
+      .select("call_date,result")
+      .eq("result", "✅ Sale")
+      .gte("call_date", `${year}-01-01`)
+      .lt("call_date", `${year + 1}-01-01`)
+      .range(from, from + pageSize - 1);
+    if (error || !data?.length) break;
+    for (const call of data) {
+      if (!call.call_date) continue;
+      const month = String(call.call_date).slice(0, 7);
+      counts[month] = (counts[month] ?? 0) + 1;
+    }
+    if (data.length < pageSize) break;
+  }
+  return counts;
+}
+
 /** Sales-lane calls on the calendar, by the month they're booked into. */
 async function callsByMonth(year: number): Promise<Record<string, number>> {
   const notSales = [...CLIENT_CALL_TYPES, ...PARTNER_CALL_TYPES];
@@ -146,10 +205,12 @@ export async function GET(req: NextRequest) {
 
   const now = new Date();
   const stripe = getStripe();
-  const [stripeCash, manualCash, calls] = await Promise.all([
+  const [stripeCash, manualCash, calls, posted, units] = await Promise.all([
     stripe ? cashByMonth(stripe, year, now).catch(() => ({})) : Promise.resolve({}),
     manualCashByMonth(year),
     callsByMonth(year).catch(() => ({})),
+    postedByMonth(year),
+    unitsSoldByMonth(year).catch(() => ({})),
   ]);
 
   const cash: Record<string, number> = {};
@@ -160,6 +221,9 @@ export async function GET(req: NextRequest) {
     year,
     cashByMonth: cash,
     callsByMonth: calls,
+    reelsByMonth: posted.reels,
+    youtubeByMonth: posted.youtube,
+    unitsByMonth: units,
     hasStripe: !!stripe,
     generatedAt: now.toISOString(),
   };

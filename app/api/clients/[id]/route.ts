@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { helmDb } from "@/lib/helm-clients";
 import {
-  EMPTY_DETAIL, shapeCalls, shapeCashGoals, shapeCheckIns, shapeNotes,
+  EMPTY_DETAIL, shapeCalls, shapeCashGoals, shapeCheckIns, shapeGraphics, shapeNotes,
   shapeProjects, shapeProof, shapeTickets, shapeTodos, type ClientDetail,
 } from "@/lib/client-detail";
 
@@ -36,7 +36,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const forClient = (table: string, columns: string, order: string, ascending = false) =>
     db.from(table).select(columns).eq("client_id", id).order(order, { ascending, nullsFirst: false }).limit(LIMIT);
 
-  const [calls, todos, checkIns, cashGoals, projects, proof, testimonials, tickets, notes] = await Promise.all([
+  const [graphics, calls, todos, checkIns, cashGoals, projects, proof, testimonials, tickets, notes] = await Promise.all([
+    db.from("clients")
+      .select("headshot_url,welcome_square_url,welcome_story_url,welcome_message,welcome_caption,skool_url,socials")
+      .eq("id", id).maybeSingle(),
     forClient("calls", "id,title,call_date,starts_at,is_group,status,attended,fathom_url,ai_summary,ai_next_steps", "call_date"),
     forClient("todos", "id,title,description,due_date,done,owner,status,urgency", "created_at"),
     forClient("check_ins", "id,month_label,month_date,cash_collected,new_revenue,nps,sales_calls_booked,stop,start,favorite", "month_date"),
@@ -52,6 +55,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   const detail: ClientDetail = {
     ...EMPTY_DETAIL,
+    graphics: shapeGraphics(graphics.data as Record<string, unknown> | null),
     calls: shapeCalls(rows(calls)),
     todos: shapeTodos(rows(todos)),
     checkIns: shapeCheckIns(rows(checkIns)),

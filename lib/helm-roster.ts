@@ -7,9 +7,23 @@
 // edits, so the tiles and the list can never disagree.
 
 import type { CalendarEvent, ClientsPayload } from "@/lib/clients";
+import { shapeCheckIns, type CheckInRecord } from "./client-detail.ts";
+import {
+  averageNps, checkInCompliance, contactRecency, monthlySeries,
+  type Compliance, type MonthPoint, type RecencyBand,
+} from "./client-dashboard.ts";
 import { toMergedClient, type HelmClientRow } from "./helm-clients.ts";
 
 export type PortalRow = { client_id: string | null; last_login_at: string | null };
+export type CheckInRow = Record<string, unknown> & { client_id?: string | null };
+
+/** The money picture, which is what Helm's Dashboards is for. */
+export type GrowthPayload = {
+  months: MonthPoint[];
+  compliance: Compliance;
+  recency: RecencyBand[];
+  averageNps: number | null;
+};
 export type CallRow = {
   id: string; title: string | null; client_id: string | null; call_date: string | null;
   starts_at: string | null; is_group: boolean | null; status: string | null;
@@ -49,6 +63,34 @@ export function attentionReasons(row: HelmClientRow, now: number): string[] {
   if (gap === null) reasons.push("No contact ever logged");
   else if (gap >= OVERDUE_DAYS) reasons.push(`${gap} days since last contact`);
   return reasons;
+}
+
+/** Cash, revenue, NPS and discipline, from the check-ins the clients filed. */
+export function buildGrowth(
+  rows: HelmClientRow[],
+  checkInRows: CheckInRow[],
+  now = new Date(),
+): GrowthPayload {
+  const stamp = now.getTime();
+  const live = rows.filter((row) => row.is_active !== false && !isOffBoarded(row.status));
+
+  const rawByClient = new Map<string, CheckInRow[]>();
+  for (const row of checkInRows) {
+    const id = typeof row.client_id === "string" ? row.client_id : null;
+    if (!id) continue;
+    rawByClient.set(id, [...(rawByClient.get(id) ?? []), row]);
+  }
+  const byClient = new Map<string, CheckInRecord[]>(
+    [...rawByClient].map(([id, list]) => [id, shapeCheckIns(list)]),
+  );
+
+  const activeIds = live.map((row) => row.id);
+  return {
+    months: monthlySeries(shapeCheckIns(checkInRows), 12, now),
+    compliance: checkInCompliance(activeIds, byClient, now),
+    recency: contactRecency(live.map((row) => daysSinceContact(row.last_contact_at, stamp))),
+    averageNps: averageNps(byClient, activeIds),
+  };
 }
 
 export function buildClientsPayload(

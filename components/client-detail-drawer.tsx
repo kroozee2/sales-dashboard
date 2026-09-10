@@ -9,15 +9,17 @@
  * Helm. Helm's ClientDetail carries eleven sections; this carries the ones with
  * data behind them, reading the client's own record.
  *
- * A tab that has nothing says so rather than showing an empty frame, and its
- * count is on the tab, so you can see where the substance is before clicking.
+ * Laid out the way Helm's is: one running page with a sticky pill nav that
+ * jumps between sections and lights up as you scroll past them. Tabs hide
+ * everything you are not looking at, which is the wrong trade on a screen you
+ * open to get your bearings on someone.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MergedClient } from "@/lib/client-accounts";
 import {
   DETAIL_TABS, EMPTY_DETAIL, latestMonth, tabCounts,
-  type CheckInRecord, type ClientDetail, type DetailTab,
+  type CheckInRecord, type ClientDetail, type ClientGraphics, type DetailTab,
 } from "@/lib/client-detail";
 import { RUNBOOK, onboardingProgress } from "@/lib/client-accounts";
 import { HEALTH_META, ago, daysSince, statusToHealth } from "@/lib/client-roster";
@@ -42,10 +44,11 @@ export default function ClientDetailDrawer({ client, onClose, onPatch, helmUrl }
   onPatch: (client: MergedClient, patch: Patch) => void;
   helmUrl: string;
 }) {
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const [active, setActive] = useState<DetailTab>("overview");
   const [state, setState] = useState<
     { status: "loading" } | { status: "ready"; detail: ClientDetail } | { status: "error"; message: string }
   >({ status: "loading" });
+  const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -62,13 +65,40 @@ export default function ClientDetailDrawer({ client, onClose, onPatch, helmUrl }
     return () => controller.abort();
   }, [client.key]);
 
-  const detail = state.status === "ready" ? state.detail : EMPTY_DETAIL;
-
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const detail = state.status === "ready" ? state.detail : EMPTY_DETAIL;
+
+  // Scroll position drives the active pill, so the nav always says where you
+  // are rather than where you last clicked.
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    const root = scroller.current;
+    if (!root) return;
+    const sections = DETAIL_TABS
+      .map((t) => root.querySelector<HTMLElement>(`#sec-${t.id}`))
+      .filter((el): el is HTMLElement => Boolean(el));
+    if (!sections.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible) setActive(visible.target.id.replace("sec-", "") as DetailTab);
+      },
+      { root, rootMargin: "-45% 0px -50% 0px", threshold: [0, 0.25, 0.5, 1] },
+    );
+    sections.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [state.status]);
+
+  const jump = (id: DetailTab) => {
+    setActive(id);
+    scroller.current?.querySelector(`#sec-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const counts = useMemo(() => tabCounts(detail), [detail]);
   const month = useMemo(() => latestMonth(detail.checkIns), [detail.checkIns]);
@@ -119,18 +149,18 @@ export default function ClientDetailDrawer({ client, onClose, onPatch, helmUrl }
 
         <nav className="flex gap-1 overflow-x-auto border-b border-zinc-800 px-3 py-2" aria-label="Client sections">
           {DETAIL_TABS.map((t) => (
-            <button key={t.id} type="button" onClick={() => setTab(t.id)} aria-pressed={tab === t.id}
+            <button key={t.id} type="button" onClick={() => jump(t.id)} aria-current={active === t.id ? "true" : undefined}
               className={`flex flex-shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-                tab === t.id ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"}`}>
+                active === t.id ? "bg-blue-600 text-white" : "text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-300"}`}>
               <span aria-hidden>{t.icon}</span>{t.label}
               {counts[t.id] > 0 && (
-                <span className="rounded bg-zinc-700/70 px-1 text-[10px] tabular-nums text-zinc-300">{counts[t.id]}</span>
+                <span className={`rounded px-1 text-[10px] tabular-nums ${active === t.id ? "bg-blue-500/40 text-white" : "bg-zinc-700/70 text-zinc-300"}`}>{counts[t.id]}</span>
               )}
             </button>
           ))}
         </nav>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        <div ref={scroller} className="flex-1 overflow-y-auto p-5">
           {state.status === "loading" ? (
             <div className="space-y-2" aria-label="Loading client">
               {Array.from({ length: 5 }, (_, i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-zinc-900" />)}
@@ -138,7 +168,18 @@ export default function ClientDetailDrawer({ client, onClose, onPatch, helmUrl }
           ) : state.status === "error" ? (
             <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-6 text-center text-sm text-rose-200">{state.message}</p>
           ) : (
-            <Section tab={tab} client={client} detail={detail} onPatch={onPatch} />
+            <div className="space-y-8">
+              {DETAIL_TABS.map((t) => (
+                <section key={t.id} id={`sec-${t.id}`} className="scroll-mt-4">
+                  <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
+                    <span aria-hidden>{t.icon}</span>{t.label}
+                    <span className="h-px flex-1 bg-zinc-800" />
+                    {counts[t.id] > 0 && <span className="text-[11px] font-semibold tabular-nums text-zinc-600">{counts[t.id]}</span>}
+                  </h3>
+                  <Section tab={t.id} client={client} detail={detail} onPatch={onPatch} />
+                </section>
+              ))}
+            </div>
           )}
         </div>
       </aside>
@@ -277,7 +318,54 @@ function Section({ tab, client, detail, onPatch }: {
     );
   }
 
+  if (tab === "graphics") return <Graphics graphics={detail.graphics} name={client.name} />;
+
   return <Onboarding client={client} />;
+}
+
+/**
+ * The welcome kit. Helm generates these when someone joins and shows them on
+ * the client; Sales OS was storing the URLs and rendering none of them.
+ */
+function Graphics({ graphics, name }: { graphics: ClientGraphics; name: string }) {
+  const shots = [
+    graphics.headshotUrl ? { label: "Headshot", url: graphics.headshotUrl } : null,
+    graphics.welcomeSquareUrl ? { label: "Welcome square", url: graphics.welcomeSquareUrl } : null,
+    graphics.welcomeStoryUrl ? { label: "Welcome story", url: graphics.welcomeStoryUrl } : null,
+  ].filter((shot): shot is { label: string; url: string } => Boolean(shot));
+
+  if (!shots.length && !graphics.welcomeMessage && !graphics.skoolUrl && !graphics.socials) {
+    return <Empty>No welcome kit generated for {name} yet.</Empty>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {shots.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {shots.map((shot) => (
+            <a key={shot.label} href={shot.url} target="_blank" rel="noreferrer"
+              className="group overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 transition-colors hover:border-zinc-600">
+              <img src={shot.url} alt={`${name} — ${shot.label}`} loading="lazy"
+                className="aspect-square w-full object-cover transition-transform group-hover:scale-[1.03]" />
+              <p className="px-2.5 py-1.5 text-[11px] font-semibold text-zinc-400">{shot.label}</p>
+            </a>
+          ))}
+        </div>
+      )}
+      {graphics.welcomeMessage && (
+        <Card><p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-300">{graphics.welcomeMessage}</p></Card>
+      )}
+      {graphics.welcomeCaption && (
+        <Card><p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">{graphics.welcomeCaption}</p></Card>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {graphics.skoolUrl && <Action href={graphics.skoolUrl} icon="🏫" label="Skool" external />}
+        {Object.entries(graphics.socials ?? {}).map(([network, url]) => (
+          <Action key={network} href={url} icon="🔗" label={network} external />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function CheckIn({ row }: { row: CheckInRecord }) {

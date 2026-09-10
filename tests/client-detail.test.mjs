@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  DETAIL_TABS, latestMonth, shapeCalls, shapeCashGoals, shapeCheckIns, shapeNotes,
-  shapeProjects, shapeProof, shapeTodos, tabCounts,
+  DETAIL_TABS, EMPTY_DETAIL, EMPTY_GRAPHICS, latestMonth, shapeCalls, shapeCashGoals,
+  shapeCheckIns, shapeGraphics, shapeNotes, shapeProjects, shapeProof, shapeTodos, tabCounts,
 } from "../lib/client-detail.ts";
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
@@ -15,11 +15,6 @@ test("clicking a client opens the detail view, not just the runbook", () => {
   assert.match(workspace, /<ClientDetailDrawer/);
   assert.doesNotMatch(workspace, /<RunbookDrawer/);
   assert.match(workspace, /key=\{openClient\.key\}/, "remount per client so it starts in its loading state");
-});
-
-test("the sections are the ones with data behind them", () => {
-  assert.deepEqual(DETAIL_TABS.map((t) => t.id),
-    ["overview", "calls", "todos", "checkins", "goals", "projects", "proof", "onboarding"]);
 });
 
 test("calls read newest first and undated ones sink", () => {
@@ -97,8 +92,9 @@ test("the latest month is the latest month with money in it", () => {
 
 test("tab counts show open work, not everything ever done", () => {
   const counts = tabCounts({
-    calls: [{}, {}], todos: [{ done: true }, { done: false }], checkIns: [],
-    cashGoals: [], projects: [{ done: true }], proof: [{}], tickets: [], notes: [],
+    ...EMPTY_DETAIL,
+    calls: [{}, {}], todos: [{ done: true }, { done: false }],
+    projects: [{ done: true }], proof: [{}],
   });
   assert.equal(counts.calls, 2);
   assert.equal(counts.todos, 1, "a finished to-do is not a to-do");
@@ -140,4 +136,48 @@ test("the header never reports money for a month that has not happened", () => {
   const now = new Date("2026-09-09T12:00:00Z");
   assert.equal(latestMonth(rows, now).monthLabel, "August 2026");
   assert.equal(latestMonth(rows, now).cashCollected, 18000);
+});
+
+test("the detail view reads as one running page, the way Helm's does", () => {
+  // Tabs hide everything you are not looking at, which is the wrong trade on a
+  // screen you open to get your bearings on someone.
+  const drawer = read("../components/client-detail-drawer.tsx");
+  assert.match(drawer, /IntersectionObserver/, "scroll position drives the active pill");
+  assert.match(drawer, /id=\{`sec-\$\{t\.id\}`\}/, "every section is an anchor the nav can jump to");
+  assert.match(drawer, /scrollIntoView\(\{ behavior: "smooth"/);
+});
+
+test("the sections are Helm's, in Helm's order, with Onboarding among them", () => {
+  assert.deepEqual(DETAIL_TABS.map((t) => t.id), [
+    "overview", "graphics", "goals", "projects", "proof", "onboarding", "todos", "calls", "checkins",
+  ]);
+});
+
+test("the welcome kit comes over", () => {
+  // Sales OS was storing these URLs and rendering none of them.
+  const graphics = shapeGraphics({
+    headshot_url: "https://x/h.jpg",
+    welcome_square_url: "https://x/sq.png",
+    welcome_story_url: "  ",
+    welcome_message: "Welcome aboard",
+    skool_url: "https://skool.com/x",
+    socials: { instagram: "https://ig.com/x", twitter: "" },
+  });
+  assert.equal(graphics.headshotUrl, "https://x/h.jpg");
+  assert.equal(graphics.welcomeStoryUrl, null, "an empty string is not a graphic");
+  assert.deepEqual(graphics.socials, { instagram: "https://ig.com/x" });
+});
+
+test("a client with no welcome kit yields nothing rather than blanks", () => {
+  const graphics = shapeGraphics(null);
+  assert.equal(graphics.headshotUrl, null);
+  assert.equal(graphics.socials, null);
+});
+
+test("the graphics tab counts the images it actually has", () => {
+  const counts = tabCounts({
+    ...EMPTY_DETAIL,
+    graphics: { ...EMPTY_GRAPHICS, headshotUrl: "a", welcomeSquareUrl: "b" },
+  });
+  assert.equal(counts.graphics, 2);
 });

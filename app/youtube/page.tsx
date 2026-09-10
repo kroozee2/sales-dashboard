@@ -8,12 +8,13 @@ import GraphicsStudio from "@/components/graphics-studio";
 import YouTubeSheet from "@/components/youtube-sheet";
 import YouTubePipeline, { type CreateItem, type PatchInput } from "@/components/youtube-pipeline";
 import YouTubeResearch from "@/components/youtube-research";
+import YouTubeScripts from "@/components/youtube-scripts";
 import YouTubePerformanceTable from "@/components/youtube-performance-table";
 import { aggregateYouTubeDashboard, sortYouTubeVideos, type YouTubeVideo } from "@/lib/youtube";
 
 import type { YouTubeFormat } from "@/lib/youtube";
 
-type Tab = "create" | "research" | "dashboard" | "long-form" | "shorts";
+type Tab = "create" | "scripts" | "research" | "dashboard" | "long-form" | "shorts";
 type AnalyticsResponse = {
   account: { id: string; name: string; handle: string; url: string };
   dateRange: { start: string; end: string; label: string };
@@ -30,6 +31,7 @@ type PlannerItem = Parameters<typeof YouTubeSheet>[0]["items"][number];
 
 const TABS: Array<{ key: Tab; label: string; icon: string }> = [
   { key: "create", label: "Create", icon: "✍️" },
+  { key: "scripts", label: "Scripts", icon: "📄" },
   { key: "research", label: "Research", icon: "🔍" },
   { key: "dashboard", label: "Dashboard", icon: "📊" },
   { key: "long-form", label: "Long-form", icon: "🎥" },
@@ -43,7 +45,7 @@ export default function YouTubePage() {
     const json = (await res.json()) as { posted?: Posted[] };
     setPosted(json.posted ?? []);
   }, []);
-  useEffect(() => { void loadPosted(); }, [loadPosted]);
+  useEffect(() => { void Promise.resolve().then(loadPosted); }, [loadPosted]);
 
   const [tab, setTab] = useState<Tab>("create");
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
@@ -177,6 +179,7 @@ export default function YouTubePage() {
           </div>
         )}
         {tab === "long-form" && <YouTubePerformanceTable videos={videos} format="long_form" loading={analyticsLoading} error={analyticsError} />}
+        {tab === "scripts" && <YouTubeScripts items={items} loading={contentLoading} error={contentError} />}
         {tab === "shorts" && <YouTubePerformanceTable videos={videos} format="short" loading={analyticsLoading} error={analyticsError} />}
         {tab === "create" && (
           <div className="space-y-8">

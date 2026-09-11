@@ -71,6 +71,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/jarvis", label: "Jarvis", emoji: "🤖", tab: "jarvis", tabDefault: true, section: "AI Workforce" },
   { href: "/jarvis?tab=core", label: "Core Agents", emoji: "🧠", tab: "core", section: "AI Workforce" },
   { href: "/jarvis?tab=subagent", label: "Sub-agents", emoji: "🛠️", tab: "subagent", section: "AI Workforce" },
+  { href: "/jarvis?tab=skills", label: "Skills", emoji: "🧰", tab: "skills", section: "AI Workforce" },
 
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Offers" },
   { href: "/messaging", label: "Messaging", emoji: "🧠", section: "Offers" },
@@ -239,7 +240,7 @@ function NavList({ pathname, activeTab, onNavigate }: { pathname: string; active
                     href={n.href}
                     onClick={onNavigate}
                     className={cn(
-                      "relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150",
+                      "relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150",
                       active ? "bg-blue-600/20 text-blue-200" : "text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100"
                     )}
                   >
@@ -269,7 +270,7 @@ function NavList({ pathname, activeTab, onNavigate }: { pathname: string; active
               href={n.href}
               onClick={onNavigate}
               className={cn(
-                "relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150",
+                "relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150",
                 active ? "bg-blue-600/20 text-blue-200" : "text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100"
               )}
             >

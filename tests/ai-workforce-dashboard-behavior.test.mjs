@@ -9,6 +9,7 @@ globalThis.self = dom.window;
 globalThis.document = dom.window.document;
 Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
 globalThis.HTMLElement = dom.window.HTMLElement;
+dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {};
 globalThis.HTMLButtonElement = dom.window.HTMLButtonElement;
 globalThis.KeyboardEvent = dom.window.KeyboardEvent;
 globalThis.MouseEvent = dom.window.MouseEvent;
@@ -29,7 +30,8 @@ if (!globalThis.crypto?.randomUUID) {
 }
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
-const { AgentWorkforceDashboard } = await import("../components/agent-workforce-dashboard.tsx");
+const { AgentSkillsCatalog, AgentWorkforceDashboard } = await import("../components/agent-workforce-dashboard.tsx");
+const { default: JarvisWorkspace } = await import("../app/jarvis/jarvis-workspace.tsx");
 const { DEFAULT_AGENT_WORKFORCE } = await import("../lib/agent-workforce-default.ts");
 
 let originalFetch;
@@ -44,6 +46,8 @@ beforeEach(() => {
   currentDocument = clone(DEFAULT_AGENT_WORKFORCE);
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url: String(url), options });
+    if (String(url) === "/api/team") return new Response(JSON.stringify({ me: { id: "owner-1", role: "owner", active: true } }), { status: 200 });
+    if (String(url) === "/api/jarvis/status") return new Response(JSON.stringify({ cartesiaConfigured: false }), { status: 200 });
     if (options.method === "PUT") {
       const body = JSON.parse(options.body);
       // Mirror the server: reject anything carrying server-owned timestamps.
@@ -58,9 +62,10 @@ beforeEach(() => {
       const revision = new Date(Date.parse(currentDocument.revision) + 1000).toISOString();
       const previous = new Map(currentDocument.agents.map((agent) => [agent.id, agent]));
       currentDocument = {
-        version: 1,
+        version: 2,
         revision,
         updated_at: revision,
+        skills: body.skills,
         agents: body.agents.map((agent) => ({
           ...agent,
           created_at: previous.get(agent.id)?.created_at ?? revision,
@@ -84,6 +89,112 @@ async function mount(view) {
   await waitFor(() => assert.ok(utils.container.querySelector("article")));
   return utils;
 }
+
+test("AI Workforce exposes four semantic tabs with roving Arrow, Home, and End keyboard behavior", async () => {
+  const { getByRole } = render(React.createElement(JarvisWorkspace, { initialTab: "jarvis" }));
+  const tablist = getByRole("tablist", { name: "AI workforce" });
+  const tabs = within(tablist).getAllByRole("tab");
+  assert.deepEqual(tabs.map((tab) => tab.textContent.trim()), ["Jarvis", "Core Agents", "Sub-agents", "Skills"]);
+  for (const tab of tabs) {
+    assert.ok(tab.id);
+    const panelId = tab.getAttribute("aria-controls");
+    assert.ok(panelId);
+    const panel = document.getElementById(panelId);
+    assert.ok(panel, `panel ${panelId} exists`);
+    assert.equal(panel.getAttribute("role"), "tabpanel");
+    assert.equal(panel.getAttribute("aria-labelledby"), tab.id);
+  }
+  await act(async () => { fireEvent.keyDown(tabs[2], { key: "ArrowRight" }); await new Promise((resolve) => setTimeout(resolve, 10)); });
+  assert.equal(tabs[3].getAttribute("aria-selected"), "true");
+  assert.equal(document.activeElement, tabs[3]);
+  await act(async () => { fireEvent.keyDown(tabs[3], { key: "Home" }); await new Promise((resolve) => setTimeout(resolve, 10)); });
+  assert.equal(document.activeElement, tabs[0]);
+  await act(async () => { fireEvent.keyDown(tabs[0], { key: "End" }); await new Promise((resolve) => setTimeout(resolve, 10)); });
+  assert.equal(document.activeElement, tabs[3]);
+  assert.equal(document.querySelectorAll('[role="tabpanel"]').length, 4);
+});
+
+test("the top-level Skills catalog has no nested duplicates and exposes the complete truthful definition", async () => {
+  const { container, getAllByRole } = render(React.createElement(AgentSkillsCatalog));
+  await waitFor(() => assert.equal(container.querySelectorAll("article").length, DEFAULT_AGENT_WORKFORCE.skills.length));
+  assert.equal(container.querySelectorAll('[role="tablist"]').length, 0, "the standalone catalog does not recreate nested tabs");
+  assert.match(container.textContent, /catalog is where workforce connections can be documented/i);
+  assert.doesNotMatch(container.textContent, /capabilities connected to Jarvis/i);
+
+  fireEvent.click(getAllByRole("button", { name: "View skill details" })[0]);
+  const drawer = container.querySelector("dialog");
+  assert.ok(drawer);
+  const text = drawer.textContent;
+  assert.match(text, /Behavior/);
+  assert.match(text, /Capabilities/);
+  assert.match(text, /Inputs/);
+  assert.match(text, /Outputs/);
+  assert.match(text, /Documentation/);
+  assert.match(text, /Starter recommendation/);
+  assert.match(text, /No workforce connections confirmed/);
+  assert.match(text, /Not rated · 0 internal reviews/);
+  assert.match(text, /Activity not connected/);
+  assert.match(text, /Definition history unavailable/i);
+  assert.doesNotMatch(text, /Created .*Last edited/i);
+  const panel = drawer.querySelector("aside");
+  assert.match(panel.className, /sm:pb-\[max\(1\.75rem,env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(panel.className, /sm:pl-\[max\(1\.75rem,env\(safe-area-inset-left\)\)\]/);
+  assert.match(panel.className, /sm:pr-\[max\(1\.75rem,env\(safe-area-inset-right\)\)\]/);
+  assert.match(panel.className, /sm:pt-\[max\(1\.75rem,env\(safe-area-inset-top\)\)\]/);
+});
+
+
+test("legacy-unverified skills do not present migration timestamps as authoritative history", async () => {
+  currentDocument.skills[0].name = "Legacy unverified skill";
+  currentDocument.skills[0].provenance = "legacy_unverified";
+  const { container } = render(React.createElement(AgentSkillsCatalog));
+  await waitFor(() => assert.match(container.textContent, /Legacy unverified skill/));
+  const legacyCard = Array.from(container.querySelectorAll("article")).find((node) => /Legacy unverified skill/.test(node.textContent));
+  assert.ok(legacyCard);
+  fireEvent.click(within(legacyCard).getByRole("button", { name: "View skill details" }));
+  const history = Array.from(container.querySelectorAll("dialog section")).find((node) => /Definition history/.test(node.textContent));
+  assert.ok(history);
+  assert.match(history.textContent, /Definition history unavailable/i);
+  assert.doesNotMatch(history.textContent, /Created .*Last edited/i);
+});
+
+
+test("persisted owner-configured skills retain authoritative definition history", async () => {
+  currentDocument.skills[0].name = "Persisted configured skill";
+  currentDocument.skills[0].provenance = "owner_configured";
+  currentDocument.skills[0].created_at = "2026-09-10T10:00:00.000Z";
+  currentDocument.skills[0].updated_at = "2026-09-11T11:00:00.000Z";
+  const { container } = render(React.createElement(AgentSkillsCatalog));
+  await waitFor(() => assert.match(container.textContent, /Persisted configured skill/));
+  const persistedCard = Array.from(container.querySelectorAll("article")).find((node) => /Persisted configured skill/.test(node.textContent));
+  assert.ok(persistedCard);
+  fireEvent.click(within(persistedCard).getByRole("button", { name: "View skill details" }));
+  const history = Array.from(container.querySelectorAll("dialog section")).find((node) => /Definition history/.test(node.textContent));
+  assert.ok(history);
+  assert.match(history.textContent, /Created Sep 10, 2026/);
+  assert.match(history.textContent, /Last edited Sep 11, 2026/);
+  assert.doesNotMatch(history.textContent, /unavailable/i);
+});
+
+
+test("maximum-length skill categories wrap safely on cards and in the detail drawer", async () => {
+  const longCategory = "x".repeat(80);
+  currentDocument.skills[0].category = longCategory;
+  const { container, getAllByText } = render(React.createElement(AgentSkillsCatalog));
+  await waitFor(() => assert.equal(container.querySelectorAll("article").length, DEFAULT_AGENT_WORKFORCE.skills.length));
+
+  const cardCategory = getAllByText(longCategory).find((node) => node.closest("article"));
+  assert.ok(cardCategory);
+  assert.match(cardCategory.className, /break-words/);
+  assert.match(cardCategory.className, /overflow-wrap:anywhere/);
+
+  fireEvent.click(within(cardCategory.closest("article")).getByRole("button", { name: "View skill details" }));
+  const drawerCategory = Array.from(container.querySelectorAll("dialog p")).find((node) => node.textContent === longCategory);
+  assert.ok(drawerCategory);
+  assert.match(drawerCategory.className, /break-words/);
+  assert.match(drawerCategory.className, /overflow-wrap:anywhere/);
+});
+
 
 test("the Core Agents view lists the four department heads with their teams", async () => {
   const { container } = await mount("core");

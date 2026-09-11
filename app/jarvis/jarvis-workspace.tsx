@@ -80,12 +80,15 @@ function WorkforceLocked({ checked, view }: { checked: boolean; view: 'core' | '
 }
 
 export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceTab }) {
-  // The tab is derived, not mirrored. The route resolves it from the URL, so a
-  // sidebar link lands on the right workspace. An in-page tab click records an
-  // override keyed to the tab the route last supplied; a later sidebar
-  // navigation changes that key and the override falls away on its own.
-  const [tabOverride, setTabOverride] = useState<{ key: WorkspaceTab; tab: WorkspaceTab } | null>(null);
-  const desiredTab: WorkspaceTab = tabOverride && tabOverride.key === initialTab ? tabOverride.tab : initialTab;
+  // The route-supplied tab is authoritative. Local state makes in-page tabs
+  // immediate, while the synchronization effect clears any stale selection
+  // whenever App Router supplies a new query-backed destination.
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>(initialTab);
+  const [routeTab, setRouteTab] = useState<WorkspaceTab>(initialTab);
+  if (routeTab !== initialTab) {
+    setRouteTab(initialTab);
+    setWorkspaceTab(initialTab);
+  }
   const [workforceOwnerId, setWorkforceOwnerId] = useState<string | null>(null);
   const [workforceChecked, setWorkforceChecked] = useState(false);
   const [workforceEditorOpen, setWorkforceEditorOpen] = useState(false);
@@ -94,7 +97,6 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
   // A visitor who is not a recognised owner still lands on the workspace they
   // asked for. Sending them to the Jarvis assistant instead made a sidebar
   // entry look broken: you clicked Core Agents and got a read-only chat.
-  const workspaceTab: WorkspaceTab = desiredTab;
   const [workspaceNotice, setWorkspaceNotice] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [commandInFlight, setCommandInFlight] = useState(false);
@@ -488,7 +490,6 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
   }, []);
 
   const selectWorkspaceTab = useCallback((nextTab: WorkspaceTab): boolean => {
-    if (nextTab === workspaceTab) return true;
     if (commandRunningRef.current) {
       setWorkspaceNotice('Jarvis is finishing the current command. Wait for the result before switching workspaces.');
       return false;
@@ -500,13 +501,54 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
     setWorkspaceNotice('');
     jarvisActiveRef.current = nextTab === 'jarvis';
     if (nextTab !== 'jarvis') deactivateJarvis();
-    setTabOverride({ key: initialTab, tab: nextTab });
-    // Mirror the tab into the URL so the sidebar entry for this workspace
-    // lights up, and so the view survives a reload or a shared link.
+    setWorkspaceTab(nextTab);
+    // Push a real history entry so Back/Forward and sidebar deep links share
+    // one URL-backed tab contract instead of competing with a local override.
     const url = nextTab === 'jarvis' ? '/jarvis' : `/jarvis?tab=${nextTab}`;
-    window.history.replaceState(window.history.state, '', url);
+    if (`${window.location.pathname}${window.location.search}` !== url) {
+      window.history.pushState(window.history.state, '', url);
+    }
     return true;
-  }, [deactivateJarvis, initialTab, workforceEditorOpen, workspaceTab]);
+  }, [deactivateJarvis, workforceEditorOpen]);
+
+  useEffect(() => {
+    const tabFromUrl = (): WorkspaceTab => {
+      if (window.location.pathname !== '/jarvis') return initialTab;
+      const requested = new URLSearchParams(window.location.search).get('tab');
+      return requested === 'core' || requested === 'subagent' || requested === 'skills' ? requested : 'jarvis';
+    };
+    const onPopState = () => {
+      const nextTab = tabFromUrl();
+      jarvisActiveRef.current = nextTab === 'jarvis';
+      if (nextTab !== 'jarvis') deactivateJarvis();
+      setWorkspaceNotice('');
+      setWorkspaceTab(nextTab);
+    };
+    const onSidebarNavigation = (event: MouseEvent) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null;
+      if (!anchor || anchor.hasAttribute('download') || (anchor.target && anchor.target.toLowerCase() !== '_self')) return;
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin || destination.pathname !== '/jarvis') return;
+      const requested = destination.searchParams.get('tab');
+      const nextTab: WorkspaceTab = requested === 'core' || requested === 'subagent' || requested === 'skills' ? requested : 'jarvis';
+      if (!selectWorkspaceTab(nextTab)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      // This workspace owns its query-only tab navigation. Handling it here
+      // prevents a same-route sidebar click from being discarded as a no-op.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    window.addEventListener('popstate', onPopState);
+    document.addEventListener('click', onSidebarNavigation, true);
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+      document.removeEventListener('click', onSidebarNavigation, true);
+    };
+  }, [deactivateJarvis, initialTab, selectWorkspaceTab]);
 
   const copyGeneratedContent = async (item: { label: string; content: string }) => {
     try {

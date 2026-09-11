@@ -399,7 +399,7 @@ test("the Jarvis route resolves the active tab from the query string", () => {
   assert.match(page, /"core" \|\| requested === "subagent"/);
   const workspace = read("../app/jarvis/jarvis-workspace.tsx");
   assert.doesNotMatch(workspace, /useSearchParams/, "the workspace takes the tab as a prop");
-  assert.match(workspace, /replaceState/, "an in-page tab change updates the URL for sidebar highlighting");
+  assert.match(workspace, /pushState/, "in-page tab changes update URL history for sidebar highlighting and Back/Forward");
 });
 
 test("the workforce dashboard exposes the parent and autonomy filters and the full summary", () => {
@@ -438,7 +438,7 @@ test("the workforce tabs are always offered, matching the sidebar", () => {
 
 test("a non-owner keeps the workspace they asked for instead of being sent to Jarvis", () => {
   const workspace = read("../app/jarvis/jarvis-workspace.tsx");
-  assert.match(workspace, /const workspaceTab: WorkspaceTab = desiredTab;/);
+  assert.match(workspace, /const \[workspaceTab, setWorkspaceTab\] = useState<WorkspaceTab>\(initialTab\)/);
   assert.doesNotMatch(
     workspace,
     /workforceChecked && workforceOwnerId === null \? 'jarvis'/,

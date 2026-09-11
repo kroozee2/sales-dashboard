@@ -93,38 +93,52 @@ export default function ClientOnboarding({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <Stat label="New clients" value={String(totals.count)} tone="text-white" detail="in this window" />
-        <Stat label="Contract value" value={money(totals.deal)} tone="text-emerald-300" detail="signed" />
-        <Stat label="New MRR" value={money(totals.mrr)} tone="text-blue-300" detail="recurring, per month" />
-        <Stat label="Fully onboarded" value={`${totals.onboarded}/${totals.count}`} tone="text-violet-300" detail="all seven steps" />
+        <Stat label="New clients" value={String(totals.count)} tone="text-white" detail="in this window"
+          icon="🆕" ring="border-zinc-800 hover:border-zinc-700" />
+        <Stat label="Contract value" value={money(totals.deal)} tone="text-emerald-300" detail="signed"
+          icon="💰" ring="border-emerald-500/30 hover:border-emerald-500/50" />
+        <Stat label="New MRR" value={money(totals.mrr)} tone="text-blue-300" detail="recurring, per month"
+          icon="🔁" ring="border-blue-500/30 hover:border-blue-500/50" />
+        {/* Counted from the runbook rather than a number typed here, which went
+            stale the moment an eighth step was added. */}
+        <Stat label="Fully onboarded" value={`${totals.onboarded}/${totals.count}`} tone="text-violet-300"
+          detail={`all ${RUNBOOK.length} steps`} icon="✅" ring="border-violet-500/30 hover:border-violet-500/50" />
       </div>
 
-      {/* Add someone the moment they pay, whether or not Helm knows yet */}
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 p-3">
+      {/* Add someone the moment they pay. Given its own panel, in the house
+          style of the Goals and Projects boards, because signing a client is
+          the event this whole screen exists for. */}
+      <div className="rounded-2xl border border-blue-500/25 bg-gradient-to-br from-blue-950/40 to-zinc-900 p-4 sm:p-5">
+        <div className="mb-3 min-w-0">
+          <h2 className="text-base font-black text-white">New client just signed?</h2>
+          <p className="mt-0.5 text-xs text-zinc-400">
+            Add them the moment they pay, then work the runbook across the sheet below.
+          </p>
+        </div>
         <div className="grid gap-2 md:grid-cols-[1.4fr_1.4fr_110px_110px_auto]">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New client name"
             aria-label="New client name"
             onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-            className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
+            className="min-h-11 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-500 transition-colors focus:border-blue-500 focus:outline-none" />
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" aria-label="Email"
             onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-            className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
+            className="min-h-11 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-500 transition-colors focus:border-blue-500 focus:outline-none" />
           <input value={deal} onChange={(e) => setDeal(e.target.value.replace(/[^\d.]/g, ""))} placeholder="Deal $"
             aria-label="Deal value" inputMode="decimal"
-            className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
+            className="min-h-11 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-500 transition-colors focus:border-blue-500 focus:outline-none" />
           <input value={mrr} onChange={(e) => setMrr(e.target.value.replace(/[^\d.]/g, ""))} placeholder="MRR $"
             aria-label="Monthly recurring" inputMode="decimal"
-            className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
+            className="min-h-11 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white placeholder-zinc-500 transition-colors focus:border-blue-500 focus:outline-none" />
           <button type="button" onClick={submit} disabled={!name.trim()}
-            className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:opacity-40">
-            + Add client
+            className="min-h-11 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-5 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-600/20 transition-all hover:from-blue-500 hover:to-violet-500 disabled:cursor-not-allowed disabled:opacity-40">
+            ＋ Add client
           </button>
         </div>
       </div>
 
       <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search new clients…"
         aria-label="Search new clients"
-        className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
+        className="min-h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-2.5 text-sm text-white placeholder-zinc-500 transition-colors focus:border-blue-500 focus:outline-none" />
 
       {loading ? (
         <p className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-10 text-center text-sm text-zinc-400">Loading clients…</p>
@@ -136,7 +150,7 @@ export default function ClientOnboarding({
           <p className="mt-1 text-xs text-zinc-600">Add one above the moment they pay, and work the runbook from here.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-zinc-800">
+        <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900/60 to-zinc-950">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1180px] border-collapse text-left">
               <thead className="bg-zinc-900/80">
@@ -178,12 +192,22 @@ export default function ClientOnboarding({
   );
 }
 
-function Stat({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) {
+/**
+ * A headline number, styled like the Goals and Projects boards: a coloured
+ * ring, a gradient ground and the icon carrying the meaning, so the row reads
+ * as four distinct things rather than four grey boxes.
+ */
+function Stat({ label, value, detail, tone, icon, ring }: {
+  label: string; value: string; detail: string; tone: string; icon: string; ring: string;
+}) {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/70 px-4 py-3">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className={`mt-1 text-xl font-bold tabular-nums ${tone}`}>{value}</p>
-      <p className="mt-0.5 text-[10px] text-zinc-600">{detail}</p>
+    <div className={`relative min-w-0 overflow-hidden rounded-2xl border bg-gradient-to-br from-zinc-900 to-zinc-950 px-4 py-3.5 transition-colors ${ring}`}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[10px] font-black uppercase tracking-wider text-zinc-500">{label}</p>
+        <span aria-hidden className="text-sm leading-none opacity-80">{icon}</span>
+      </div>
+      <p className={`mt-1.5 text-2xl font-black tabular-nums leading-none ${tone}`}>{value}</p>
+      <p className="mt-1 truncate text-[10px] text-zinc-600">{detail}</p>
     </div>
   );
 }
@@ -292,15 +316,25 @@ function Row({ client, zebra, busy, onPatch, onStep, onOpen, auto }: {
       })}
       <td className="px-3 py-1.5">
         <button type="button" onClick={onOpen} className="w-full text-left">
+          {/* Coloured by how far along they are, the way the Goals board is:
+              a bar that is always the same blue tells you nothing at a glance. */}
           <div className="flex items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-800">
-              <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all duration-500"
-                style={{ width: `${progress.pct}%` }} />
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-800">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  progress.pct === 100 ? "bg-gradient-to-r from-emerald-500 to-teal-400"
+                    : progress.pct >= 50 ? "bg-gradient-to-r from-blue-500 to-emerald-400"
+                      : progress.pct > 0 ? "bg-gradient-to-r from-amber-500 to-orange-400"
+                        : "bg-zinc-700"
+                }`}
+                style={{ width: `${Math.max(progress.pct, progress.pct > 0 ? 6 : 0)}%` }} />
             </div>
-            <span className="w-8 flex-shrink-0 text-right text-[11px] tabular-nums text-zinc-400">{progress.pct}%</span>
+            <span className={`w-9 flex-shrink-0 text-right text-[11px] font-bold tabular-nums ${
+              progress.pct === 100 ? "text-emerald-300" : progress.pct > 0 ? "text-zinc-300" : "text-zinc-600"
+            }`}>{progress.done}/{progress.total}</span>
           </div>
-          <p className="mt-0.5 truncate text-[10px] text-zinc-600">
-            {next ? `next: ${next.label}` : "✓ fully onboarded"}
+          <p className={`mt-1 truncate text-[10px] ${next ? "text-zinc-500" : "font-bold text-emerald-400"}`}>
+            {next ? `next: ${next.emoji} ${next.label}` : "✓ fully onboarded"}
           </p>
         </button>
       </td>

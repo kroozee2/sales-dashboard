@@ -192,11 +192,16 @@ const SKILL_STORED_KEYS = [...SKILL_INPUT_KEYS, "usage", "created_at", "updated_
 
 function canonicalGithubSourceUrl(value: unknown, field: string): string {
   const sourceUrl = canonicalString(value, field, 500);
+  const owner = "(?!-)(?![A-Za-z0-9-]*--)[A-Za-z0-9-]{1,39}(?<!-)";
+  const safeSegment = "[A-Za-z0-9](?:[A-Za-z0-9._-]{0,98}[A-Za-z0-9_-])?";
+  const skillSourcePattern = new RegExp(
+    `^https:\\/\\/github\.com\/${owner}\/${safeSegment}\/blob\/${safeSegment}(?:\/${safeSegment})+\/SKILL\.md$`,
+  );
   if (
     sourceUrl.includes("\\") ||
     sourceUrl.includes("%") ||
-    !/^https:\/\/github\.com\/(?!-)[A-Za-z0-9-]{1,39}(?<!-)\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]{1,100}\/(?:[A-Za-z0-9._~-]+\/)*[A-Za-z0-9._~-]+$/u.test(sourceUrl)
-  ) throw new Error(`${field} must use canonical HTTPS GitHub`);
+    !skillSourcePattern.test(sourceUrl)
+  ) throw new Error(`${field} must identify a canonical GitHub SKILL.md source file`);
 
   let parsedUrl: URL;
   try { parsedUrl = new URL(sourceUrl); } catch { throw new Error(`${field} must be a valid URL`); }

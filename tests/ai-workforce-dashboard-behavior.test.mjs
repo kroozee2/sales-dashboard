@@ -9,6 +9,7 @@ globalThis.self = dom.window;
 globalThis.document = dom.window.document;
 Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
 globalThis.HTMLElement = dom.window.HTMLElement;
+globalThis.Element = dom.window.Element;
 dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {};
 globalThis.HTMLButtonElement = dom.window.HTMLButtonElement;
 globalThis.KeyboardEvent = dom.window.KeyboardEvent;
@@ -112,6 +113,51 @@ test("AI Workforce exposes four semantic tabs with roving Arrow, Home, and End k
   await act(async () => { fireEvent.keyDown(tabs[0], { key: "End" }); await new Promise((resolve) => setTimeout(resolve, 10)); });
   assert.equal(document.activeElement, tabs[3]);
   assert.equal(document.querySelectorAll('[role="tabpanel"]').length, 4);
+});
+
+test("sidebar URL navigation clears a stale in-page tab selection", async () => {
+  window.history.replaceState({}, "", "/jarvis?tab=core");
+  const { getByRole } = render(React.createElement(JarvisWorkspace, { initialTab: "core" }));
+  const tablist = getByRole("tablist", { name: "AI workforce" });
+
+  fireEvent.click(within(tablist).getByRole("tab", { name: "Skills" }));
+  assert.equal(window.location.search, "?tab=skills");
+  assert.equal(within(tablist).getByRole("tab", { name: "Skills" }).getAttribute("aria-selected"), "true");
+
+  const sidebarCore = document.createElement("a");
+  sidebarCore.href = "/jarvis?tab=core";
+  sidebarCore.textContent = "Core Agents sidebar";
+  document.body.append(sidebarCore);
+  fireEvent.click(sidebarCore);
+
+  assert.equal(window.location.search, "?tab=core");
+  assert.equal(within(tablist).getByRole("tab", { name: "Core Agents" }).getAttribute("aria-selected"), "true");
+  assert.equal(document.getElementById("workforce-panel-core").hidden, false);
+  assert.equal(document.getElementById("workforce-panel-skills").hidden, true);
+  sidebarCore.remove();
+});
+
+test("sidebar, in-page, Back, and Forward navigation keep all four tabs synchronized", async () => {
+  window.history.replaceState({}, "", "/jarvis");
+  const { getByRole } = render(React.createElement(JarvisWorkspace, { initialTab: "jarvis" }));
+  const tablist = getByRole("tablist", { name: "AI workforce" });
+  const route = { Jarvis: "/jarvis", "Core Agents": "/jarvis?tab=core", "Sub-agents": "/jarvis?tab=subagent", Skills: "/jarvis?tab=skills" };
+
+  for (const label of ["Core Agents", "Sub-agents", "Skills", "Jarvis"]) {
+    fireEvent.click(within(tablist).getByRole("tab", { name: label }));
+    assert.equal(window.location.pathname + window.location.search, route[label]);
+    assert.equal(within(tablist).getByRole("tab", { name: label }).getAttribute("aria-selected"), "true");
+  }
+
+  window.history.pushState({}, "", "/jarvis?tab=subagent");
+  await act(async () => { window.dispatchEvent(new dom.window.PopStateEvent("popstate", { state: {} })); });
+  assert.equal(within(tablist).getByRole("tab", { name: "Sub-agents" }).getAttribute("aria-selected"), "true");
+  assert.equal(document.getElementById("workforce-panel-subagent").hidden, false);
+
+  window.history.pushState({}, "", "/jarvis?tab=skills");
+  await act(async () => { window.dispatchEvent(new dom.window.PopStateEvent("popstate", { state: {} })); });
+  assert.equal(within(tablist).getByRole("tab", { name: "Skills" }).getAttribute("aria-selected"), "true");
+  assert.equal(document.getElementById("workforce-panel-skills").hidden, false);
 });
 
 test("the top-level Skills catalog has no nested duplicates and exposes the complete truthful definition", async () => {

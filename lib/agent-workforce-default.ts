@@ -1,4 +1,4 @@
-import { createAgentWorkforceDocument, type AgentInput } from "./agent-workforce.ts";
+import { createAgentWorkforceDocument, type AgentInput, type SkillInput } from "./agent-workforce.ts";
 
 type Seed = Partial<AgentInput> & Pick<AgentInput, "id" | "type" | "name" | "role" | "department" | "mission" | "personality">;
 
@@ -28,6 +28,75 @@ const MAYA = "maya-content-director";
 const CORA = "cora-client-success";
 const STERLING = "sterling-sales-director";
 const FORGE = "forge-systems-director";
+
+const skill = (value: Omit<SkillInput, "quality_rating" | "review_count">): SkillInput => ({
+  ...value,
+  quality_rating: null,
+  review_count: 0,
+});
+
+export const DEFAULT_AGENT_SKILLS: SkillInput[] = [
+  skill({
+    id: "grounded-citations",
+    name: "Grounded Citations",
+    purpose: "Research claims against verifiable sources and keep citations attached to the answer.",
+    category: "Research",
+    tags: ["research", "citations", "evidence"],
+    agent_ids: ["jarvis", "scout-research"],
+    deployment_state: "configured",
+    source_url: "https://github.com/NousResearch/hermes-agent/blob/main/skills/research/grounded-citations/SKILL.md",
+  }),
+  skill({
+    id: "google-workspace",
+    name: "Google Workspace",
+    purpose: "Work safely with Gmail, Calendar, Drive, Docs, and Sheets using authenticated Google tools.",
+    category: "Productivity",
+    tags: ["gmail", "calendar", "workspace"],
+    agent_ids: ["jarvis", "brief-client-prep", "care-client-comms"],
+    deployment_state: "configured",
+    source_url: "https://github.com/NousResearch/hermes-agent/blob/main/skills/productivity/google-workspace/SKILL.md",
+  }),
+  skill({
+    id: "requesting-code-review",
+    name: "Requesting Code Review",
+    purpose: "Run security, logic, and regression checks before a change is committed.",
+    category: "Software development",
+    tags: ["review", "security", "quality"],
+    agent_ids: ["forge-systems-director", "sentinel-review", "lens-production-qa"],
+    deployment_state: "configured",
+    source_url: "https://github.com/NousResearch/hermes-agent/blob/main/skills/software-development/requesting-code-review/SKILL.md",
+  }),
+  skill({
+    id: "github-workflows",
+    name: "GitHub Workflows",
+    purpose: "Inspect repositories and manage branches, pull requests, issues, checks, and releases through GitHub.",
+    category: "Software development",
+    tags: ["github", "delivery", "source-control"],
+    agent_ids: ["forge-systems-director", "builder-product-worker", "sentinel-review"],
+    deployment_state: "configured",
+    source_url: "https://github.com/NousResearch/hermes-agent/blob/main/skills/software-development/github/SKILL.md",
+  }),
+  skill({
+    id: "youtube-content",
+    name: "YouTube Content",
+    purpose: "Turn verified YouTube transcripts into grounded summaries and reusable content assets.",
+    category: "Media",
+    tags: ["youtube", "transcripts", "content"],
+    agent_ids: ["maya-content-director", "scout-research", "story-scriptwriter", "echo-repurposing"],
+    deployment_state: "configured",
+    source_url: "https://github.com/NousResearch/hermes-agent/blob/main/skills/media/youtube-content/SKILL.md",
+  }),
+  skill({
+    id: "computer-use",
+    name: "Computer Use",
+    purpose: "Drive desktop applications with verified screenshots, background input, and an explicit escalation ladder.",
+    category: "Automation",
+    tags: ["desktop", "automation", "verification"],
+    agent_ids: ["jarvis", "forge-systems-director", "builder-product-worker", "lens-production-qa"],
+    deployment_state: "configured",
+    source_url: "https://github.com/NousResearch/hermes-agent/blob/main/skills/autonomous-ai-agents/computer-use/SKILL.md",
+  }),
+];
 
 export const DEFAULT_AGENT_WORKFORCE = createAgentWorkforceDocument({
   agents: [
@@ -510,4 +579,5 @@ export const DEFAULT_AGENT_WORKFORCE = createAgentWorkforceDocument({
       next_milestone: "Standardize authenticated mobile smoke tests",
     }),
   ],
+  skills: DEFAULT_AGENT_SKILLS,
 }, "2026-09-05T15:00:00.000Z");

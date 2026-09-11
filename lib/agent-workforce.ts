@@ -1,10 +1,37 @@
 export const AGENT_TYPES = ["core", "subagent"] as const;
 export const AGENT_STATUSES = ["planned", "designed", "building", "testing", "live", "paused"] as const;
 export const AGENT_AUTONOMY = ["draft_only", "internal", "approval_gated"] as const;
+export const SKILL_DEPLOYMENT_STATES = ["draft", "configured", "deployed", "paused", "retired"] as const;
 
 export type AgentType = (typeof AGENT_TYPES)[number];
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
 export type AgentAutonomy = (typeof AGENT_AUTONOMY)[number];
+export type SkillDeploymentState = (typeof SKILL_DEPLOYMENT_STATES)[number];
+
+export type SkillInput = {
+  id: string;
+  name: string;
+  purpose: string;
+  category: string;
+  tags: string[];
+  agent_ids: string[];
+  deployment_state: SkillDeploymentState;
+  source_url: string;
+  quality_rating: number | null;
+  review_count: number;
+};
+
+export type SkillUsage = {
+  count: number;
+  last_used_at: string;
+  source: "hermes";
+};
+
+export type SkillDefinition = SkillInput & {
+  usage: SkillUsage | null;
+  created_at: string;
+  updated_at: string;
+};
 
 // What an editor may send. Timestamps are deliberately absent: the server owns
 // them, so a stale or hostile client cannot rewrite an agent's history.
@@ -38,17 +65,19 @@ export type AgentDefinition = AgentInput & {
 };
 
 export type AgentWorkforceDocument = {
-  version: 1;
+  version: 2;
   agents: AgentDefinition[];
+  skills: SkillDefinition[];
   revision: string;
   updated_at: string;
 };
 
-export type AgentWorkforceInput = { agents: AgentInput[] };
+export type AgentWorkforceInput = { agents: AgentInput[]; skills: SkillInput[] };
 export type AgentWorkforceUpdateInput = AgentWorkforceInput & { expected_revision: string };
 
 export const AGENT_WORKFORCE_MAX_BODY_BYTES = 220_000;
 const MAX_AGENTS = 60;
+const MAX_SKILLS = 100;
 const MAX_LIST_ITEMS = 20;
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const AGENT_INPUT_KEYS = [
@@ -150,6 +179,41 @@ function isOneOf<T extends readonly string[]>(value: unknown, choices: T): value
 
 type ValidateMode = "input" | "stored";
 
+const SKILL_INPUT_KEYS = ["id", "name", "purpose", "category", "tags", "agent_ids", "deployment_state", "source_url", "quality_rating", "review_count"] as const;
+const SKILL_STORED_KEYS = [...SKILL_INPUT_KEYS, "usage", "created_at", "updated_at"] as const;
+
+function validateSkill(raw: unknown, index: number, agentIds: Set<string>): SkillInput {
+  if (!isRecord(raw)) throw new Error(`skills[${index}] must be an object`);
+  assertExactKeys(raw, SKILL_INPUT_KEYS, `skills[${index}]`);
+  const id = canonicalString(raw.id, `skills[${index}].id`, 80);
+  if (!ID_PATTERN.test(id)) throw new Error(`skills[${index}].id must be a lowercase slug`);
+  if (!isOneOf(raw.deployment_state, SKILL_DEPLOYMENT_STATES)) throw new Error(`skills[${index}].deployment_state is invalid`);
+  if (!Array.isArray(raw.agent_ids) || raw.agent_ids.length < 1 || raw.agent_ids.length > MAX_LIST_ITEMS) throw new Error(`skills[${index}].agent_ids must contain 1 to ${MAX_LIST_ITEMS} references`);
+  const connections = raw.agent_ids.map((value, connectionIndex) => canonicalString(value, `skills[${index}].agent_ids[${connectionIndex}]`, 80));
+  if (new Set(connections).size !== connections.length) throw new Error(`skills[${index}].agent_ids contains duplicate references`);
+  const unknown = connections.find((value) => value !== "jarvis" && !agentIds.has(value));
+  if (unknown) throw new Error(`Skill ${id} references an unknown agent: ${unknown}`);
+  const sourceUrl = boundedString(raw.source_url, `skills[${index}].source_url`, 500);
+  let parsedUrl: URL;
+  try { parsedUrl = new URL(sourceUrl); } catch { throw new Error(`skills[${index}].source_url must be a valid URL`); }
+  if (!["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) throw new Error(`skills[${index}].source_url must use http or https`);
+  if ((parsedUrl.hostname !== "github.com" && parsedUrl.hostname !== "www.github.com") || parsedUrl.port) throw new Error(`skills[${index}].source_url must use GitHub without a custom port`);
+  if (raw.quality_rating !== null && (typeof raw.quality_rating !== "number" || !Number.isFinite(raw.quality_rating) || raw.quality_rating < 1 || raw.quality_rating > 5)) throw new Error(`skills[${index}].quality_rating must be null or from 1 to 5`);
+  if (!Number.isInteger(raw.review_count) || Number(raw.review_count) < 0 || Number(raw.review_count) > 10_000) throw new Error(`skills[${index}].review_count must be an integer from 0 to 10000`);
+  return {
+    id,
+    name: boundedString(raw.name, `skills[${index}].name`, 100),
+    purpose: boundedString(raw.purpose, `skills[${index}].purpose`, 600),
+    category: boundedString(raw.category, `skills[${index}].category`, 80),
+    tags: boundedStringList(raw.tags, `skills[${index}].tags`),
+    agent_ids: connections,
+    deployment_state: raw.deployment_state,
+    source_url: sourceUrl,
+    quality_rating: raw.quality_rating,
+    review_count: Number(raw.review_count),
+  };
+}
+
 function validateAgent(raw: unknown, index: number, mode: ValidateMode = "input"): AgentInput {
   if (!isRecord(raw)) throw new Error(`agents[${index}] must be an object`);
   assertExactKeys(raw, mode === "stored" ? AGENT_STORED_KEYS : AGENT_INPUT_KEYS, `agents[${index}]`);
@@ -202,7 +266,7 @@ function validateAgent(raw: unknown, index: number, mode: ValidateMode = "input"
 
 function validateInput(value: unknown, includeRevision: boolean, mode: ValidateMode = "input"): AgentWorkforceInput & { expected_revision?: string } {
   if (!isRecord(value)) throw new Error("Agent workforce must be an object");
-  assertExactKeys(value, includeRevision ? ["agents", "expected_revision"] : ["agents"], "workforce");
+  assertExactKeys(value, includeRevision ? ["agents", "skills", "expected_revision"] : ["agents", "skills"], "workforce");
   if (!Array.isArray(value.agents)) throw new Error("agents must be an array");
   if (value.agents.length > MAX_AGENTS) throw new Error(`agents exceeds ${MAX_AGENTS} items`);
   const agents = value.agents.map((agent, index) => validateAgent(agent, index, mode));
@@ -217,7 +281,17 @@ function validateInput(value: unknown, includeRevision: boolean, mode: ValidateM
       throw new Error(`Sub-agent ${agent.id} references an unknown core parent`);
     }
   }
-  const result: AgentWorkforceInput & { expected_revision?: string } = { agents };
+  const rawSkills = value.skills ?? [];
+  if (!Array.isArray(rawSkills)) throw new Error("skills must be an array");
+  if (rawSkills.length > MAX_SKILLS) throw new Error(`skills exceeds ${MAX_SKILLS} items`);
+  const allAgentIds = new Set(agents.map((agent) => agent.id));
+  const skills = rawSkills.map((skill, index) => validateSkill(skill, index, allAgentIds));
+  const skillIds = new Set<string>();
+  for (const skill of skills) {
+    if (skillIds.has(skill.id)) throw new Error(`Duplicate skill id: ${skill.id}`);
+    skillIds.add(skill.id);
+  }
+  const result: AgentWorkforceInput & { expected_revision?: string } = { agents, skills };
   if (includeRevision) result.expected_revision = canonicalString(value.expected_revision, "expected_revision", 64);
   if (new TextEncoder().encode(JSON.stringify(result)).byteLength > AGENT_WORKFORCE_MAX_BODY_BYTES) {
     throw new Error(`Agent workforce exceeds ${AGENT_WORKFORCE_MAX_BODY_BYTES} bytes`);
@@ -251,23 +325,33 @@ function stamp(agents: AgentInput[], now: string): AgentDefinition[] {
 
 export function createAgentWorkforceDocument(input: unknown, now = new Date().toISOString()): AgentWorkforceDocument {
   const valid = validateInput(input, false);
-  return { version: 1, agents: stamp(valid.agents, now), revision: now, updated_at: now };
+  return {
+    version: 2,
+    agents: stamp(valid.agents, now),
+    skills: valid.skills.map((skill) => ({ ...skill, usage: null, created_at: now, updated_at: now })),
+    revision: now,
+    updated_at: now,
+  };
 }
 
-export function parseAgentWorkforceDocument(raw: string): AgentWorkforceDocument {
+export function parseAgentWorkforceDocument(raw: string, migrationSkills: SkillInput[] = []): AgentWorkforceDocument {
   let parsed: unknown;
   try { parsed = parseJsonWithUniqueKeys(raw); } catch { throw new Error("Stored agent workforce is invalid JSON"); }
   if (!isRecord(parsed)) throw new Error("Stored agent workforce must be an object");
-  assertExactKeys(parsed, ["version", "agents", "revision", "updated_at"], "stored workforce");
-  if (parsed.version !== 1) throw new Error("Unsupported agent workforce version");
-  const valid = validateInput({ agents: parsed.agents }, false, "stored");
+  if (parsed.version !== 1 && parsed.version !== 2) throw new Error("Unsupported agent workforce version");
+  const legacy = parsed.version === 1;
+  assertExactKeys(parsed, legacy ? ["version", "agents", "revision", "updated_at"] : ["version", "agents", "skills", "revision", "updated_at"], "stored workforce");
+  const storedSkills = legacy ? migrationSkills : parsed.skills;
+  if (!Array.isArray(storedSkills)) throw new Error("Stored workforce skills must be an array");
+  const skillInputs = storedSkills.map((skill, index) => {
+    if (!isRecord(skill)) throw new Error(`skills[${index}] must be an object`);
+    if (legacy) return skill;
+    assertExactKeys(skill, SKILL_STORED_KEYS, `skills[${index}]`);
+    return Object.fromEntries(SKILL_INPUT_KEYS.map((key) => [key, skill[key]]));
+  });
+  const valid = validateInput({ agents: parsed.agents, skills: skillInputs }, false, "stored");
   const revision = canonicalTimestamp(parsed.revision, "revision");
   const updatedAt = canonicalTimestamp(parsed.updated_at, "updated_at");
-  if (!Number.isFinite(Date.parse(revision)) || !Number.isFinite(Date.parse(updatedAt))) {
-    throw new Error("Stored agent workforce revision is invalid");
-  }
-  // Agents stored before per-agent timestamps existed inherit the document's
-  // own revision — the most truthful thing known about when they last changed.
   const storedAgents = parsed.agents as Array<Record<string, unknown>>;
   const agents: AgentDefinition[] = valid.agents.map((agent, index) => ({
     ...agent,
@@ -278,7 +362,25 @@ export function parseAgentWorkforceDocument(raw: string): AgentWorkforceDocument
       ? canonicalTimestamp(storedAgents[index].updated_at, `agents[${index}].updated_at`)
       : revision,
   }));
-  return { version: 1, agents, revision, updated_at: updatedAt };
+  const skillRecords = storedSkills as Array<Record<string, unknown>>;
+  const skills: SkillDefinition[] = valid.skills.map((skill, index) => {
+    const stored = skillRecords[index];
+    let usage: SkillUsage | null = null;
+    if (!legacy && stored.usage !== null) {
+      if (!isRecord(stored.usage)) throw new Error(`skills[${index}].usage must be null or an object`);
+      assertExactKeys(stored.usage, ["count", "last_used_at", "source"], `skills[${index}].usage`);
+      if (!Number.isInteger(stored.usage.count) || Number(stored.usage.count) < 0 || Number(stored.usage.count) > 1_000_000_000) throw new Error(`skills[${index}].usage.count is invalid`);
+      if (stored.usage.source !== "hermes") throw new Error(`skills[${index}].usage.source is invalid`);
+      usage = { count: Number(stored.usage.count), last_used_at: canonicalTimestamp(stored.usage.last_used_at, `skills[${index}].usage.last_used_at`), source: "hermes" };
+    }
+    return {
+      ...skill,
+      usage,
+      created_at: legacy ? revision : canonicalTimestamp(stored.created_at, `skills[${index}].created_at`),
+      updated_at: legacy ? revision : canonicalTimestamp(stored.updated_at, `skills[${index}].updated_at`),
+    };
+  });
+  return { version: 2, agents, skills, revision, updated_at: updatedAt };
 }
 
 export function updateAgentWorkforceDocument(
@@ -292,6 +394,9 @@ export function updateAgentWorkforceDocument(
   const nextIds = new Set(valid.agents.map((agent) => agent.id));
   const removed = current.agents.find((agent) => !nextIds.has(agent.id));
   if (removed) throw new Error(`Agent deletion is not supported: ${removed.id}`);
+  const nextSkillIds = new Set(valid.skills.map((skill) => skill.id));
+  const removedSkill = current.skills.find((skill) => !nextSkillIds.has(skill.id));
+  if (removedSkill) throw new Error(`Skill deletion is not supported: ${removedSkill.id}`);
   const revision = nextRevision(current.revision, now, databaseRevision);
   // Timestamps are derived here rather than trusted from the request: a new
   // agent is born at this revision, an edited one is touched, and an agent the
@@ -307,7 +412,19 @@ export function updateAgentWorkforceDocument(
       updated_at: unchanged ? existing.updated_at : revision,
     };
   });
-  return { version: 1, agents, revision, updated_at: revision };
+  const previousSkills = new Map(current.skills.map((skill) => [skill.id, skill]));
+  const skills: SkillDefinition[] = valid.skills.map((skill) => {
+    const existing = previousSkills.get(skill.id);
+    if (!existing) return { ...skill, usage: null, created_at: revision, updated_at: revision };
+    const unchanged = JSON.stringify(SKILL_INPUT_KEYS.map((key) => skill[key])) === JSON.stringify(SKILL_INPUT_KEYS.map((key) => existing[key]));
+    return {
+      ...skill,
+      usage: existing.usage,
+      created_at: existing.created_at,
+      updated_at: unchanged ? existing.updated_at : revision,
+    };
+  });
+  return { version: 2, agents, skills, revision, updated_at: revision };
 }
 
 export async function readBoundedAgentWorkforceBody(request: Request): Promise<string> {

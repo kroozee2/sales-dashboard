@@ -1,9 +1,10 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
-import { Activity, Bot, ChevronRight, Clock3, Pencil, Plus, Search, ShieldCheck, Sparkles, Users, X } from 'lucide-react';
+import { Activity, Bot, ChevronRight, Clock3, Copy, ExternalLink, Library, Pencil, Plus, Search, ShieldCheck, Sparkles, Star, Users, X } from 'lucide-react';
 import { agentWorkforceDraftKey, parseAgentWorkforceDraft, persistAgentWorkforceDraft, reconcileAgentWorkforceDraft, type AgentWorkforceDraftForm } from '@/lib/agent-workforce-draft';
 import { filterWorkforceAgents, summarizeAgentWorkforce } from '@/lib/agent-workforce-view';
+import { filterAndSortSkills, skillConnectionLabels, skillUsageSortAvailable, type SkillSort } from '@/lib/agent-skills-view';
 import {
   AGENT_AUTONOMY,
   AGENT_STATUSES,
@@ -17,6 +18,10 @@ import {
   type AgentStatus,
   type AgentType,
   type AgentWorkforceDocument,
+  SKILL_DEPLOYMENT_STATES,
+  type SkillDefinition,
+  type SkillDeploymentState,
+  type SkillInput,
 } from '@/lib/agent-workforce';
 
 type WorkforceView = 'core' | 'subagent';
@@ -68,6 +73,14 @@ function toInput(agent: AgentInput): AgentInput {
     schedule: agent.schedule, triggers: agent.triggers, responsibilities: agent.responsibilities,
     capabilities: agent.capabilities, inputs: agent.inputs, outputs: agent.outputs,
     next_milestone: agent.next_milestone, notes: agent.notes,
+  };
+}
+
+function toSkillInput(skill: SkillDefinition): SkillInput {
+  return {
+    id: skill.id, name: skill.name, purpose: skill.purpose, category: skill.category,
+    tags: skill.tags, agent_ids: skill.agent_ids, deployment_state: skill.deployment_state,
+    source_url: skill.source_url, quality_rating: skill.quality_rating, review_count: skill.review_count,
   };
 }
 
@@ -297,6 +310,84 @@ function DetailPanel({ agent, teamMembers, returnFocusRef, fallbackFocusRef, onC
   );
 }
 
+const SKILL_DEPLOYMENT_LABEL: Record<SkillDeploymentState, string> = {
+  draft: 'Draft',
+  configured: 'Configured',
+  deployed: 'Deployed',
+  paused: 'Paused',
+  retired: 'Retired',
+};
+
+function SkillDetailPanel({ skill, agents, returnFocusRef, fallbackFocusRef, onClose }: { skill: SkillDefinition; agents: AgentDefinition[]; returnFocusRef: RefObject<HTMLElement | null>; fallbackFocusRef: RefObject<HTMLElement | null>; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [copyStatus, setCopyStatus] = useState('');
+  useDialogLifecycle(dialogRef, onClose, closeButtonRef, returnFocusRef, fallbackFocusRef);
+  const connections = skillConnectionLabels(skill, agents);
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(skill.source_url);
+      setCopyStatus('GitHub link copied.');
+    } catch {
+      setCopyStatus('Could not copy the link. Open GitHub and copy it there.');
+    }
+  };
+  return (
+    <dialog ref={dialogRef} aria-labelledby="skill-detail-title" onCancel={(event) => { event.preventDefault(); onClose(); }} className="fixed inset-0 z-[80] m-0 h-[100dvh] max-h-none w-full max-w-none border-0 bg-black/70 p-0 text-left backdrop-blur-sm">
+      <div className="flex h-full justify-end" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+        <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-[#0c0d10] pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] pt-[max(1.25rem,env(safe-area-inset-top))] shadow-2xl sm:p-7">
+          <div className="sticky top-0 z-10 -mx-2 flex items-start justify-between gap-4 bg-[#0c0d10]/95 px-2 pb-3 backdrop-blur">
+            <div className="min-w-0"><p className="text-[10px] font-medium uppercase tracking-[0.18em] text-blue-300">{skill.category}</p><h2 id="skill-detail-title" className="mt-2 break-words text-2xl font-semibold tracking-tight text-white [overflow-wrap:anywhere]">{skill.name}</h2></div>
+            <button ref={closeButtonRef} autoFocus onClick={onClose} className={`${FOCUS_RING} grid min-h-11 min-w-11 shrink-0 place-items-center rounded-xl border border-white/10 p-2.5 text-zinc-400 hover:text-white`} aria-label="Close skill details"><X size={18} /></button>
+          </div>
+          <p className="mt-6 break-words text-sm leading-7 text-zinc-300 [overflow-wrap:anywhere]">{skill.purpose}</p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4"><p className="text-[10px] uppercase tracking-[0.16em] text-zinc-400">Deployment</p><p className="mt-2 text-sm text-zinc-200">{SKILL_DEPLOYMENT_LABEL[skill.deployment_state]}</p><p className="mt-1 text-xs leading-5 text-zinc-400">Configuration state only; it does not mean the skill is running now.</p></div>
+            <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4"><p className="text-[10px] uppercase tracking-[0.16em] text-zinc-400">Runtime activity</p>{skill.usage ? <><p className="mt-2 text-sm text-zinc-200">{skill.usage.count.toLocaleString()} verified uses</p><p className="mt-1 text-xs text-zinc-400">Hermes · last observed {formatStamp(skill.usage.last_used_at)}</p></> : <p className="mt-2 text-sm text-amber-200">Activity not connected</p>}</div>
+          </div>
+          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Connected workforce</h3><ul className="mt-3 space-y-2">{connections.map((label, index) => <li key={`${skill.agent_ids[index]}-${index}`} className="break-words rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-2.5 text-sm text-zinc-300 [overflow-wrap:anywhere]">{label}</li>)}</ul></section>
+          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Tags</h3><div className="mt-3 flex flex-wrap gap-2">{skill.tags.map((tag) => <span key={tag} className="max-w-full break-words rounded-full border border-white/[0.08] px-3 py-1.5 text-xs text-zinc-300 [overflow-wrap:anywhere]">{tag}</span>)}</div></section>
+          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Internal quality rating</h3><p className="mt-2 text-sm text-zinc-300">{skill.quality_rating === null ? 'Not rated' : `${skill.quality_rating.toFixed(1)} out of 5`} · {skill.review_count} internal {skill.review_count === 1 ? 'review' : 'reviews'}</p><p className="mt-1 text-xs leading-5 text-zinc-400">Owner-maintained internal metadata, not a community rating.</p></section>
+          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">GitHub source</h3><p className="mt-2 break-all text-xs leading-5 text-zinc-400">{skill.source_url}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => void copyLink()} className={`${FOCUS_RING} flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:bg-white/5`}><Copy size={15} /> Copy link</button><a href={skill.source_url} target="_blank" rel="noreferrer" className={`${FOCUS_RING} flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500`}><ExternalLink size={15} /> Open GitHub</a></div><p role="status" aria-live="polite" className="mt-3 text-xs text-zinc-400">{copyStatus}</p><p className="mt-2 text-xs leading-5 text-zinc-400">Sharing this link is read-only. It does not install the skill or grant repository access.</p></section>
+          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Definition history</h3><p className="mt-2 text-xs leading-5 text-zinc-400">Created {formatStamp(skill.created_at)} · Last edited {formatStamp(skill.updated_at)}</p></section>
+        </aside>
+      </div>
+    </dialog>
+  );
+}
+
+function SkillsCatalog({ skills, agents }: { skills: SkillDefinition[]; agents: AgentDefinition[] }) {
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('all');
+  const [deploymentState, setDeploymentState] = useState<'all' | SkillDeploymentState>('all');
+  const [agentId, setAgentId] = useState('all');
+  const [sort, setSort] = useState<SkillSort>('name');
+  const [selectedSkill, setSelectedSkill] = useState<SkillDefinition | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const detailOpenerRef = useRef<HTMLElement | null>(null);
+  const usageAvailable = skillUsageSortAvailable(skills);
+  const categories = useMemo(() => [...new Set(skills.map((skill) => skill.category))].sort(), [skills]);
+  const connectedAgents = useMemo(() => agents.filter((agent) => skills.some((skill) => skill.agent_ids.includes(agent.id))), [agents, skills]);
+  const visible = useMemo(() => filterAndSortSkills(skills, { query, category, deploymentState, agentId, sort }), [agentId, category, deploymentState, query, skills, sort]);
+  return (
+    <div>
+      <header><div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.2em] text-blue-300/70"><Library size={13} /> AI Workforce</div><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">Skills library</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Reusable capabilities connected to Jarvis, department leaders, and specialist sub-agents. Deployment and runtime evidence stay separate.</p></header>
+      <div className="mt-6 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4"><p className="text-[10px] uppercase tracking-[0.15em] text-zinc-400">Skills</p><p className="mt-2 text-xl font-semibold text-zinc-100">{skills.length}</p></div><div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4"><p className="text-[10px] uppercase tracking-[0.15em] text-zinc-400">Deployed</p><p className="mt-2 text-xl font-semibold text-zinc-100">{skills.filter((skill) => skill.deployment_state === 'deployed').length}</p></div><div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.04] p-4"><p className="text-[10px] uppercase tracking-[0.15em] text-amber-200/80">Runtime evidence</p><p className="mt-2 text-sm font-medium text-amber-200">{usageAvailable ? 'Hermes activity connected' : 'Activity not connected'}</p></div></div>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <label className="relative min-w-[12rem] flex-1"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" /><span className="sr-only">Search skills</span><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search skills by name, purpose, category, or tag" className={`${FOCUS_RING} min-h-11 w-full rounded-xl border border-zinc-500 bg-[#18181b] pl-9 pr-3 text-base text-white placeholder:text-zinc-400 sm:text-sm`} /></label>
+        <label><span className="sr-only">Filter skills by category</span><select value={category} onChange={(event) => setCategory(event.target.value)} className={SELECT_CLASS}><option value="all">All categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        <label><span className="sr-only">Filter skills by deployment state</span><select value={deploymentState} onChange={(event) => setDeploymentState(event.target.value as 'all' | SkillDeploymentState)} className={SELECT_CLASS}><option value="all">All deployment states</option>{SKILL_DEPLOYMENT_STATES.map((state) => <option key={state} value={state}>{SKILL_DEPLOYMENT_LABEL[state]}</option>)}</select></label>
+        <label><span className="sr-only">Filter skills by connected agent</span><select value={agentId} onChange={(event) => setAgentId(event.target.value)} className={SELECT_CLASS}><option value="all">All connected agents</option><option value="jarvis">Jarvis</option>{connectedAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label>
+        <label><span className="sr-only">Sort skills</span><select value={sort} onChange={(event) => setSort(event.target.value as SkillSort)} className={SELECT_CLASS}><option value="name">Name</option><option value="rating">Internal rating</option><option value="usage" disabled={!usageAvailable}>{usageAvailable ? 'Most used' : 'Most used (activity not connected)'}</option></select></label>
+      </div>
+      <p aria-live="polite" className="mt-2 text-xs text-zinc-400">Showing {visible.length} of {skills.length} skills.</p>
+      {visible.length === 0 ? <div className="mt-6 rounded-2xl border border-dashed border-white/10 py-16 text-center"><Library className="mx-auto text-zinc-400" /><p className="mt-3 text-sm text-zinc-400">No skills match these filters.</p></div> : <div className="mt-6 grid gap-4 xl:grid-cols-2">{visible.map((skill) => { const labels = skillConnectionLabels(skill, agents); return <article key={skill.id} className="min-w-0 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 sm:p-5"><div className="flex min-w-0 items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-medium uppercase tracking-[0.16em] text-blue-300">{skill.category}</p><h2 className="mt-2 break-words text-base font-semibold text-zinc-100 [overflow-wrap:anywhere]">{skill.name}</h2></div><span className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] text-zinc-300">{SKILL_DEPLOYMENT_LABEL[skill.deployment_state]}</span></div><p className="mt-3 break-words text-sm leading-6 text-zinc-400 [overflow-wrap:anywhere]">{skill.purpose}</p><div className="mt-4 flex flex-wrap gap-2">{labels.slice(0, 3).map((label) => <span key={label} className="max-w-full break-words rounded-full border border-blue-400/15 bg-blue-400/[0.05] px-2.5 py-1 text-[10px] text-blue-200 [overflow-wrap:anywhere]">{label}</span>)}{labels.length > 3 && <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] text-zinc-400">+{labels.length - 3}</span>}</div><div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4 text-xs text-zinc-400"><span className="flex items-center gap-1.5"><Star size={13} /> Internal quality rating: {skill.quality_rating === null ? 'Not rated' : `${skill.quality_rating.toFixed(1)}/5`}</span><span>{skill.usage ? `${skill.usage.count.toLocaleString()} verified uses` : 'Activity not connected'}</span></div><button type="button" onClick={(event) => { detailOpenerRef.current = event.currentTarget; setSelectedSkill(skill); }} className={`${FOCUS_RING} mt-3 flex min-h-11 w-full items-center justify-between rounded-lg text-left text-xs text-zinc-300`}><span>View skill details</span><ChevronRight size={14} /></button></article>; })}</div>}
+      {!usageAvailable && <p className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-xs leading-5 text-zinc-400">Most-used ranking is disabled because authoritative runtime telemetry is not connected. Configured or deployed skills are not presented as currently active.</p>}
+      {selectedSkill && <SkillDetailPanel skill={selectedSkill} agents={agents} returnFocusRef={detailOpenerRef} fallbackFocusRef={searchRef} onClose={() => setSelectedSkill(null)} />}
+    </div>
+  );
+}
+
 function AgentEditor({ form, coreAgents, saving, cleanupPending, error, initiallyDirty, creating, recoveryOnly, returnFocusRef, fallbackFocusRef, onChange, onClose, onSubmit }: { form: FormAgent; coreAgents: AgentDefinition[]; saving: boolean; cleanupPending: boolean; error: string; initiallyDirty: boolean; creating: boolean; recoveryOnly: boolean; returnFocusRef: RefObject<HTMLElement | null>; fallbackFocusRef: RefObject<HTMLElement | null>; onChange: (next: FormAgent) => void; onClose: () => void; onSubmit: (event: FormEvent) => void }) {
   const [initialForm] = useState(() => JSON.stringify(form));
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -415,6 +506,7 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
   const [autonomy, setAutonomy] = useState<'all' | AgentAutonomy>('all');
   const [parent, setParent] = useState<string>('all');
   const [status, setStatus] = useState<'all' | AgentStatus>('all');
+  const [dashboardSection, setDashboardSection] = useState<'agents' | 'skills'>('agents');
   const [selected, setSelected] = useState<AgentDefinition | null>(null);
   const [form, setForm] = useState<FormAgent | null>(null);
   const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create');
@@ -572,7 +664,7 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
     savingRef.current = true;
     setSaving(true);
     try {
-      const response = await fetch('/api/agent-workforce', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agents: nextAgents.map(toInput), expected_revision: document.revision }) });
+      const response = await fetch('/api/agent-workforce', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agents: nextAgents.map(toInput), skills: document.skills.map(toSkillInput), expected_revision: document.revision }) });
       const data = await response.json() as { document?: AgentWorkforceDocument; error?: string };
       if (response.status === 409) {
         const reloadResponse = await fetch('/api/agent-workforce', { cache: 'no-store' });
@@ -629,6 +721,11 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
     <div className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#090a0d] p-4 shadow-2xl sm:p-6">
       <div className="pointer-events-none absolute left-1/3 top-0 h-72 w-72 rounded-full bg-blue-600/10 blur-[100px]" />
       <div className="relative">
+        <nav role="tablist" aria-label="Workforce definitions" className="mb-6 flex gap-1 rounded-xl border border-white/[0.07] bg-black/20 p-1">
+          <button type="button" role="tab" aria-selected={dashboardSection === 'agents'} tabIndex={dashboardSection === 'agents' ? 0 : -1} onClick={() => setDashboardSection('agents')} className={`${FOCUS_RING} min-h-11 flex-1 rounded-lg px-4 py-2 text-sm font-medium ${dashboardSection === 'agents' ? 'bg-white/[0.09] text-white' : 'text-zinc-400 hover:text-white'}`}>{view === 'core' ? 'Core Agents' : 'Sub-agents'}</button>
+          <button type="button" role="tab" aria-selected={dashboardSection === 'skills'} tabIndex={dashboardSection === 'skills' ? 0 : -1} onClick={() => { setSelected(null); setDashboardSection('skills'); }} className={`${FOCUS_RING} min-h-11 flex-1 rounded-lg px-4 py-2 text-sm font-medium ${dashboardSection === 'skills' ? 'bg-white/[0.09] text-white' : 'text-zinc-400 hover:text-white'}`}><Library size={15} className="mr-2 inline" />Skills library</button>
+        </nav>
+        {dashboardSection === 'skills' ? <SkillsCatalog skills={document.skills} agents={document.agents} /> : <>
         <header className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div><div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.2em] text-blue-300/70"><Sparkles size={13} /> AI Workforce</div><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{view === 'core' ? 'Core Agents' : 'Sub-agents'}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">{view === 'core' ? 'Department leaders that own outcomes, coordinate specialist workers, and report to Jarvis.' : 'Focused workers that research, create, monitor, verify, and prepare work for their department leader.'}</p></div>
           <button onClick={(event) => openCreate(event.currentTarget)} className={`${FOCUS_RING} flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500`}><Plus size={16} /> Create agent</button>
@@ -676,6 +773,7 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
         )}
 
         <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-xs leading-5 text-zinc-400">Status and progress above are manually maintained blueprint fields. Live Hermes schedules, runs, approvals, failures, and telemetry are not connected yet.</div>
+        </>}
       </div>
       {selected && <DetailPanel agent={selected} teamMembers={document.agents.filter((agent) => agent.parent_id === selected.id)} returnFocusRef={detailOpenerRef} fallbackFocusRef={searchInputRef} onClose={() => setSelected(null)} onEdit={() => openEdit(selected, detailOpenerRef.current)} />}
       {form && <AgentEditor form={form} coreAgents={coreAgents} saving={saving} cleanupPending={cleanupPending} creating={editorMode === 'create'} recoveryOnly={recoveryOnlyDraft} error={[saveError, draftWarning].filter(Boolean).join(' ')} initiallyDirty={restoredDraft} returnFocusRef={editorReturnFocusRef} fallbackFocusRef={searchInputRef} onChange={setForm} onClose={() => { if (!saving) { setRestoredDraft(false); setRecoveryOnlyDraft(false); editorBaselineRef.current = null; setEditorMode('create'); setForm(null); } }} onSubmit={(event) => void save(event)} />}

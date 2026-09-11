@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DEFAULT_AGENT_WORKFORCE } from "@/lib/agent-workforce-default";
+import { DEFAULT_AGENT_SKILLS, DEFAULT_AGENT_WORKFORCE } from "@/lib/agent-workforce-default";
 import {
   AGENT_WORKFORCE_MAX_BODY_BYTES,
   parseAgentWorkforceDocument,
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
   if (!data?.value) return NextResponse.json({ document: DEFAULT_AGENT_WORKFORCE });
 
   try {
-    return NextResponse.json({ document: parseAgentWorkforceDocument(String(data.value)) });
+    return NextResponse.json({ document: parseAgentWorkforceDocument(String(data.value), DEFAULT_AGENT_SKILLS) });
   } catch {
     console.error("Agent workforce stored document failed validation", { context: "read" });
     return NextResponse.json({ error: "Stored agent workforce is unavailable" }, { status: 500 });
@@ -83,7 +83,7 @@ export async function PUT(req: NextRequest) {
 
   let current = DEFAULT_AGENT_WORKFORCE;
   try {
-    if (stored?.value) current = parseAgentWorkforceDocument(String(stored.value));
+    if (stored?.value) current = parseAgentWorkforceDocument(String(stored.value), DEFAULT_AGENT_SKILLS);
   } catch {
     console.error("Agent workforce stored document failed validation", { context: "update-read" });
     return NextResponse.json({ error: "Stored agent workforce is unavailable" }, { status: 500 });

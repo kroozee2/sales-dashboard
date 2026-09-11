@@ -1,3 +1,4 @@
+import type { ActivityRow } from "@/lib/client-activity";
 import type { MemberCash, MemberStage } from "@/lib/member-numbers";
 
 export const CLIENT_TABS = ["Dashboard", "New", "Members", "Calendar"] as const;
@@ -76,6 +77,8 @@ export interface ClientsPayload {
     attention: ClientAttention[];
   };
   members: ClientMember[];
+  /** What clients did in the members app. Newest first. */
+  activity?: ActivityRow[];
   calendar: CalendarEvent[];
 }
 
@@ -178,10 +181,11 @@ function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+function exactKeys(value: Record<string, unknown>, keys: readonly string[], optional: readonly string[] = []): boolean {
+  const allowed = new Set([...keys, ...optional]);
+  const actual = Object.keys(value);
+  // Every key must be one we know about, and every required key must be there.
+  return actual.every((key) => allowed.has(key)) && keys.every((key) => key in value);
 }
 
 function text(value: unknown, max: number): value is string {
@@ -260,8 +264,20 @@ function isCalendarEvent(value: unknown): value is CalendarEvent {
     && nullableText(value.status, 120) && nullableText(value.source, 120);
 }
 
+function isActivity(value: unknown): value is ActivityRow {
+  if (!record(value) || !exactKeys(value, ["id", "clientId", "clientName", "type", "summary", "at"])) return false;
+  return text(value.id, 200) && (value.clientId === null || text(value.clientId, 200))
+    && (value.clientName === null || text(value.clientName, 300))
+    && text(value.type, 120) && (value.summary === null || text(value.summary, 2_000))
+    && timestamp(value.at);
+}
+
 export function isClientsPayload(value: unknown): value is ClientsPayload {
-  if (!record(value) || !exactKeys(value, ["generatedAt", "dashboard", "members", "calendar"]) || !timestamp(value.generatedAt)) return false;
+  if (!record(value) || !exactKeys(value, ["generatedAt", "dashboard", "members", "calendar"], ["activity"]) || !timestamp(value.generatedAt)) return false;
+  // Optional: a payload built before the feed existed is still valid.
+  if (value.activity !== undefined) {
+    if (!Array.isArray(value.activity) || value.activity.length > 400 || !value.activity.every(isActivity)) return false;
+  }
   if (!record(value.dashboard) || !exactKeys(value.dashboard, ["activeClients", "onboarding", "atRisk", "offTrack", "overdueContact", "portalActive", "portalInvited", "upcoming7Days", "openSupport", "attention"])) return false;
   const dashboard = value.dashboard;
   if (![dashboard.activeClients, dashboard.onboarding, dashboard.atRisk, dashboard.offTrack, dashboard.overdueContact, dashboard.portalActive, dashboard.portalInvited, dashboard.upcoming7Days, dashboard.openSupport].every(count)) return false;

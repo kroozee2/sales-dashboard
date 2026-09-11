@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ClientOnboarding, { type Patch } from "@/components/client-onboarding";
 import ClientMembers from "@/components/client-members";
+import { ClientActivityFeed } from "@/components/client-activity-feed";
+import { autoRunbookSteps } from "@/lib/client-activity";
 import ClientDetailDrawer from "@/components/client-detail-drawer";
 import ClientGrowth from "@/components/client-growth";
 import { HEALTH_META, needsAttention, rosterCounts, statusToHealth } from "@/lib/client-roster";
@@ -120,6 +122,7 @@ function Dashboard({ data, clients, onOpen }: { data: ClientsPayload; clients: M
   const recurring = clients.reduce((sum, c) => sum + (c.mrr ?? 0), 0);
 
   return <div className="space-y-5">
+    <ClientActivityFeed activity={data.activity ?? []} generatedAt={data.generatedAt} />
     {data.growth && <ClientGrowth growth={data.growth} />}
     {/* The three fulfilment numbers, each against the number it should hit */}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -271,6 +274,9 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
   // The month the cash numbers are FOR is the server's month, not whichever
   // month the calendar is browsing. Taken from the payload's own clock so the
   // column heading can never disagree with the numbers under it.
+  // Runbook steps the members app has already satisfied for each client.
+  const autoSteps = useMemo(() => autoRunbookSteps(data?.activity ?? []), [data]);
+
   const cashMonth = useMemo(() => {
     const at = data?.generatedAt ? Date.parse(data.generatedAt) : NaN;
     return Number.isNaN(at) ? undefined : new Date(at).getMonth() + 1;
@@ -343,10 +349,6 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
   return <div className="mx-auto max-w-7xl space-y-5">
     <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-400">Client Success</p><h1 className="mt-1 text-3xl font-bold text-white">Clients</h1><p className="mt-1 text-sm text-zinc-500">Performance, members, and calls in one operational view.</p></div><a href={HELM_URL} target="_blank" rel="noreferrer" className="self-start rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-semibold text-zinc-300 hover:border-zinc-500 hover:text-white">Open Helm ↗</a></header>
 
-    <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-200">
-      <strong>Helm owns fulfilment; Sales OS owns the deal.</strong> Programme, deal value, MRR, status, owner, notes and the
-      onboarding runbook are edited here. Attendance, portal state and last contact come from Helm and stay read-only there.
-    </div>
     {notice && <p role="status" className="rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">{notice}</p>}
 
     <section aria-label={`Clients ${view}`}>
@@ -367,7 +369,7 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
             </div>
           </div>
           <ClientOnboarding clients={newest} loading={loading && roster.length === 0} busyKey={busyKey}
-            onPatch={patchClient} onCreate={createClient} onStep={stepClient} />
+            onPatch={patchClient} onCreate={createClient} onStep={stepClient} autoSteps={autoSteps} />
           {error && <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">Helm is unreachable, so only clients tracked in Sales OS are listed. {error}</p>}
         </div>
       ) : loading ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Loading client workspace">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />)}</div> : error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-10 text-center text-sm text-rose-200">{error}</div> : data ? <div className="transition">{view === "Dashboard" ? <Dashboard data={data} clients={merged} onOpen={setOpenClient} /> : view === "Members" ? <ClientMembers clients={merged} busyKey={busyKey} onPatch={patchClient} onOpen={setOpenClient} helmUrl={HELM_URL} extras={memberExtras} month={cashMonth} /> : <Calendar month={month} setMonth={changeMonth} events={data.calendar} />}</div> : <Empty>No client data returned.</Empty>}

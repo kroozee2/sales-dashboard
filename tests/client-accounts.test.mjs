@@ -20,7 +20,10 @@ const row = (o = {}) => ({
 });
 
 test("progress counts the runbook, not a percentage someone typed", () => {
-  assert.deepEqual(onboardingProgress({}), { done: 0, total: 7, pct: 0 });
+  // Eight steps now: the Promise was added, because signing it is a real gate
+  // and the app already knows when it happens.
+  assert.deepEqual(onboardingProgress({}), { done: 0, total: RUNBOOK.length, pct: 0 });
+  assert.equal(RUNBOOK.length, 8);
   assert.deepEqual(onboardingProgress({ payment: { done: true }, fam: { done: true } }).done, 2);
   const all = Object.fromEntries(RUNBOOK.map((s) => [s.key, { done: true }]));
   assert.equal(onboardingProgress(all).pct, 100);
@@ -134,4 +137,13 @@ test("every stored status still lands in a health bucket", () => {
   for (const [status, bucket] of Object.entries(expected)) {
     assert.equal(statusToHealth(status), bucket, `${status} should read as ${bucket}`);
   }
+});
+
+test("every runbook step carries a word for the sheet column", () => {
+  // The sheet header used to be a bare emoji, which told you nothing.
+  for (const step of RUNBOOK) {
+    assert.ok(step.short && step.short.length <= 8, `${step.key} needs a short column label`);
+    assert.ok(step.emoji && step.label && step.detail, `${step.key} is missing display text`);
+  }
+  assert.equal(new Set(RUNBOOK.map((s) => s.short)).size, RUNBOOK.length, "column words must be distinct");
 });

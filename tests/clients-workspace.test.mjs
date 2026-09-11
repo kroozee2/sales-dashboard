@@ -52,10 +52,12 @@ test("Clients workspace exposes Dashboard, New, Members and Calendar as separate
   assert.match(workspace, /AbortController/);
 });
 
-test("the workspace no longer claims to be read-only, and says what each side owns", () => {
+test("the workspace carries no banner explaining which app owns what", () => {
   const workspace = readFileSync(new URL("../app/clients/clients-workspace.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(workspace, /This workspace is read-only/i, "editing lands in our own table now");
-  assert.match(workspace, /Helm owns fulfilment; Sales OS owns the deal/i);
+  // The banner was removed: one app, and a note about the other one is noise
+  // on a screen you open to do work.
+  assert.doesNotMatch(workspace, /Helm owns fulfilment/i);
   // Every write goes to our own endpoint; nothing here writes to Helm.
   assert.match(workspace, /\/api\/clients\/accounts/);
   assert.doesNotMatch(workspace, /method: "(POST|PATCH)"[^}]*\/api\/clients\?/);

@@ -44,9 +44,11 @@ function daysAgo(date: string | null): string {
 export type Patch = Record<string, unknown>;
 
 export default function ClientOnboarding({
-  clients, loading, error, onPatch, onCreate, onStep, busyKey,
+  clients, loading, error, onPatch, onCreate, onStep, busyKey, autoSteps,
 }: {
   clients: MergedClient[];
+  /** Steps the app already satisfied, per client id. Ticked, not editable. */
+  autoSteps?: Map<string, Record<string, { at: string; type: string }>>;
   loading?: boolean;
   error?: string | null;
   busyKey: string | null;
@@ -146,8 +148,10 @@ export default function ClientOnboarding({
                   <th className="w-32 px-2 py-2.5">Status</th>
                   <th className="w-24 px-2 py-2.5">Who</th>
                   {RUNBOOK.map((step) => (
-                    <th key={step.key} title={`${step.label} — ${step.detail}`} className="w-10 px-1 py-2.5 text-center">
-                      <span aria-hidden>{step.emoji}</span>
+                    <th key={step.key} title={`${step.label} — ${step.detail}`} className="w-14 px-1 py-2.5 text-center align-bottom">
+                      <span aria-hidden className="block text-sm leading-none">{step.emoji}</span>
+                      {/* The emoji alone said nothing. A word under it does. */}
+                      <span aria-hidden className="mt-1 block text-[9px] font-bold leading-tight text-zinc-500">{step.short}</span>
                       <span className="sr-only">{step.label}</span>
                     </th>
                   ))}
@@ -157,7 +161,8 @@ export default function ClientOnboarding({
               <tbody className="divide-y divide-zinc-800/70">
                 {rows.map((client, index) => (
                   <Row key={client.key} client={client} zebra={index % 2 === 1} busy={busyKey === client.key}
-                    onPatch={onPatch} onStep={onStep} onOpen={() => setOpenKey(client.key)} />
+                    onPatch={onPatch} onStep={onStep} onOpen={() => setOpenKey(client.key)}
+                    auto={autoSteps?.get(client.key)} />
                 ))}
               </tbody>
             </table>
@@ -183,14 +188,21 @@ function Stat({ label, value, detail, tone }: { label: string; value: string; de
   );
 }
 
-function Row({ client, zebra, busy, onPatch, onStep, onOpen }: {
+function Row({ client, zebra, busy, onPatch, onStep, onOpen, auto }: {
   client: MergedClient; zebra: boolean; busy: boolean;
+  auto?: Record<string, { at: string; type: string }>;
   onPatch: (client: MergedClient, patch: Patch) => void;
   onStep: (client: MergedClient, key: OnboardingStepKey, done: boolean) => void;
   onOpen: () => void;
 }) {
-  const progress = onboardingProgress(client.onboarding);
-  const next = nextRunbookStep(client.onboarding);
+  // The app already knows about some steps. Fold them in before anything is
+  // drawn or counted, so the tick, the progress bar and "what's next" all agree.
+  const state = auto
+    ? { ...client.onboarding, ...Object.fromEntries(
+        Object.entries(auto).map(([key, hit]) => [key, { done: true, at: hit.at, note: null }])) }
+    : client.onboarding;
+  const progress = onboardingProgress(state);
+  const next = nextRunbookStep(state);
   const cell = "w-full rounded-md border border-transparent bg-transparent px-2 py-1 text-sm text-zinc-200 transition-colors hover:border-zinc-800 focus:border-blue-500 focus:bg-zinc-950 focus:outline-none";
 
   // A Helm member we have no record for cannot be edited yet; one button fixes
@@ -262,14 +274,19 @@ function Row({ client, zebra, busy, onPatch, onStep, onOpen }: {
         </select>
       </td>
       {RUNBOOK.map((step) => {
-        const done = client.onboarding?.[step.key]?.done === true;
+        const hit = auto?.[step.key];
+        const done = hit ? true : state?.[step.key]?.done === true;
+        // A step the app satisfied is not editable: un-ticking it would only
+        // hide something that demonstrably happened.
         return (
           <td key={step.key} className="px-1 py-1.5 text-center">
-            <input type="checkbox" checked={done} disabled={busy}
-              aria-label={`${step.label} for ${client.name}`}
-              title={`${step.label} — ${step.detail}`}
+            <input type="checkbox" checked={done} disabled={busy || Boolean(hit)}
+              aria-label={`${step.label} for ${client.name}${hit ? " — done automatically" : ""}`}
+              title={hit
+                ? `${step.label} — ticked automatically on ${new Date(hit.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                : `${step.label} — ${step.detail}`}
               onChange={(e) => onStep(client, step.key, e.target.checked)}
-              className="h-4 w-4 cursor-pointer accent-emerald-500" />
+              className={`h-4 w-4 accent-emerald-500 ${hit ? "cursor-default opacity-90" : "cursor-pointer"}`} />
           </td>
         );
       })}

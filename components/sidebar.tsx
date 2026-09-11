@@ -45,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/content?tab=ideas", label: "Ideas", emoji: "💡", tab: "ideas", section: "Marketing" },
   { href: "/instagram", label: "Instagram", emoji: "📸", section: "Marketing" },
   { href: "/youtube", label: "YouTube", emoji: "▶️", section: "Marketing" },
+  { href: "/emails", label: "Emails", emoji: "✉️", section: "Marketing" },
   { href: "/funnels", label: "Funnels", emoji: "🌀", section: "Marketing" },
   { href: "/content?tab=proof", label: "Proof", emoji: "🏆", tab: "proof", section: "Marketing" },
   { href: "/content?tab=posted", label: "Posted", emoji: "☑️", tab: "posted", section: "Marketing" },

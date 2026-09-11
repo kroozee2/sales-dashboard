@@ -15,6 +15,12 @@ type PlanRow = {
   opens: number | null; clicks: number | null;
 };
 
+type Audience = {
+  contacts: number | null; with_email: number | null; no_email: number | null;
+  valid_email: number | null; invalid_email: number | null;
+  unsubscribed: number | null; mailable: number | null;
+};
+
 type GhlPayload = {
   sent: GhlCampaign[]; drafts: GhlCampaign[];
   series: { date: string; name: string; audience: number; delivered: number; not_delivered: number; rate: number | null }[];
@@ -49,6 +55,7 @@ export default function EmailsWorkspace() {
   const [tab, setTab] = useState<"dashboard" | "planner">("dashboard");
   const [ghl, setGhl] = useState<GhlPayload | null>(null);
   const [plan, setPlan] = useState<PlanRow[] | null>(null);
+  const [audience, setAudience] = useState<Audience | null>(null);
   const [ghlError, setGhlError] = useState<string | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
 
@@ -64,7 +71,13 @@ export default function EmailsWorkspace() {
       .then((b) => (b.error ? setPlanError(b.error) : (setPlan(b.plan ?? []), setPlanError(null))))
       .catch((e) => setPlanError(String(e))), []);
 
-  useEffect(() => { void loadGhl(); void loadPlan(); }, [loadGhl, loadPlan]);
+  const loadAudience = useCallback(() =>
+    fetch("/api/emails/audience", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((b) => !b.error && setAudience(b))
+      .catch(() => { /* the dashboard still works without list health */ }), []);
+
+  useEffect(() => { void loadGhl(); void loadPlan(); void loadAudience(); }, [loadGhl, loadPlan, loadAudience]);
 
   async function savePlan(id: string, fields: Partial<PlanRow>) {
     setPlan((p) => p?.map((r) => (r.id === id ? { ...r, ...fields } : r)) ?? p);
@@ -119,14 +132,16 @@ export default function EmailsWorkspace() {
       )}
 
       {tab === "dashboard"
-        ? <Dashboard ghl={ghl} error={ghlError} plan={plan} />
+        ? <Dashboard ghl={ghl} error={ghlError} plan={plan} audience={audience} />
         : <Planner ghl={ghl} plan={plan} onAdd={addPlan} onSave={savePlan} onRemove={removePlan} />}
     </div>
   );
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────
-function Dashboard({ ghl, error, plan }: { ghl: GhlPayload | null; error: string | null; plan: PlanRow[] | null }) {
+function Dashboard({ ghl, error, plan, audience }: {
+  ghl: GhlPayload | null; error: string | null; plan: PlanRow[] | null; audience: Audience | null;
+}) {
   if (error) return <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">{error}</p>;
   if (!ghl) return <div className="h-72 animate-pulse rounded-2xl bg-zinc-900" />;
 
@@ -145,6 +160,14 @@ function Dashboard({ ghl, error, plan }: { ghl: GhlPayload | null; error: string
     ? withOpens.reduce((s, c) => s + (byGhl.get(c.id)!.opens! / Math.max(1, c.delivered)), 0) / withOpens.length
     : null;
 
+  // The honest denominator. GHL reports a send as targeting every contact,
+  // including the 7,000-odd with no email address, so delivered/targeted reads
+  // like a catastrophe when delivery is in fact near perfect. Measure the last
+  // send against the people who can actually receive email.
+  const lastSend = ghl.sent[0];
+  const deliveryOfMailable =
+    audience?.mailable && lastSend ? Math.min(1, lastSend.delivered / audience.mailable) : null;
+
   // Is reach keeping up with the list? This is the question the numbers answer.
   const first = ghl.series[0];
   const last = ghl.series[ghl.series.length - 1];
@@ -155,34 +178,18 @@ function Dashboard({ ghl, error, plan }: { ghl: GhlPayload | null; error: string
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <Tile label="Campaigns" value={n(t.campaigns)} hint="sent in 90 days" />
         <Tile label="Delivered" value={n(t.delivered)} hint="emails that landed" accent="text-emerald-400" />
-        <Tile label="Reach rate" value={pctText(t.delivery_rate)} hint="of who they targeted"
-          accent={(t.delivery_rate ?? 0) < 0.6 ? "text-amber-400" : "text-emerald-400"} />
-        <Tile label="Not delivered" value={n(t.not_delivered)} hint="skipped or bounced" accent="text-rose-400" />
+        <Tile label="Mailable list" value={audience?.mailable == null ? "—" : n(audience.mailable)}
+          hint="can actually receive" accent="text-blue-400" />
+        <Tile label="Delivery" value={pctText(deliveryOfMailable)} hint="of the mailable list"
+          accent={(deliveryOfMailable ?? 1) >= 0.9 ? "text-emerald-400" : "text-amber-400"} />
         <Tile label="Avg per send" value={t.avg_delivered === null ? "—" : n(t.avg_delivered)} hint="people reached" />
         <Tile label="Cadence" value={t.cadence_days === null ? "—" : `${t.cadence_days}d`} hint="between sends" />
       </div>
 
-      {(t.delivery_rate ?? 1) < 0.6 && (
-        <div className="rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] p-4">
-          <h3 className="text-sm font-semibold text-amber-300">
-            {pctText(t.delivery_rate)} of the list is being reached
-          </h3>
-          <p className="mt-1 text-sm leading-relaxed text-zinc-300">
-            {n(t.not_delivered)} of {n(t.audience)} addresses were skipped across these sends.
-            {rateDrift !== null && rateDrift < 0 && (
-              <> The rate has fallen {Math.abs(rateDrift).toFixed(1)} points since the first send in this window,
-              while the list itself grew, so new contacts are being added faster than they are being reached.</>
-            )}
-          </p>
-          <p className="mt-2 text-xs text-zinc-500">
-            GoHighLevel reports these together as &ldquo;failed&rdquo; without a breakdown, so this counts
-            unsubscribed, invalid and do-not-disturb contacts alongside genuine bounces.
-          </p>
-        </div>
-      )}
+      {audience && <ListHealth a={audience} lastDelivered={lastSend?.delivered ?? null} />}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Reach per send" sub="Delivered against everyone the send targeted">
+        <Panel title="Reach per send" sub="Delivered against every contact the send was pointed at, most of whom have no email address">
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={ghl.series} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
@@ -196,7 +203,7 @@ function Dashboard({ ghl, error, plan }: { ghl: GhlPayload | null; error: string
           </ResponsiveContainer>
         </Panel>
 
-        <Panel title="Reach rate over time" sub="The share of the list each send actually reached">
+        <Panel title="Share of contacts targeted" sub="Low by design: the target includes contacts with no address. Delivery against the mailable list is above.">
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={ghl.series} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
@@ -208,7 +215,7 @@ function Dashboard({ ghl, error, plan }: { ghl: GhlPayload | null; error: string
           </ResponsiveContainer>
         </Panel>
 
-        <Panel title="List size against people reached" sub="The gap is the part of the list that is not hearing from you"
+        <Panel title="Contact count against people reached" sub="The gap is almost entirely contacts with no email address, and it is widening"
           className="lg:col-span-2">
           <ResponsiveContainer width="100%" height={230}>
             <AreaChart data={ghl.series} margin={{ top: 6, right: 6, left: -18, bottom: 0 }}>
@@ -698,5 +705,103 @@ function CalendarView({ plan, sent, onAdd, onSave }: {
         })}
       </div>
     </section>
+  );
+}
+
+// ── List health ──────────────────────────────────────────────────────────────
+// The part the send stats cannot tell you. Delivery is fine; the constraint is
+// how few contacts are reachable by email in the first place.
+function ListHealth({ a, lastDelivered }: { a: Audience; lastDelivered: number | null }) {
+  const contacts = a.contacts ?? 0;
+  const mailable = a.mailable ?? 0;
+  if (!contacts || !mailable) return null;
+
+  const delivered = lastDelivered ?? 0;
+  const deliveryPct = mailable > 0 ? Math.min(1, delivered / mailable) : null;
+  const noEmailShare = a.no_email != null ? a.no_email / contacts : null;
+  const unsubShare = a.unsubscribed != null && a.with_email ? a.unsubscribed / a.with_email : null;
+
+  const segments = [
+    { label: "Mailable", value: mailable, color: "bg-emerald-500", text: "text-emerald-300" },
+    { label: "Unsubscribed", value: a.unsubscribed ?? 0, color: "bg-amber-500", text: "text-amber-300" },
+    { label: "Bad address", value: a.invalid_email ?? 0, color: "bg-rose-500", text: "text-rose-300" },
+    { label: "No email on file", value: a.no_email ?? 0, color: "bg-zinc-600", text: "text-zinc-400" },
+  ].filter((s) => s.value > 0);
+  const segTotal = segments.reduce((n, s) => n + s.value, 0) || 1;
+
+  return (
+    <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Who you can actually email</h3>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            {n(contacts)} contacts in GoHighLevel, of which {n(mailable)} can receive email.
+            {deliveryPct !== null && (
+              <> The last send reached {n(delivered)} of them, so delivery is running at{" "}
+                <span className="font-semibold text-emerald-300">{pctText(deliveryPct)}</span>.</>
+            )}
+          </p>
+        </div>
+      </div>
+
+      <div className="mb-2 flex h-3 overflow-hidden rounded-full bg-zinc-950">
+        {segments.map((s) => (
+          <div key={s.label} className={s.color} style={{ width: `${(s.value / segTotal) * 100}%` }} title={`${s.label}: ${n(s.value)}`} />
+        ))}
+      </div>
+      <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+        {segments.map((s) => (
+          <span key={s.label} className="flex items-center gap-1.5 text-zinc-500">
+            <span className={`h-2 w-2 rounded-sm ${s.color}`} />
+            <span className={s.text}>{n(s.value)}</span> {s.label}
+          </span>
+        ))}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {noEmailShare !== null && noEmailShare > 0.15 && (
+          <Finding tone="blue" title={`${n(a.no_email ?? 0)} contacts have no email address`}>
+            That is {pctText(noEmailShare)} of the database, and it is the ceiling on this channel. Every one of
+            them is someone you already have who cannot be reached by email at all. Capturing addresses moves
+            the list more than anything you can change about the sending.
+          </Finding>
+        )}
+        {unsubShare !== null && unsubShare > 0.15 && (
+          <Finding tone="amber" title={`${n(a.unsubscribed ?? 0)} have unsubscribed`}>
+            That is {pctText(unsubShare)} of everyone with an email on file. This is the number worth watching
+            per send, because unlike a missing address it does not come back.
+          </Finding>
+        )}
+        {(a.invalid_email ?? 0) > 0 && (
+          <Finding tone="rose" title={`${n(a.invalid_email ?? 0)} addresses are invalid`}>
+            GoHighLevel has marked these as not deliverable. Mistyped domains are the usual cause, and they
+            are worth correcting rather than leaving to bounce.
+          </Finding>
+        )}
+        {deliveryPct !== null && deliveryPct >= 0.9 && (
+          <Finding tone="emerald" title="Deliverability is not the problem">
+            Against the list that can receive email, the last send landed {pctText(deliveryPct)}. The large
+            &ldquo;failed&rdquo; count GoHighLevel reports is almost entirely contacts with no address, not
+            bounces.
+          </Finding>
+        )}
+      </div>
+    </section>
+  );
+}
+
+const TONE: Record<string, string> = {
+  blue: "border-blue-500/25 bg-blue-500/[0.06] text-blue-300",
+  amber: "border-amber-500/25 bg-amber-500/[0.06] text-amber-300",
+  rose: "border-rose-500/25 bg-rose-500/[0.06] text-rose-300",
+  emerald: "border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-300",
+};
+
+function Finding({ tone, title, children }: { tone: keyof typeof TONE; title: string; children: React.ReactNode }) {
+  return (
+    <div className={`rounded-xl border p-3 ${TONE[tone]}`}>
+      <h4 className="text-sm font-semibold">{title}</h4>
+      <p className="mt-1 text-xs leading-relaxed text-zinc-300">{children}</p>
+    </div>
   );
 }

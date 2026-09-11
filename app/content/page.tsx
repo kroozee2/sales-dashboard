@@ -60,6 +60,11 @@ const TABS = [
   { key: "ideas", label: "Ideas", emoji: "💡" },
   { key: "proof", label: "Proof", emoji: "🏆" },
 ] as const;
+type EmailSendRow = {
+  id: string; name: string; subject: string | null; created_at: string;
+  audience: number; delivered: number; not_delivered: number; delivery_rate: number | null;
+};
+
 interface Posted {
   id: string; platform: string; profile_name: string | null; profile_url: string | null;
   post_url: string | null; text: string | null; posted_at: string | null;
@@ -595,11 +600,12 @@ function QuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
 }
 
 // ─── CALENDAR tab ─────────────────────────────────────────────────────────────
-const POSTED_EMOJI: Record<string, string> = { instagram: "📸", youtube: "▶️", facebook: "👥" };
+const POSTED_EMOJI: Record<string, string> = { instagram: "📸", youtube: "▶️", facebook: "👥", email: "✉️" };
 const POSTED_CHIP: Record<string, string> = {
   instagram: "bg-pink-500/15 text-pink-300 ring-pink-500/25",
   youtube: "bg-red-500/15 text-red-300 ring-red-500/25",
   facebook: "bg-blue-500/15 text-blue-300 ring-blue-500/25",
+  email: "bg-violet-500/15 text-violet-300 ring-violet-500/25",
 };
 
 function CalendarTab({ items, events, posted, onOpen, onQuickAdd, onCreateOn, onReschedule }: { items: ContentItem[]; events: CEvent[]; posted: Posted[]; onOpen: (i: ContentItem) => void; onQuickAdd: (title: string) => void; onCreateOn: (dateStr: string) => void; onReschedule: (id: string, dateStr: string) => void }) {
@@ -2320,6 +2326,18 @@ function ContentWorkspace() {
     setPosted(j.posted ?? []);
   }, []);
   useEffect(() => { void loadPosted(); }, [loadPosted]);
+
+  // Email has no posted_content rows, so the tracker's email lane and the
+  // Posted tab read real sends straight from GoHighLevel.
+  const [emailSends, setEmailSends] = useState<EmailSendRow[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/emails/ghl?days=60", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((b) => { if (!cancelled && Array.isArray(b?.sent)) setEmailSends(b.sent as EmailSendRow[]); })
+      .catch(() => { /* the rest of the page does not depend on it */ });
+    return () => { cancelled = true; };
+  }, []);
   useEffect(() => { void load(); }, [load]);
 
   const selectTab = useCallback((nextTab: string) => {
@@ -2402,7 +2420,7 @@ function ContentWorkspace() {
             <CalendarTab items={items} events={events} posted={posted} onOpen={(i) => setOpenId(i.id)} onQuickAdd={quickAdd} onCreateOn={createOn} onReschedule={(id, date) => void patchItem(id, { scheduled_date: date })} />
           )}
           {tab === "list" && (
-            <ContentSpreadsheet items={items} posted={posted} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} onDelete={delItem} />
+            <ContentSpreadsheet items={items} posted={posted} emails={emailSends} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} onDelete={delItem} />
           )}
           {tab === "ideas" && <IdeasTab ideas={ideas} onChanged={load} />}
           {tab === "proof" && <ProofTab proof={proof} onChanged={load} />}

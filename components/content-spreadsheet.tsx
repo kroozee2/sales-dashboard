@@ -37,11 +37,12 @@ export interface ContentSpreadsheetItem {
 
 type ItemPatch = Partial<ContentSpreadsheetItem>;
 
-const POSTED_EMOJI: Record<string, string> = { instagram: "📸", youtube: "▶️", facebook: "👥" };
+const POSTED_EMOJI: Record<string, string> = { instagram: "📸", youtube: "▶️", facebook: "👥", email: "✉️" };
 const POSTED_CHIP: Record<string, string> = {
   instagram: "bg-pink-500/15 text-pink-300 ring-pink-500/25",
   youtube: "bg-red-500/15 text-red-300 ring-red-500/25",
   facebook: "bg-blue-500/15 text-blue-300 ring-blue-500/25",
+  email: "bg-violet-500/15 text-violet-300 ring-violet-500/25",
 };
 
 const GROUP_META: Record<ContentScheduleGroup, { label: string; helper: string; icon: string; accent: string; empty: string }> = {
@@ -90,6 +91,11 @@ function formatLabel(item: ContentSpreadsheetItem) {
   return metaFormat || item.creative_type || item.platforms.map(platformLabel).join(" + ") || "Not set";
 }
 
+export interface EmailSend {
+  id: string; name: string; subject: string | null; created_at: string;
+  audience: number; delivered: number; not_delivered: number; delivery_rate: number | null;
+}
+
 export interface PostedRow {
   id: string; platform: string; post_url: string | null; text: string | null;
   posted_at: string | null; likes: number | null; comments: number | null;
@@ -99,12 +105,14 @@ export interface PostedRow {
 export default function ContentSpreadsheet({
   items,
   posted = [],
+  emails = [],
   onOpen,
   onPatch,
   onDelete,
 }: {
   items: ContentSpreadsheetItem[];
   posted?: PostedRow[];
+  emails?: EmailSend[];
   onOpen: (item: ContentSpreadsheetItem) => void;
   onPatch: (id: string, patch: ItemPatch) => Promise<ContentSpreadsheetItem | null>;
   onDelete: (id: string) => Promise<boolean>;
@@ -121,23 +129,53 @@ export default function ContentSpreadsheet({
   const [confirmItem, setConfirmItem] = useState<ContentSpreadsheetItem | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState(false);
-  const [showPosted, setShowPosted] = useState(true);
+  const [view, setView] = useState<"planned" | "posted">("planned");
+  const [postedPlatform, setPostedPlatform] = useState<"all" | "instagram" | "youtube" | "facebook" | "email">("all");
 
   // What actually went out, newest first, honouring the same filters as the
   // rest of the list so one platform choice governs the whole view.
+  // One row shape for everything that went out, so Instagram, YouTube, Facebook
+  // and email sit in the same table instead of four different places.
   const published = useMemo(() => {
     const search = query.trim().toLowerCase();
-    return posted
-      .filter((p) => {
-        // A stats aggregate, not a post. It backs the YouTube subscriber number.
-        if (p.platform === "youtube_owner_analytics") return false;
-        if (platform !== "all" && p.platform !== platform) return false;
-        if (search && !`${p.text ?? ""} ${p.platform}`.toLowerCase().includes(search)) return false;
+    type Row = {
+      id: string; platform: string; date: string; title: string; url: string | null;
+      kind: string | null; views: number | null; likes: number | null; comments: number | null;
+    };
+    const rows: Row[] = posted
+      .filter((p) => p.platform !== "youtube_owner_analytics" && p.posted_at)
+      .map((p) => ({
+        id: p.id, platform: p.platform, date: p.posted_at!.slice(0, 10),
+        title: (p.text ?? "").trim() || "View post", url: p.post_url,
+        kind: p.media_type, views: p.views, likes: p.likes ?? p.reactions, comments: p.comments,
+      }));
+    for (const e of emails) {
+      rows.push({
+        id: e.id, platform: "email", date: e.created_at.slice(0, 10),
+        title: e.subject?.trim() || e.name, url: null, kind: "email",
+        // Delivered is the honest headline for an email; GHL exposes no opens.
+        views: e.delivered, likes: null, comments: null,
+      });
+    }
+    return rows
+      .filter((r) => {
+        if (postedPlatform !== "all" && r.platform !== postedPlatform) return false;
+        if (search && !`${r.title} ${r.platform}`.toLowerCase().includes(search)) return false;
         return true;
       })
-      .sort((a, b) => (b.posted_at ?? "").localeCompare(a.posted_at ?? ""))
-      .slice(0, 60);
-  }, [posted, platform, query]);
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 120);
+  }, [posted, emails, postedPlatform, query]);
+
+  const postedCounts = useMemo(() => {
+    const c: Record<string, number> = { all: 0, instagram: 0, youtube: 0, facebook: 0, email: emails.length };
+    for (const p of posted) {
+      if (p.platform === "youtube_owner_analytics" || !p.posted_at) continue;
+      c[p.platform] = (c[p.platform] ?? 0) + 1;
+    }
+    c.all = c.instagram + c.youtube + c.facebook + c.email;
+    return c;
+  }, [posted, emails]);
 
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -152,7 +190,16 @@ export default function ContentSpreadsheet({
   }, [items, query, category, platform, status]);
 
   const groups = useMemo(() => groupContentBySchedule(filtered, today), [filtered, today]);
-  const cadenceProgress = useMemo(() => contentCadenceProgress(items, today), [items, today]);
+  const actuals = useMemo(() => {
+    const rows = posted
+      .filter((p) => p.posted_at && p.platform !== "youtube_owner_analytics")
+      .map((p) => ({ platform: p.platform, date: p.posted_at!.slice(0, 10) }));
+    // Email has no posted_content rows; GoHighLevel is the record of a send.
+    for (const e of emails) rows.push({ platform: "email", date: e.created_at.slice(0, 10) });
+    return rows;
+  }, [posted, emails]);
+
+  const cadenceProgress = useMemo(() => contentCadenceProgress(items, today, actuals), [items, today, actuals]);
   const total = CONTENT_SCHEDULE_GROUPS.reduce((sum, group) => sum + groups[group].length, 0);
 
   async function patch(id: string, value: ItemPatch) {
@@ -199,7 +246,7 @@ export default function ContentSpreadsheet({
         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-sm font-bold text-white">🎯 Weekly publishing rhythm</h2>
-            <p className="mt-0.5 text-xs text-zinc-500">Plan the week around the cadence that grows the audience and supports each launch.</p>
+            <p className="mt-0.5 text-xs text-zinc-500">What actually went out this week, counted from the platforms themselves.</p>
           </div>
           <span className="text-[11px] font-medium text-zinc-600">Monday–Sunday</span>
         </div>
@@ -219,7 +266,10 @@ export default function ContentSpreadsheet({
                 <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-800">
                   <div className={`h-full rounded-full ${progress.met ? "bg-emerald-500" : "bg-gradient-to-r from-blue-500 to-violet-500"}`} style={{ width: `${percent}%` }} />
                 </div>
-                <p className="mt-1.5 text-[10px] text-zinc-600">{cadence.key === "instagram" ? `${progress.count} of 7 days covered` : `${progress.count} of ${progress.target} planned`}</p>
+                <p className="mt-1.5 text-[10px] text-zinc-600">
+                  {cadence.key === "instagram" ? `${progress.count} of 7 days posted` : `${progress.count} of ${progress.target} posted`}
+                  {progress.planned > progress.count && ` · ${progress.planned} planned`}
+                </p>
               </div>
             );
           })}
@@ -230,7 +280,17 @@ export default function ContentSpreadsheet({
         </div>
       </section>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className="flex gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 w-fit">
+        {([["planned", `Planned · ${filtered.length}`], ["posted", `Posted · ${postedCounts.all}`]] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setView(k)}
+            className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
+              view === k ? "bg-blue-600 text-white shadow" : "text-zinc-400 hover:text-white"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === "planned" && <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         {CONTENT_SCHEDULE_GROUPS.map((group) => {
           const meta = GROUP_META[group];
           return (
@@ -242,7 +302,7 @@ export default function ContentSpreadsheet({
             </a>
           );
         })}
-      </div>
+      </div>}
 
       <div className="sticky top-0 z-20 rounded-2xl border border-zinc-800 bg-zinc-950/95 p-3 shadow-xl backdrop-blur">
         <div className="flex flex-col xl:flex-row xl:items-center gap-2">
@@ -269,9 +329,9 @@ export default function ContentSpreadsheet({
         </div>
       </div>
 
-      <p className="text-xs text-zinc-500 px-1">Edit any cell directly. Drag a row onto another section to make it due now, push it to tomorrow, or take its date off.</p>
+      {view === "planned" && <p className="text-xs text-zinc-500 px-1">Edit any cell directly. Drag a row onto another section to make it due now, push it to tomorrow, or take its date off.</p>}
 
-      {CONTENT_SCHEDULE_GROUPS.map((group) => {
+      {view === "planned" && CONTENT_SCHEDULE_GROUPS.map((group) => {
         const meta = GROUP_META[group];
         const rows = groups[group];
         const activeDrop = dropGroup === group;
@@ -373,61 +433,66 @@ export default function ContentSpreadsheet({
         );
       })}
 
-      {published.length > 0 && (
-        <section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.03] p-4">
-          <button onClick={() => setShowPosted((v) => !v)} className="flex w-full items-center justify-between gap-3 text-left">
+      {view === "posted" && (
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
-                <span>✅</span> Already posted
-                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">{published.length}</span>
-              </h3>
+              <h3 className="text-sm font-semibold text-white">What actually went out</h3>
               <p className="mt-0.5 text-xs text-zinc-500">
-                Pulled from Instagram, YouTube and Facebook themselves, newest first.
+                Read from Instagram, YouTube and Facebook themselves, and from GoHighLevel for email. Newest first.
               </p>
             </div>
-            <span className="text-zinc-500">{showPosted ? "▾" : "▸"}</span>
-          </button>
-
-          {showPosted && (
-            <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-800">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead className="bg-zinc-950/60 text-left text-[11px] uppercase tracking-wider text-zinc-500">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Posted</th>
-                    <th className="px-3 py-2 font-medium">Where</th>
-                    <th className="px-3 py-2 font-medium">What went out</th>
-                    <th className="px-3 py-2 text-right font-medium">Views</th>
-                    <th className="px-3 py-2 text-right font-medium">Likes</th>
-                    <th className="px-3 py-2 text-right font-medium">Comments</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-800/70">
-                  {published.map((p) => (
-                    <tr key={p.id} className="hover:bg-zinc-800/30">
-                      <td className="whitespace-nowrap px-3 py-2 text-zinc-400">
-                        {p.posted_at ? new Date(p.posted_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2">
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${POSTED_CHIP[p.platform] ?? "bg-zinc-800 text-zinc-300 ring-zinc-700"}`}>
-                          {POSTED_EMOJI[p.platform] ?? "•"} {p.platform}{p.media_type ? ` · ${p.media_type}` : ""}
-                        </span>
-                      </td>
-                      <td className="max-w-[380px] px-3 py-2">
-                        {p.post_url ? (
-                          <a href={p.post_url} target="_blank" rel="noreferrer" className="block truncate text-zinc-300 hover:text-blue-300" title={p.text ?? ""}>
-                            {(p.text ?? "").trim() || "View post"} ↗
-                          </a>
-                        ) : <span className="block truncate text-zinc-400">{(p.text ?? "").trim() || "—"}</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-zinc-300">{p.views?.toLocaleString() ?? "—"}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-zinc-400">{(p.likes ?? p.reactions)?.toLocaleString() ?? "—"}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-zinc-400">{p.comments?.toLocaleString() ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-wrap gap-1 rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+              {(["all", "instagram", "youtube", "facebook", "email"] as const).map((k) => (
+                <button key={k} onClick={() => setPostedPlatform(k)}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-medium capitalize transition ${
+                    postedPlatform === k ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-200"}`}>
+                  {k === "all" ? "All" : `${POSTED_EMOJI[k] ?? ""} ${k}`}
+                  <span className="ml-1 text-[10px] text-zinc-600">{postedCounts[k] ?? 0}</span>
+                </button>
+              ))}
             </div>
-          )}
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-zinc-800">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="bg-zinc-950/60 text-left text-[11px] uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Posted</th>
+                  <th className="px-3 py-2 font-medium">Where</th>
+                  <th className="px-3 py-2 font-medium">What went out</th>
+                  <th className="px-3 py-2 text-right font-medium">Views / sent</th>
+                  <th className="px-3 py-2 text-right font-medium">Likes</th>
+                  <th className="px-3 py-2 text-right font-medium">Comments</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/70">
+                {published.map((r) => (
+                  <tr key={`${r.platform}-${r.id}`} className="hover:bg-zinc-800/30">
+                    <td className="whitespace-nowrap px-3 py-2 text-zinc-400">
+                      {new Date(`${r.date}T12:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${POSTED_CHIP[r.platform] ?? "bg-zinc-800 text-zinc-300 ring-zinc-700"}`}>
+                        {POSTED_EMOJI[r.platform] ?? "•"} {r.platform}{r.kind && r.kind !== "email" ? ` · ${r.kind}` : ""}
+                      </span>
+                    </td>
+                    <td className="max-w-[380px] px-3 py-2">
+                      {r.url
+                        ? <a href={r.url} target="_blank" rel="noreferrer" className="block truncate text-zinc-300 hover:text-blue-300" title={r.title}>{r.title} ↗</a>
+                        : <span className="block truncate text-zinc-300" title={r.title}>{r.title}</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-zinc-300">{r.views?.toLocaleString() ?? "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-zinc-400">{r.likes?.toLocaleString() ?? "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-zinc-400">{r.comments?.toLocaleString() ?? "—"}</td>
+                  </tr>
+                ))}
+                {published.length === 0 && (
+                  <tr><td colSpan={6} className="px-3 py-10 text-center text-sm text-zinc-500">Nothing recorded on this platform yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

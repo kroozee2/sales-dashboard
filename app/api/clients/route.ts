@@ -80,7 +80,7 @@ export async function GET(request: Request) {
   }
 
   const helm = connection.db;
-  const [clients, portal, calls, tickets, checkIns, cashGoals] = await Promise.all([
+  const [clients, portal, calls, tickets, checkIns, cashGoals, activity] = await Promise.all([
     helm.from("clients").select(ROSTER_COLUMNS).order("name", { ascending: true }),
     helm.from("portal_accounts").select("client_id,last_login_at"),
     helm.from("calls")
@@ -95,6 +95,10 @@ export async function GET(request: Request) {
     // row per member per month; there is no annual column, so the year is the
     // sum of the months they have filled in.
     helm.from("client_cash_goals").select("client_id,year,month,goal").limit(5000),
+    // What clients have been doing in the members app. The dashboard reads
+    // this; nothing else in Sales OS has ever shown it.
+    helm.from("activity_log").select("id,client_id,type,summary,created_at")
+      .order("created_at", { ascending: false }).limit(400),
   ]);
 
   if (clients.error) return json({ error: "Client data is temporarily unavailable." }, 502);
@@ -109,10 +113,20 @@ export async function GET(request: Request) {
     (checkIns.data ?? []) as CheckInRow[],
   );
 
+  const nameById = new Map(((clients.data ?? []) as unknown as HelmClientRow[]).map((row) => [row.id, row.name ?? "Client"]));
+  const activityRows = (activity.data ?? []).map((row) => ({
+    id: String(row.id),
+    clientId: (row.client_id as string) ?? null,
+    clientName: row.client_id ? nameById.get(row.client_id as string) ?? null : null,
+    type: (row.type as string) ?? "unknown",
+    summary: (row.summary as string) ?? null,
+    at: row.created_at as string,
+  }));
+
   const calendar = [...payload.calendar, ...ownCalls].sort((a, b) => a.callDate.localeCompare(b.callDate));
   const growth = buildGrowth(
     (clients.data ?? []) as unknown as HelmClientRow[],
     (checkIns.data ?? []) as CheckInRow[],
   );
-  return json({ ...payload, calendar, growth });
+  return json({ ...payload, calendar, growth, activity: activityRows });
 }

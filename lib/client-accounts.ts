@@ -10,12 +10,14 @@
 // lib/helm-clients.ts), so there is one row per client and the merge is gone.
 
 export type OnboardingStepKey =
-  | "payment" | "fam" | "call" | "graphic" | "posted" | "portal" | "calls";
+  | "payment" | "fam" | "call" | "graphic" | "posted" | "portal" | "promise" | "calls";
 
 export interface RunbookStep {
   key: OnboardingStepKey;
   emoji: string;
   label: string;
+  /** One word for the sheet column, because an emoji header explains nothing. */
+  short: string;
   detail: string;
 }
 
@@ -24,13 +26,14 @@ export interface RunbookStep {
  * the week someone signs. Order is the order you do them in.
  */
 export const RUNBOOK: RunbookStep[] = [
-  { key: "payment", emoji: "💰", label: "Payment recorded", detail: "Deal value and what recurs are on the record." },
-  { key: "fam", emoji: "🎉", label: "In the Fam chat", detail: "Added to the 7-Figure CEO Fam WhatsApp community." },
-  { key: "call", emoji: "📅", label: "Onboarding call booked", detail: "A time in the calendar, and the invite sent." },
-  { key: "graphic", emoji: "🎨", label: "Welcome graphic made", detail: "Built in the Graphics Studio with their name on it." },
-  { key: "posted", emoji: "📣", label: "Welcome posted", detail: "Announced in the community so the room knows them." },
-  { key: "portal", emoji: "🔑", label: "Portal login sent", detail: "Mastermind app access, where everything else lives." },
-  { key: "calls", emoji: "🗓️", label: "On the recurring calls", detail: "Invited to the weekly coaching calls." },
+  { key: "payment", emoji: "💰", label: "Payment recorded", short: "Paid", detail: "Deal value and what recurs are on the record." },
+  { key: "fam", emoji: "🎉", label: "In the Fam chat", short: "Fam", detail: "Added to the 7-Figure CEO Fam WhatsApp community." },
+  { key: "call", emoji: "📅", label: "Onboarding call booked", short: "Call", detail: "A time in the calendar, and the invite sent." },
+  { key: "graphic", emoji: "🎨", label: "Welcome graphic made", short: "Graphic", detail: "Built in the Graphics Studio with their name on it." },
+  { key: "posted", emoji: "📣", label: "Welcome posted", short: "Posted", detail: "Announced in the community so the room knows them." },
+  { key: "portal", emoji: "🔑", label: "Portal login sent", short: "App", detail: "Mastermind app access, where everything else lives. Ticks itself when the invite goes out." },
+  { key: "promise", emoji: "🖋", label: "Promise signed", short: "Promise", detail: "They signed the 7-Figure CEO Promise in the app. Ticks itself." },
+  { key: "calls", emoji: "🗓️", label: "On the recurring calls", short: "Calls", detail: "Invited to the weekly coaching calls." },
 ];
 
 export const RUNBOOK_KEYS = RUNBOOK.map((step) => step.key);

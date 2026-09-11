@@ -36,7 +36,11 @@ const youtubeInput = (contentType: YouTubeContentType, publishedAfter = since365
 // One Apify actor "job" — an actor + input. YouTube expands to two (videos + shorts).
 function jobsFor(platform: Platform): { actor: string; input: unknown }[] {
   if (platform === "facebook") return [{ actor: FB_ACTOR, input: { startUrls: [{ url: FB_PROFILE }], resultsLimit: 200, captionText: true, onlyPostsNewerThan: since90() } }];
-  if (platform === "instagram") return [{ actor: IG_ACTOR, input: { directUrls: [IG_PROFILE], resultsType: "posts", resultsLimit: 200, onlyPostsNewerThan: since90() } }];
+  // No onlyPostsNewerThan here. The Instagram actor returns far less when it is
+  // set: the same profile gave 15 items with it and 60 without, and the 15
+  // included posts from 2021 while missing that week's. withinWindow() trims to
+  // 90 days on our side anyway, so the filter cost coverage and bought nothing.
+  if (platform === "instagram") return [{ actor: IG_ACTOR, input: { directUrls: [IG_PROFILE], resultsType: "posts", resultsLimit: 200 } }];
   return (["videos", "shorts"] as const).map((contentType) => ({ actor: YT_ACTOR, input: youtubeInput(contentType) }));
 }
 

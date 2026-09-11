@@ -16,7 +16,7 @@ export type ContentCadenceKey = "youtube" | "instagram" | "email" | "facebook";
 export const CONTENT_CADENCE: { key: ContentCadenceKey; label: string; icon: string; weeklyTarget: number; helper: string; platforms: string[] }[] = [
   { key: "youtube", label: "YouTube", icon: "▶️", weeklyTarget: 1, helper: "1 video each week", platforms: ["youtube"] },
   { key: "instagram", label: "Instagram", icon: "📱", weeklyTarget: 7, helper: "1 Reel or carousel daily", platforms: ["instagram", "carousel"] },
-  { key: "email", label: "Email", icon: "✉️", weeklyTarget: 3, helper: "3 emails each week", platforms: ["email"] },
+  { key: "email", label: "Email", icon: "✉️", weeklyTarget: 3, helper: "3 broadcasts each week", platforms: ["email"] },
   { key: "facebook", label: "Facebook", icon: "📘", weeklyTarget: 1, helper: "1 methodology post weekly", platforms: ["facebook"] },
 ];
 

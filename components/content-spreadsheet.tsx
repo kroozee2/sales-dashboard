@@ -246,7 +246,10 @@ export default function ContentSpreadsheet({
         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-sm font-bold text-white">🎯 Weekly publishing rhythm</h2>
-            <p className="mt-0.5 text-xs text-zinc-500">What actually went out this week, counted from the platforms themselves.</p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              What actually went out this week, counted from the platforms themselves. Email counts
+              broadcasts you sent to the list, not automated workflow emails, which run separately.
+            </p>
           </div>
           <span className="text-[11px] font-medium text-zinc-600">Monday–Sunday</span>
         </div>

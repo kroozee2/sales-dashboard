@@ -114,6 +114,37 @@ test("skill definitions fail closed on unknown fields, bounds, URLs, duplicates,
 });
 
 
+test("GitHub skill sources require an exact canonical file path and are never silently normalized", () => {
+  const canonical = "https://github.com/NousResearch/hermes-agent/blob/main/skills/research/grounded-citations/SKILL.md";
+  const make = (source_url) => ({ agents: [coreAgent()], skills: [skill({ source_url })] });
+  const invalid = [
+    ` ${canonical}`,
+    `${canonical} `,
+    canonical.replace("SKILL.md", "SKILL\u007f.md"),
+    canonical.replace("SKILL.md", "SKILL\u0085.md"),
+    "https://github.com/NousResearch\\hermes-agent/blob/main/SKILL.md",
+    "https://github.com/NousResearch/hermes-agent/../other/blob/main/SKILL.md",
+    "https://github.com/NousResearch/hermes-agent/%2e%2e/other/blob/main/SKILL.md",
+    "https://github.com/NousResearch//hermes-agent/blob/main/SKILL.md",
+    `${canonical}?plain=1`,
+    `${canonical}#readme`,
+    "https://github.com/",
+    "https://github.com/NousResearch/hermes-agent",
+    "https://user:password@github.com/NousResearch/hermes-agent/blob/main/SKILL.md",
+    "https://github.com:443/NousResearch/hermes-agent/blob/main/SKILL.md",
+    "http://github.com/NousResearch/hermes-agent/blob/main/SKILL.md",
+    "https://www.github.com/NousResearch/hermes-agent/blob/main/SKILL.md",
+  ];
+
+  for (const sourceUrl of invalid) {
+    assert.throws(() => createAgentWorkforceDocument(make(sourceUrl)), /source_url|canonical|GitHub/i, sourceUrl);
+  }
+
+  const stored = createAgentWorkforceDocument(make(canonical)).skills[0].source_url;
+  assert.equal(stored, canonical);
+});
+
+
 test("older version 2 skill records migrate missing definition fields without inventing details", () => {
   const at = "2026-09-11T12:00:00.000Z";
   const { behavior, capabilities, inputs, outputs, documentation, provenance, ...oldSkill } = skill();

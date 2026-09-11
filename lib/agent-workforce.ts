@@ -190,6 +190,42 @@ type ValidateMode = "input" | "stored";
 const SKILL_INPUT_KEYS = ["id", "name", "purpose", "behavior", "category", "tags", "capabilities", "inputs", "outputs", "documentation", "provenance", "agent_ids", "deployment_state", "source_url", "quality_rating", "review_count"] as const;
 const SKILL_STORED_KEYS = [...SKILL_INPUT_KEYS, "usage", "created_at", "updated_at"] as const;
 
+function canonicalGithubSourceUrl(value: unknown, field: string): string {
+  const sourceUrl = canonicalString(value, field, 500);
+  if (sourceUrl.includes("\\")) throw new Error(`${field} must use canonical HTTPS GitHub`);
+
+  let parsedUrl: URL;
+  try { parsedUrl = new URL(sourceUrl); } catch { throw new Error(`${field} must be a valid URL`); }
+  if (
+    sourceUrl !== parsedUrl.href ||
+    parsedUrl.protocol !== "https:" ||
+    parsedUrl.hostname !== "github.com" ||
+    parsedUrl.host !== "github.com" ||
+    parsedUrl.username ||
+    parsedUrl.password ||
+    parsedUrl.port ||
+    parsedUrl.search ||
+    parsedUrl.hash ||
+    !sourceUrl.startsWith("https://github.com/") ||
+    parsedUrl.pathname.includes("//")
+  ) throw new Error(`${field} must use canonical HTTPS GitHub`);
+
+  const encodedSegments = parsedUrl.pathname.slice(1).split("/");
+  if (encodedSegments.length < 3 || encodedSegments.some((segment) => !segment)) {
+    throw new Error(`${field} must identify a GitHub owner, repository, and source path`);
+  }
+  let segments: string[];
+  try { segments = encodedSegments.map((segment) => decodeURIComponent(segment)); }
+  catch { throw new Error(`${field} must use a valid canonical GitHub path`); }
+  if (segments.some((segment) => segment === "." || segment === ".." || /[\\/\p{Cc}]/u.test(segment))) {
+    throw new Error(`${field} must use a valid canonical GitHub path`);
+  }
+  if (!/^(?!-)[A-Za-z0-9-]{1,39}(?<!-)$/.test(segments[0]) || !/^(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$/.test(segments[1])) {
+    throw new Error(`${field} must identify a valid GitHub owner and repository`);
+  }
+  return sourceUrl;
+}
+
 function validateSkill(raw: unknown, index: number, agentIds: Set<string>, mode: ValidateMode = "input"): SkillInput {
   if (!isRecord(raw)) throw new Error(`skills[${index}] must be an object`);
   assertExactKeys(raw, SKILL_INPUT_KEYS, `skills[${index}]`);
@@ -212,17 +248,7 @@ function validateSkill(raw: unknown, index: number, agentIds: Set<string>, mode:
   if (new Set(connections).size !== connections.length) throw new Error(`skills[${index}].agent_ids contains duplicate references`);
   const unknown = connections.find((value) => value !== "jarvis" && !agentIds.has(value));
   if (unknown) throw new Error(`Skill ${id} references an unknown agent: ${unknown}`);
-  const sourceUrl = boundedString(normalized.source_url, `skills[${index}].source_url`, 500);
-  let parsedUrl: URL;
-  try { parsedUrl = new URL(sourceUrl); } catch { throw new Error(`skills[${index}].source_url must be a valid URL`); }
-  if (
-    parsedUrl.protocol !== "https:" ||
-    parsedUrl.hostname !== "github.com" ||
-    parsedUrl.username ||
-    parsedUrl.password ||
-    parsedUrl.port ||
-    !sourceUrl.startsWith("https://github.com/")
-  ) throw new Error(`skills[${index}].source_url must use canonical HTTPS GitHub`);
+  const sourceUrl = canonicalGithubSourceUrl(normalized.source_url, `skills[${index}].source_url`);
   if (normalized.quality_rating !== null && (typeof normalized.quality_rating !== "number" || !Number.isFinite(normalized.quality_rating) || normalized.quality_rating < 1 || normalized.quality_rating > 5)) throw new Error(`skills[${index}].quality_rating must be null or from 1 to 5`);
   if (!Number.isInteger(normalized.review_count) || Number(normalized.review_count) < 0 || Number(normalized.review_count) > 10_000) throw new Error(`skills[${index}].review_count must be an integer from 0 to 10000`);
   if ((normalized.quality_rating === null) !== (Number(normalized.review_count) === 0)) throw new Error(`skills[${index}] rating and review count are inconsistent`);
@@ -260,6 +286,7 @@ function validateAgent(raw: unknown, index: number, mode: ValidateMode = "input"
   }
   const id = canonicalString(value.id, `agents[${index}].id`, 80);
   if (!ID_PATTERN.test(id)) throw new Error(`agents[${index}].id must be a lowercase slug`);
+  if (id === "jarvis") throw new Error(`agents[${index}].id jarvis is reserved for skill assignments`);
   if (!isOneOf(value.type, AGENT_TYPES)) throw new Error(`agents[${index}].type is invalid`);
   if (!isOneOf(value.status, AGENT_STATUSES)) throw new Error(`agents[${index}].status is invalid`);
   if (!isOneOf(value.autonomy, AGENT_AUTONOMY)) throw new Error(`agents[${index}].autonomy is invalid`);
@@ -487,7 +514,7 @@ export function slugifyAgentId(name: string, role: string): string {
 }
 
 export function uniqueAgentId(base: string, usedIds: Iterable<string>): string {
-  const used = new Set(usedIds);
+  const used = new Set(["jarvis", ...usedIds]);
   let id = base.slice(0, 80) || "agent";
   let suffix = 2;
   while (used.has(id)) {

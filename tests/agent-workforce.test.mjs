@@ -141,6 +141,25 @@ test("agent IDs remain valid at the slug and collision boundaries", () => {
   assert.equal(id.endsWith("-2"), true);
 });
 
+
+test("Jarvis is reserved from ordinary agent create and edit identities", () => {
+  assert.throws(
+    () => createAgentWorkforceDocument({ agents: [coreAgent({ id: "jarvis" })] }),
+    /jarvis.*reserved|reserved.*jarvis/i,
+  );
+
+  const current = createAgentWorkforceDocument({ agents: [coreAgent()] }, "2026-09-11T12:00:00.000Z");
+  assert.throws(
+    () => updateAgentWorkforceDocument(current, {
+      agents: [coreAgent({ id: "jarvis" })],
+      skills: [],
+      expected_revision: current.revision,
+    }, "2026-09-11T12:01:00.000Z"),
+    /jarvis.*reserved|reserved.*jarvis/i,
+  );
+  assert.equal(uniqueAgentId("jarvis", []), "jarvis-2");
+});
+
 test("agent editor close policy handles clean, dirty, and save-in-flight states", () => {
   assert.equal(shouldCloseAgentEditor(false, false, false), true);
   assert.equal(shouldCloseAgentEditor(false, true, false), false);

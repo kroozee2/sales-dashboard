@@ -115,6 +115,62 @@ test("AI Workforce exposes four semantic tabs with roving Arrow, Home, and End k
   assert.equal(document.querySelectorAll('[role="tabpanel"]').length, 4);
 });
 
+test("mobile AI Workforce sidebar destinations close the drawer while synchronizing URL and panel", async () => {
+  window.history.replaceState({}, "", "/jarvis");
+  let sidebarCloseCount = 0;
+  const destinations = {
+    Jarvis: "/jarvis",
+    "Core Agents": "/jarvis?tab=core",
+    "Sub-agents": "/jarvis?tab=subagent",
+    Skills: "/jarvis?tab=skills",
+  };
+
+  function MobileSidebarProbe() {
+    const [open, setOpen] = React.useState(false);
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement("button", { type: "button", onClick: () => setOpen(true) }, "Open mobile sidebar"),
+      open && React.createElement(
+        "nav",
+        { "aria-label": "Mobile AI Workforce" },
+        Object.entries(destinations).map(([label, href]) => React.createElement(
+          "a",
+          {
+            href,
+            key: href,
+            onClick: () => {
+              sidebarCloseCount += 1;
+              setOpen(false);
+            },
+          },
+          label,
+        )),
+      ),
+    );
+  }
+
+  const { getByRole, queryByRole } = render(React.createElement(
+    React.Fragment,
+    null,
+    React.createElement(JarvisWorkspace, { initialTab: "jarvis" }),
+    React.createElement(MobileSidebarProbe),
+  ));
+  const tablist = getByRole("tablist", { name: "AI workforce" });
+  const panelId = { Jarvis: "jarvis", "Core Agents": "core", "Sub-agents": "subagent", Skills: "skills" };
+
+  for (const [label, route] of Object.entries(destinations)) {
+    fireEvent.click(getByRole("button", { name: "Open mobile sidebar" }));
+    fireEvent.click(within(getByRole("navigation", { name: "Mobile AI Workforce" })).getByRole("link", { name: label }));
+
+    assert.equal(sidebarCloseCount, Object.keys(destinations).indexOf(label) + 1, `${label} preserves the sidebar close callback`);
+    assert.equal(queryByRole("navigation", { name: "Mobile AI Workforce" }), null, `${label} closes the mobile drawer`);
+    assert.equal(window.location.pathname + window.location.search, route);
+    assert.equal(within(tablist).getByRole("tab", { name: label }).getAttribute("aria-selected"), "true");
+    assert.equal(document.getElementById(`workforce-panel-${panelId[label]}`).hidden, false);
+  }
+});
+
 test("sidebar URL navigation clears a stale in-page tab selection", async () => {
   window.history.replaceState({}, "", "/jarvis?tab=core");
   const { getByRole } = render(React.createElement(JarvisWorkspace, { initialTab: "core" }));

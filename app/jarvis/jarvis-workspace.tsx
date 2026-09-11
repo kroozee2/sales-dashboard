@@ -537,10 +537,10 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
         event.stopImmediatePropagation();
         return;
       }
-      // This workspace owns its query-only tab navigation. Handling it here
-      // prevents a same-route sidebar click from being discarded as a no-op.
+      // This workspace owns its query-only tab navigation. Prevent the Link
+      // from starting a duplicate route transition, but let its React onClick
+      // continue so shared sidebar behavior (including closing mobile) runs.
       event.preventDefault();
-      event.stopImmediatePropagation();
     };
     window.addEventListener('popstate', onPopState);
     document.addEventListener('click', onSidebarNavigation, true);

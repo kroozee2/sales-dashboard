@@ -35,8 +35,14 @@ const skill = (overrides = {}) => ({
   id: "requesting-code-review",
   name: "Requesting Code Review",
   purpose: "Run security, logic, and regression checks before a change is committed.",
+  behavior: "",
   category: "Software development",
   tags: ["review", "security", "quality"],
+  capabilities: [],
+  inputs: [],
+  outputs: [],
+  documentation: "",
+  provenance: "owner_configured",
   agent_ids: ["forge-systems-director"],
   deployment_state: "configured",
   source_url: "https://github.com/NousResearch/hermes-agent/blob/main/skills/software-development/requesting-code-review/SKILL.md",
@@ -58,6 +64,39 @@ test("workforce documents include bounded skill definitions without inventing ru
 });
 
 
+test("omitted skills remain backward compatible while explicit null is rejected", () => {
+  const legacyClientDocument = createAgentWorkforceDocument({ agents: [coreAgent()] });
+  assert.deepEqual(legacyClientDocument.skills, []);
+  assert.throws(
+    () => createAgentWorkforceDocument({ agents: [coreAgent()], skills: null }),
+    /skills must be an array/i,
+  );
+});
+
+
+test("skill definitions include bounded behavior, capabilities, inputs, outputs, documentation, and provenance", () => {
+  const definition = createAgentWorkforceDocument({
+    agents: [coreAgent()],
+    skills: [skill({
+      behavior: "Review the candidate diff and fail closed on blocking findings.",
+      capabilities: ["Security review", "Regression review"],
+      inputs: ["Immutable candidate diff"],
+      outputs: ["Evidence-backed verdict"],
+      documentation: "Use before every release.\nDo not treat configuration as runtime evidence.",
+      provenance: "owner_configured",
+    })],
+  }).skills[0];
+  assert.equal(definition.behavior, "Review the candidate diff and fail closed on blocking findings.");
+  assert.deepEqual(definition.capabilities, ["Security review", "Regression review"]);
+  assert.deepEqual(definition.inputs, ["Immutable candidate diff"]);
+  assert.deepEqual(definition.outputs, ["Evidence-backed verdict"]);
+  assert.match(definition.documentation, /before every release/);
+  assert.equal(definition.provenance, "owner_configured");
+  assert.throws(() => createAgentWorkforceDocument({ agents: [coreAgent()], skills: [skill({ behavior: "x".repeat(1201) })] }), /behavior/i);
+  assert.throws(() => createAgentWorkforceDocument({ agents: [coreAgent()], skills: [skill({ documentation: "x".repeat(4001) })] }), /documentation/i);
+});
+
+
 test("skill definitions fail closed on unknown fields, bounds, URLs, duplicates, and unknown agent references", () => {
   const make = (...skills) => ({ agents: [coreAgent()], skills });
   assert.throws(() => createAgentWorkforceDocument(make(skill({ surprise: true }))), /unknown field/i);
@@ -69,6 +108,38 @@ test("skill definitions fail closed on unknown fields, bounds, URLs, duplicates,
   assert.throws(() => createAgentWorkforceDocument(make(skill({ source_url: "https://example.com/skill" }))), /github/i);
   assert.throws(() => createAgentWorkforceDocument(make(skill({ agent_ids: ["missing-agent"] }))), /unknown agent/i);
   assert.throws(() => createAgentWorkforceDocument(make(skill(), skill())), /duplicate skill/i);
+});
+
+
+test("older version 2 skill records migrate missing definition fields without inventing details", () => {
+  const at = "2026-09-11T12:00:00.000Z";
+  const { behavior, capabilities, inputs, outputs, documentation, provenance, ...oldSkill } = skill();
+  void behavior; void capabilities; void inputs; void outputs; void documentation; void provenance;
+  const parsed = parseAgentWorkforceDocument(JSON.stringify({
+    version: 2,
+    agents: [{ ...coreAgent(), created_at: at, updated_at: at }],
+    skills: [{ ...oldSkill, usage: null, created_at: at, updated_at: at }],
+    revision: at,
+    updated_at: at,
+  }));
+  assert.equal(parsed.skills[0].provenance, "legacy_unverified");
+  assert.equal(parsed.skills[0].behavior, "");
+  assert.deepEqual(parsed.skills[0].capabilities, []);
+  assert.deepEqual(parsed.skills[0].inputs, []);
+  assert.deepEqual(parsed.skills[0].outputs, []);
+  assert.equal(parsed.skills[0].documentation, "");
+});
+
+
+test("skill ratings and review counts must describe one coherent evidence state", () => {
+  assert.throws(
+    () => createAgentWorkforceDocument({ agents: [coreAgent()], skills: [skill({ quality_rating: 4.5, review_count: 0 })] }),
+    /rating.*review|review.*rating/i,
+  );
+  assert.throws(
+    () => createAgentWorkforceDocument({ agents: [coreAgent()], skills: [skill({ quality_rating: null, review_count: 3 })] }),
+    /rating.*review|review.*rating/i,
+  );
 });
 
 
@@ -106,13 +177,18 @@ test("version 1 documents migrate non-destructively and skill updates preserve s
 });
 
 
-test("the default catalog connects shareable official skills to the existing workforce hierarchy", () => {
+test("the default catalog is a truthful starter recommendation set, not configured assignments", () => {
   assert.equal(DEFAULT_AGENT_WORKFORCE.skills.length, 6);
-  const agentIds = new Set(DEFAULT_AGENT_WORKFORCE.agents.map((agent) => agent.id));
   for (const item of DEFAULT_AGENT_WORKFORCE.skills) {
     assert.equal(new URL(item.source_url).hostname, "github.com");
-    assert.ok(item.agent_ids.length > 0);
-    assert.ok(item.agent_ids.every((id) => id === "jarvis" || agentIds.has(id)));
+    assert.deepEqual(item.agent_ids, []);
+    assert.equal(item.deployment_state, "draft");
+    assert.equal(item.provenance, "starter_recommendation");
+    assert.ok(item.behavior.length > 0);
+    assert.ok(item.capabilities.length > 0);
+    assert.ok(item.inputs.length > 0);
+    assert.ok(item.outputs.length > 0);
+    assert.ok(item.documentation.length > 0);
     assert.equal(item.usage, null);
     assert.equal(item.quality_rating, null);
     assert.equal(item.review_count, 0);
@@ -131,7 +207,7 @@ test("the dedicated workforce route migrates legacy rows and existing agent save
 
 test("skill catalog filtering and sorting stay deterministic and disable unsupported popularity", () => {
   const skills = [
-    { ...DEFAULT_AGENT_WORKFORCE.skills[0], name: "Zulu", category: "Research", quality_rating: null },
+    { ...DEFAULT_AGENT_WORKFORCE.skills[0], name: "Zulu", category: "Research", quality_rating: null, deployment_state: "configured", provenance: "owner_configured", agent_ids: ["scout-research"] },
     { ...DEFAULT_AGENT_WORKFORCE.skills[1], name: "Alpha", category: "Productivity", quality_rating: 4.8, review_count: 3 },
   ];
   assert.deepEqual(filterAndSortSkills(skills, { query: "alpha", category: "all", deploymentState: "all", agentId: "all", sort: "name" }).map((item) => item.name), ["Alpha"]);

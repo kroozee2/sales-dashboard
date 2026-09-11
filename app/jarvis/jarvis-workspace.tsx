@@ -1,12 +1,12 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Bot, Network, Sparkles } from 'lucide-react';
-import { AgentWorkforceDashboard } from '@/components/agent-workforce-dashboard';
+import { Bot, Library, Network, Sparkles } from 'lucide-react';
+import { AgentSkillsCatalog, AgentWorkforceDashboard } from '@/components/agent-workforce-dashboard';
 import { JARVIS_INTERNAL_WORKERS, JARVIS_PROFILE } from '@/lib/agent-workforce-jarvis';
 
 type Phase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
-type WorkspaceTab = 'jarvis' | 'core' | 'subagent';
+type WorkspaceTab = 'jarvis' | 'core' | 'subagent' | 'skills';
 type Message = { role: 'user' | 'assistant'; content: string; alert?: boolean };
 type ActionLog = { tool: string; label: string; detail?: string; ok?: boolean };
 type JarvisResult = {
@@ -52,8 +52,8 @@ const PHASE_LABEL: Record<Phase, string> = {
 // Shown when the workforce cannot be loaded because this browser is not signed
 // in as an owner. It names the reason rather than quietly showing something
 // else, and points at the one action that resolves it.
-function WorkforceLocked({ checked, view }: { checked: boolean; view: 'core' | 'subagent' }) {
-  const label = view === 'core' ? 'Core Agents' : 'Sub-agents';
+function WorkforceLocked({ checked, view }: { checked: boolean; view: 'core' | 'subagent' | 'skills' }) {
+  const label = view === 'core' ? 'Core Agents' : view === 'subagent' ? 'Sub-agents' : 'Skills';
   if (!checked) {
     return (
       <div role="status" className="rounded-3xl border border-white/[0.07] bg-[#090a0d] p-8 text-center text-sm text-zinc-400">
@@ -542,6 +542,7 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
     { id: 'jarvis', label: 'Jarvis', icon: Sparkles },
     { id: 'core', label: 'Core Agents', icon: Network },
     { id: 'subagent', label: 'Sub-agents', icon: Bot },
+    { id: 'skills', label: 'Skills', icon: Library },
   ];
 
   return (
@@ -761,6 +762,11 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
         {workspaceTab === 'subagent' && (workforceOwnerId
           ? <AgentWorkforceDashboard view="subagent" ownerId={workforceOwnerId} onEditorOpenChange={setWorkforceEditorOpen} />
           : <WorkforceLocked checked={workforceChecked} view="subagent" />)}
+      </section>
+      <section role="tabpanel" id="workforce-panel-skills" aria-labelledby="workforce-tab-skills" hidden={workspaceTab !== 'skills'}>
+        {workspaceTab === 'skills' && (workforceOwnerId
+          ? <AgentSkillsCatalog />
+          : <WorkforceLocked checked={workforceChecked} view="skills" />)}
       </section>
     </div>
   );

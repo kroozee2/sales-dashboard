@@ -2,18 +2,26 @@ export const AGENT_TYPES = ["core", "subagent"] as const;
 export const AGENT_STATUSES = ["planned", "designed", "building", "testing", "live", "paused"] as const;
 export const AGENT_AUTONOMY = ["draft_only", "internal", "approval_gated"] as const;
 export const SKILL_DEPLOYMENT_STATES = ["draft", "configured", "deployed", "paused", "retired"] as const;
+export const SKILL_PROVENANCE = ["owner_configured", "starter_recommendation", "legacy_unverified"] as const;
 
 export type AgentType = (typeof AGENT_TYPES)[number];
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
 export type AgentAutonomy = (typeof AGENT_AUTONOMY)[number];
 export type SkillDeploymentState = (typeof SKILL_DEPLOYMENT_STATES)[number];
+export type SkillProvenance = (typeof SKILL_PROVENANCE)[number];
 
 export type SkillInput = {
   id: string;
   name: string;
   purpose: string;
+  behavior: string;
   category: string;
   tags: string[];
+  capabilities: string[];
+  inputs: string[];
+  outputs: string[];
+  documentation: string;
+  provenance: SkillProvenance;
   agent_ids: string[];
   deployment_state: SkillDeploymentState;
   source_url: string;
@@ -179,38 +187,56 @@ function isOneOf<T extends readonly string[]>(value: unknown, choices: T): value
 
 type ValidateMode = "input" | "stored";
 
-const SKILL_INPUT_KEYS = ["id", "name", "purpose", "category", "tags", "agent_ids", "deployment_state", "source_url", "quality_rating", "review_count"] as const;
+const SKILL_INPUT_KEYS = ["id", "name", "purpose", "behavior", "category", "tags", "capabilities", "inputs", "outputs", "documentation", "provenance", "agent_ids", "deployment_state", "source_url", "quality_rating", "review_count"] as const;
 const SKILL_STORED_KEYS = [...SKILL_INPUT_KEYS, "usage", "created_at", "updated_at"] as const;
 
-function validateSkill(raw: unknown, index: number, agentIds: Set<string>): SkillInput {
+function validateSkill(raw: unknown, index: number, agentIds: Set<string>, mode: ValidateMode = "input"): SkillInput {
   if (!isRecord(raw)) throw new Error(`skills[${index}] must be an object`);
   assertExactKeys(raw, SKILL_INPUT_KEYS, `skills[${index}]`);
-  const id = canonicalString(raw.id, `skills[${index}].id`, 80);
+  const value: Record<string, unknown> = { ...raw };
+  if (mode === "stored") {
+    if (!("behavior" in value) || value.behavior === undefined) value.behavior = "";
+    for (const key of ["capabilities", "inputs", "outputs"] as const) {
+      if (!(key in value) || value[key] === undefined) value[key] = [];
+    }
+    if (!("documentation" in value) || value.documentation === undefined) value.documentation = "";
+    if (!("provenance" in value) || value.provenance === undefined) value.provenance = "legacy_unverified";
+  }
+  const normalized = value;
+  const id = canonicalString(normalized.id, `skills[${index}].id`, 80);
   if (!ID_PATTERN.test(id)) throw new Error(`skills[${index}].id must be a lowercase slug`);
-  if (!isOneOf(raw.deployment_state, SKILL_DEPLOYMENT_STATES)) throw new Error(`skills[${index}].deployment_state is invalid`);
-  if (!Array.isArray(raw.agent_ids) || raw.agent_ids.length < 1 || raw.agent_ids.length > MAX_LIST_ITEMS) throw new Error(`skills[${index}].agent_ids must contain 1 to ${MAX_LIST_ITEMS} references`);
-  const connections = raw.agent_ids.map((value, connectionIndex) => canonicalString(value, `skills[${index}].agent_ids[${connectionIndex}]`, 80));
+  if (!isOneOf(normalized.deployment_state, SKILL_DEPLOYMENT_STATES)) throw new Error(`skills[${index}].deployment_state is invalid`);
+  if (!isOneOf(normalized.provenance, SKILL_PROVENANCE)) throw new Error(`skills[${index}].provenance is invalid`);
+  if (!Array.isArray(normalized.agent_ids) || normalized.agent_ids.length > MAX_LIST_ITEMS) throw new Error(`skills[${index}].agent_ids must contain 0 to ${MAX_LIST_ITEMS} references`);
+  const connections = normalized.agent_ids.map((value, connectionIndex) => canonicalString(value, `skills[${index}].agent_ids[${connectionIndex}]`, 80));
   if (new Set(connections).size !== connections.length) throw new Error(`skills[${index}].agent_ids contains duplicate references`);
   const unknown = connections.find((value) => value !== "jarvis" && !agentIds.has(value));
   if (unknown) throw new Error(`Skill ${id} references an unknown agent: ${unknown}`);
-  const sourceUrl = boundedString(raw.source_url, `skills[${index}].source_url`, 500);
+  const sourceUrl = boundedString(normalized.source_url, `skills[${index}].source_url`, 500);
   let parsedUrl: URL;
   try { parsedUrl = new URL(sourceUrl); } catch { throw new Error(`skills[${index}].source_url must be a valid URL`); }
   if (!["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) throw new Error(`skills[${index}].source_url must use http or https`);
   if ((parsedUrl.hostname !== "github.com" && parsedUrl.hostname !== "www.github.com") || parsedUrl.port) throw new Error(`skills[${index}].source_url must use GitHub without a custom port`);
-  if (raw.quality_rating !== null && (typeof raw.quality_rating !== "number" || !Number.isFinite(raw.quality_rating) || raw.quality_rating < 1 || raw.quality_rating > 5)) throw new Error(`skills[${index}].quality_rating must be null or from 1 to 5`);
-  if (!Number.isInteger(raw.review_count) || Number(raw.review_count) < 0 || Number(raw.review_count) > 10_000) throw new Error(`skills[${index}].review_count must be an integer from 0 to 10000`);
+  if (normalized.quality_rating !== null && (typeof normalized.quality_rating !== "number" || !Number.isFinite(normalized.quality_rating) || normalized.quality_rating < 1 || normalized.quality_rating > 5)) throw new Error(`skills[${index}].quality_rating must be null or from 1 to 5`);
+  if (!Number.isInteger(normalized.review_count) || Number(normalized.review_count) < 0 || Number(normalized.review_count) > 10_000) throw new Error(`skills[${index}].review_count must be an integer from 0 to 10000`);
+  if ((normalized.quality_rating === null) !== (Number(normalized.review_count) === 0)) throw new Error(`skills[${index}] rating and review count are inconsistent`);
   return {
     id,
-    name: boundedString(raw.name, `skills[${index}].name`, 100),
-    purpose: boundedString(raw.purpose, `skills[${index}].purpose`, 600),
-    category: boundedString(raw.category, `skills[${index}].category`, 80),
-    tags: boundedStringList(raw.tags, `skills[${index}].tags`),
+    name: boundedString(normalized.name, `skills[${index}].name`, 100),
+    purpose: boundedString(normalized.purpose, `skills[${index}].purpose`, 600),
+    behavior: boundedString(normalized.behavior, `skills[${index}].behavior`, 1_200, true),
+    category: boundedString(normalized.category, `skills[${index}].category`, 80),
+    tags: boundedStringList(normalized.tags, `skills[${index}].tags`),
+    capabilities: boundedStringList(normalized.capabilities, `skills[${index}].capabilities`),
+    inputs: boundedStringList(normalized.inputs, `skills[${index}].inputs`),
+    outputs: boundedStringList(normalized.outputs, `skills[${index}].outputs`),
+    documentation: multilineString(normalized.documentation, `skills[${index}].documentation`, 4_000),
+    provenance: normalized.provenance,
     agent_ids: connections,
-    deployment_state: raw.deployment_state,
+    deployment_state: normalized.deployment_state,
     source_url: sourceUrl,
-    quality_rating: raw.quality_rating,
-    review_count: Number(raw.review_count),
+    quality_rating: normalized.quality_rating,
+    review_count: Number(normalized.review_count),
   };
 }
 
@@ -281,11 +307,11 @@ function validateInput(value: unknown, includeRevision: boolean, mode: ValidateM
       throw new Error(`Sub-agent ${agent.id} references an unknown core parent`);
     }
   }
-  const rawSkills = value.skills ?? [];
+  const rawSkills = Object.hasOwn(value, "skills") ? value.skills : [];
   if (!Array.isArray(rawSkills)) throw new Error("skills must be an array");
   if (rawSkills.length > MAX_SKILLS) throw new Error(`skills exceeds ${MAX_SKILLS} items`);
   const allAgentIds = new Set(agents.map((agent) => agent.id));
-  const skills = rawSkills.map((skill, index) => validateSkill(skill, index, allAgentIds));
+  const skills = rawSkills.map((skill, index) => validateSkill(skill, index, allAgentIds, mode));
   const skillIds = new Set<string>();
   for (const skill of skills) {
     if (skillIds.has(skill.id)) throw new Error(`Duplicate skill id: ${skill.id}`);

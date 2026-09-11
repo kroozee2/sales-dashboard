@@ -74,7 +74,7 @@ const input = { agents: [coreAgent(), subAgent()] };
 
 test("agent workforce documents are versioned, bounded, and preserve core-to-sub-agent hierarchy", () => {
   const document = createAgentWorkforceDocument(input, "2026-09-05T16:00:00.000Z");
-  assert.equal(document.version, 1);
+  assert.equal(document.version, 2);
   assert.equal(document.agents.length, 2);
   assert.equal(document.agents[1].parent_id, document.agents[0].id);
   assert.deepEqual(parseAgentWorkforceDocument(JSON.stringify(document)), document);
@@ -406,7 +406,7 @@ test("Jarvis exposes only read-only and drafting tools until durable write idemp
   assert.match(route, /safeGeneratedContent/);
 });
 
-test("Jarvis becomes a three-tab AI workforce command center with interactive create and edit workflows", () => {
+test("Jarvis becomes a four-tab AI workforce command center with interactive create and edit workflows", () => {
   const pagePath = new URL("../app/jarvis/page.tsx", import.meta.url);
   const routePath = new URL("../app/api/agent-workforce/route.ts", import.meta.url);
   assert.equal(existsSync(pagePath), true);
@@ -487,6 +487,9 @@ test("Jarvis becomes a three-tab AI workforce command center with interactive cr
   assert.match(page, /id="workforce-panel-jarvis"/);
   assert.match(page, /id="workforce-panel-core"/);
   assert.match(page, /id="workforce-panel-subagent"/);
+  assert.match(page, /id="workforce-panel-skills"/);
+  assert.match(page, /<AgentSkillsCatalog/);
+  assert.doesNotMatch(dashboard, /dashboardSection|Skills library.*role="tab"/s);
   assert.match(page, /<dialog/);
   assert.match(page, /showModal\(\)/);
   assert.match(page, /onCancel=/);

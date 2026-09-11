@@ -9,6 +9,7 @@ globalThis.self = dom.window;
 globalThis.document = dom.window.document;
 Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
 globalThis.HTMLElement = dom.window.HTMLElement;
+dom.window.HTMLElement.prototype.scrollIntoView = function scrollIntoView() {};
 globalThis.HTMLButtonElement = dom.window.HTMLButtonElement;
 globalThis.KeyboardEvent = dom.window.KeyboardEvent;
 globalThis.MouseEvent = dom.window.MouseEvent;
@@ -29,7 +30,8 @@ if (!globalThis.crypto?.randomUUID) {
 }
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
-const { AgentWorkforceDashboard } = await import("../components/agent-workforce-dashboard.tsx");
+const { AgentSkillsCatalog, AgentWorkforceDashboard } = await import("../components/agent-workforce-dashboard.tsx");
+const { default: JarvisWorkspace } = await import("../app/jarvis/jarvis-workspace.tsx");
 const { DEFAULT_AGENT_WORKFORCE } = await import("../lib/agent-workforce-default.ts");
 
 let originalFetch;
@@ -44,6 +46,8 @@ beforeEach(() => {
   currentDocument = clone(DEFAULT_AGENT_WORKFORCE);
   globalThis.fetch = async (url, options = {}) => {
     requests.push({ url: String(url), options });
+    if (String(url) === "/api/team") return new Response(JSON.stringify({ me: { id: "owner-1", role: "owner", active: true } }), { status: 200 });
+    if (String(url) === "/api/jarvis/status") return new Response(JSON.stringify({ cartesiaConfigured: false }), { status: 200 });
     if (options.method === "PUT") {
       const body = JSON.parse(options.body);
       // Mirror the server: reject anything carrying server-owned timestamps.
@@ -58,9 +62,10 @@ beforeEach(() => {
       const revision = new Date(Date.parse(currentDocument.revision) + 1000).toISOString();
       const previous = new Map(currentDocument.agents.map((agent) => [agent.id, agent]));
       currentDocument = {
-        version: 1,
+        version: 2,
         revision,
         updated_at: revision,
+        skills: body.skills,
         agents: body.agents.map((agent) => ({
           ...agent,
           created_at: previous.get(agent.id)?.created_at ?? revision,
@@ -84,6 +89,51 @@ async function mount(view) {
   await waitFor(() => assert.ok(utils.container.querySelector("article")));
   return utils;
 }
+
+test("AI Workforce exposes four semantic tabs with roving Arrow, Home, and End keyboard behavior", async () => {
+  const { getByRole } = render(React.createElement(JarvisWorkspace, { initialTab: "jarvis" }));
+  const tablist = getByRole("tablist", { name: "AI workforce" });
+  const tabs = within(tablist).getAllByRole("tab");
+  assert.deepEqual(tabs.map((tab) => tab.textContent.trim()), ["Jarvis", "Core Agents", "Sub-agents", "Skills"]);
+  for (const tab of tabs) {
+    assert.ok(tab.id);
+    const panelId = tab.getAttribute("aria-controls");
+    assert.ok(panelId);
+    const panel = document.getElementById(panelId);
+    assert.ok(panel, `panel ${panelId} exists`);
+    assert.equal(panel.getAttribute("role"), "tabpanel");
+    assert.equal(panel.getAttribute("aria-labelledby"), tab.id);
+  }
+  await act(async () => { fireEvent.keyDown(tabs[2], { key: "ArrowRight" }); await new Promise((resolve) => setTimeout(resolve, 10)); });
+  assert.equal(tabs[3].getAttribute("aria-selected"), "true");
+  assert.equal(document.activeElement, tabs[3]);
+  await act(async () => { fireEvent.keyDown(tabs[3], { key: "Home" }); await new Promise((resolve) => setTimeout(resolve, 10)); });
+  assert.equal(document.activeElement, tabs[0]);
+  await act(async () => { fireEvent.keyDown(tabs[0], { key: "End" }); await new Promise((resolve) => setTimeout(resolve, 10)); });
+  assert.equal(document.activeElement, tabs[3]);
+  assert.equal(document.querySelectorAll('[role="tabpanel"]').length, 4);
+});
+
+test("the top-level Skills catalog has no nested duplicates and exposes the complete truthful definition", async () => {
+  const { container, getAllByRole } = render(React.createElement(AgentSkillsCatalog));
+  await waitFor(() => assert.equal(container.querySelectorAll("article").length, DEFAULT_AGENT_WORKFORCE.skills.length));
+  assert.equal(container.querySelectorAll('[role="tablist"]').length, 0, "the standalone catalog does not recreate nested tabs");
+
+  fireEvent.click(getAllByRole("button", { name: "View skill details" })[0]);
+  const drawer = container.querySelector("dialog");
+  assert.ok(drawer);
+  const text = drawer.textContent;
+  assert.match(text, /Behavior/);
+  assert.match(text, /Capabilities/);
+  assert.match(text, /Inputs/);
+  assert.match(text, /Outputs/);
+  assert.match(text, /Documentation/);
+  assert.match(text, /Starter recommendation/);
+  assert.match(text, /No workforce connections confirmed/);
+  assert.match(text, /Not rated · 0 internal reviews/);
+  assert.match(text, /Activity not connected/);
+});
+
 
 test("the Core Agents view lists the four department heads with their teams", async () => {
   const { container } = await mount("core");

@@ -78,8 +78,9 @@ function toInput(agent: AgentInput): AgentInput {
 
 function toSkillInput(skill: SkillDefinition): SkillInput {
   return {
-    id: skill.id, name: skill.name, purpose: skill.purpose, category: skill.category,
-    tags: skill.tags, agent_ids: skill.agent_ids, deployment_state: skill.deployment_state,
+    id: skill.id, name: skill.name, purpose: skill.purpose, behavior: skill.behavior, category: skill.category,
+    tags: skill.tags, capabilities: skill.capabilities, inputs: skill.inputs, outputs: skill.outputs,
+    documentation: skill.documentation, provenance: skill.provenance, agent_ids: skill.agent_ids, deployment_state: skill.deployment_state,
     source_url: skill.source_url, quality_rating: skill.quality_rating, review_count: skill.review_count,
   };
 }
@@ -341,11 +342,19 @@ function SkillDetailPanel({ skill, agents, returnFocusRef, fallbackFocusRef, onC
             <button ref={closeButtonRef} autoFocus onClick={onClose} className={`${FOCUS_RING} grid min-h-11 min-w-11 shrink-0 place-items-center rounded-xl border border-white/10 p-2.5 text-zinc-400 hover:text-white`} aria-label="Close skill details"><X size={18} /></button>
           </div>
           <p className="mt-6 break-words text-sm leading-7 text-zinc-300 [overflow-wrap:anywhere]">{skill.purpose}</p>
+          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Behavior</h3><p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-zinc-300 [overflow-wrap:anywhere]">{skill.behavior || 'Behavior not documented.'}</p></section>
+          {([
+            ['Capabilities', skill.capabilities],
+            ['Inputs', skill.inputs],
+            ['Outputs', skill.outputs],
+          ] as const).map(([label, items]) => <section key={label} className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">{label}</h3>{items.length > 0 ? <ul className="mt-3 space-y-2">{items.map((item) => <li key={item} className="break-words rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-2.5 text-sm text-zinc-300 [overflow-wrap:anywhere]">{item}</li>)}</ul> : <p className="mt-3 text-sm text-zinc-400">Not documented.</p>}</section>)}
+          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Documentation</h3><p className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-zinc-300 [overflow-wrap:anywhere]">{skill.documentation || 'Documentation not provided.'}</p></section>
+          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Catalog provenance</h3><p className="mt-2 text-sm text-zinc-300">{skill.provenance === 'owner_configured' ? 'Owner configured' : skill.provenance === 'starter_recommendation' ? 'Starter recommendation' : 'Legacy record · unverified'}</p><p className="mt-1 text-xs leading-5 text-zinc-400">{skill.provenance === 'owner_configured' ? 'Saved as owner-maintained catalog configuration.' : skill.provenance === 'starter_recommendation' ? 'Suggested starter definition only; assignment, configuration, and deployment are not confirmed.' : 'Migrated from an older catalog record. Review its definition and state before relying on it.'}</p></section>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4"><p className="text-[10px] uppercase tracking-[0.16em] text-zinc-400">Deployment</p><p className="mt-2 text-sm text-zinc-200">{SKILL_DEPLOYMENT_LABEL[skill.deployment_state]}</p><p className="mt-1 text-xs leading-5 text-zinc-400">Configuration state only; it does not mean the skill is running now.</p></div>
             <div className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-4"><p className="text-[10px] uppercase tracking-[0.16em] text-zinc-400">Runtime activity</p>{skill.usage ? <><p className="mt-2 text-sm text-zinc-200">{skill.usage.count.toLocaleString()} verified uses</p><p className="mt-1 text-xs text-zinc-400">Hermes · last observed {formatStamp(skill.usage.last_used_at)}</p></> : <p className="mt-2 text-sm text-amber-200">Activity not connected</p>}</div>
           </div>
-          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Connected workforce</h3><ul className="mt-3 space-y-2">{connections.map((label, index) => <li key={`${skill.agent_ids[index]}-${index}`} className="break-words rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-2.5 text-sm text-zinc-300 [overflow-wrap:anywhere]">{label}</li>)}</ul></section>
+          <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Connected workforce</h3>{connections.length > 0 ? <ul className="mt-3 space-y-2">{connections.map((label, index) => <li key={`${skill.agent_ids[index]}-${index}`} className="break-words rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-2.5 text-sm text-zinc-300 [overflow-wrap:anywhere]">{label}</li>)}</ul> : <p className="mt-3 text-sm text-zinc-400">No workforce connections confirmed.</p>}</section>
           <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Tags</h3><div className="mt-3 flex flex-wrap gap-2">{skill.tags.map((tag) => <span key={tag} className="max-w-full break-words rounded-full border border-white/[0.08] px-3 py-1.5 text-xs text-zinc-300 [overflow-wrap:anywhere]">{tag}</span>)}</div></section>
           <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">Internal quality rating</h3><p className="mt-2 text-sm text-zinc-300">{skill.quality_rating === null ? 'Not rated' : `${skill.quality_rating.toFixed(1)} out of 5`} · {skill.review_count} internal {skill.review_count === 1 ? 'review' : 'reviews'}</p><p className="mt-1 text-xs leading-5 text-zinc-400">Owner-maintained internal metadata, not a community rating.</p></section>
           <section className="mt-7"><h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">GitHub source</h3><p className="mt-2 break-all text-xs leading-5 text-zinc-400">{skill.source_url}</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => void copyLink()} className={`${FOCUS_RING} flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-2.5 text-sm text-zinc-200 hover:bg-white/5`}><Copy size={15} /> Copy link</button><a href={skill.source_url} target="_blank" rel="noreferrer" className={`${FOCUS_RING} flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500`}><ExternalLink size={15} /> Open GitHub</a></div><p role="status" aria-live="polite" className="mt-3 text-xs text-zinc-400">{copyStatus}</p><p className="mt-2 text-xs leading-5 text-zinc-400">Sharing this link is read-only. It does not install the skill or grant repository access.</p></section>
@@ -386,6 +395,44 @@ function SkillsCatalog({ skills, agents }: { skills: SkillDefinition[]; agents: 
       {selectedSkill && <SkillDetailPanel skill={selectedSkill} agents={agents} returnFocusRef={detailOpenerRef} fallbackFocusRef={searchRef} onClose={() => setSelectedSkill(null)} />}
     </div>
   );
+}
+
+export function AgentSkillsCatalog() {
+  const [document, setDocument] = useState<AgentWorkforceDocument | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/agent-workforce', { cache: 'no-store' });
+      const data = await response.json() as { document?: AgentWorkforceDocument; error?: string };
+      if (!response.ok || !data.document) throw new Error(data.error || 'The skills catalog could not be loaded.');
+      setDocument(data.document);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The skills catalog could not be loaded.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/agent-workforce', { cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json() as { document?: AgentWorkforceDocument; error?: string };
+        if (!response.ok || !data.document) throw new Error(data.error || 'The skills catalog could not be loaded.');
+        return data.document;
+      })
+      .then((next) => { if (!cancelled) setDocument(next); })
+      .catch((caught: unknown) => { if (!cancelled) setError(caught instanceof Error ? caught.message : 'The skills catalog could not be loaded.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+  if (loading) return <div role="status" className="grid min-h-[320px] place-items-center rounded-3xl border border-white/[0.07] bg-[#090a0d] text-sm text-zinc-400">Loading skills library…</div>;
+  if (!document) return <div role="alert" className="rounded-3xl border border-rose-400/20 bg-[#090a0d] p-6 text-sm text-rose-200"><p className="break-words [overflow-wrap:anywhere]">{error || 'The skills catalog is unavailable.'}</p><button type="button" onClick={() => void load()} className={`${FOCUS_RING} mt-4 min-h-11 rounded-lg border border-rose-300/30 px-4 py-2`}>Try again</button></div>;
+  return <div className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#090a0d] p-4 shadow-2xl sm:p-6"><SkillsCatalog skills={document.skills} agents={document.agents} /></div>;
 }
 
 function AgentEditor({ form, coreAgents, saving, cleanupPending, error, initiallyDirty, creating, recoveryOnly, returnFocusRef, fallbackFocusRef, onChange, onClose, onSubmit }: { form: FormAgent; coreAgents: AgentDefinition[]; saving: boolean; cleanupPending: boolean; error: string; initiallyDirty: boolean; creating: boolean; recoveryOnly: boolean; returnFocusRef: RefObject<HTMLElement | null>; fallbackFocusRef: RefObject<HTMLElement | null>; onChange: (next: FormAgent) => void; onClose: () => void; onSubmit: (event: FormEvent) => void }) {
@@ -506,7 +553,6 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
   const [autonomy, setAutonomy] = useState<'all' | AgentAutonomy>('all');
   const [parent, setParent] = useState<string>('all');
   const [status, setStatus] = useState<'all' | AgentStatus>('all');
-  const [dashboardSection, setDashboardSection] = useState<'agents' | 'skills'>('agents');
   const [selected, setSelected] = useState<AgentDefinition | null>(null);
   const [form, setForm] = useState<FormAgent | null>(null);
   const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create');
@@ -721,11 +767,6 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
     <div className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[#090a0d] p-4 shadow-2xl sm:p-6">
       <div className="pointer-events-none absolute left-1/3 top-0 h-72 w-72 rounded-full bg-blue-600/10 blur-[100px]" />
       <div className="relative">
-        <nav role="tablist" aria-label="Workforce definitions" className="mb-6 flex gap-1 rounded-xl border border-white/[0.07] bg-black/20 p-1">
-          <button type="button" role="tab" aria-selected={dashboardSection === 'agents'} tabIndex={dashboardSection === 'agents' ? 0 : -1} onClick={() => setDashboardSection('agents')} className={`${FOCUS_RING} min-h-11 flex-1 rounded-lg px-4 py-2 text-sm font-medium ${dashboardSection === 'agents' ? 'bg-white/[0.09] text-white' : 'text-zinc-400 hover:text-white'}`}>{view === 'core' ? 'Core Agents' : 'Sub-agents'}</button>
-          <button type="button" role="tab" aria-selected={dashboardSection === 'skills'} tabIndex={dashboardSection === 'skills' ? 0 : -1} onClick={() => { setSelected(null); setDashboardSection('skills'); }} className={`${FOCUS_RING} min-h-11 flex-1 rounded-lg px-4 py-2 text-sm font-medium ${dashboardSection === 'skills' ? 'bg-white/[0.09] text-white' : 'text-zinc-400 hover:text-white'}`}><Library size={15} className="mr-2 inline" />Skills library</button>
-        </nav>
-        {dashboardSection === 'skills' ? <SkillsCatalog skills={document.skills} agents={document.agents} /> : <>
         <header className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div><div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.2em] text-blue-300/70"><Sparkles size={13} /> AI Workforce</div><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{view === 'core' ? 'Core Agents' : 'Sub-agents'}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">{view === 'core' ? 'Department leaders that own outcomes, coordinate specialist workers, and report to Jarvis.' : 'Focused workers that research, create, monitor, verify, and prepare work for their department leader.'}</p></div>
           <button onClick={(event) => openCreate(event.currentTarget)} className={`${FOCUS_RING} flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500`}><Plus size={16} /> Create agent</button>
@@ -773,7 +814,6 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
         )}
 
         <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-xs leading-5 text-zinc-400">Status and progress above are manually maintained blueprint fields. Live Hermes schedules, runs, approvals, failures, and telemetry are not connected yet.</div>
-        </>}
       </div>
       {selected && <DetailPanel agent={selected} teamMembers={document.agents.filter((agent) => agent.parent_id === selected.id)} returnFocusRef={detailOpenerRef} fallbackFocusRef={searchInputRef} onClose={() => setSelected(null)} onEdit={() => openEdit(selected, detailOpenerRef.current)} />}
       {form && <AgentEditor form={form} coreAgents={coreAgents} saving={saving} cleanupPending={cleanupPending} creating={editorMode === 'create'} recoveryOnly={recoveryOnlyDraft} error={[saveError, draftWarning].filter(Boolean).join(' ')} initiallyDirty={restoredDraft} returnFocusRef={editorReturnFocusRef} fallbackFocusRef={searchInputRef} onChange={setForm} onClose={() => { if (!saving) { setRestoredDraft(false); setRecoveryOnlyDraft(false); editorBaselineRef.current = null; setEditorMode('create'); setForm(null); } }} onSubmit={(event) => void save(event)} />}

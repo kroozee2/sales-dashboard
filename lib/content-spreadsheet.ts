@@ -11,13 +11,24 @@ export interface SpreadsheetContentItem {
   created_at: string;
 }
 
-export type ContentCadenceKey = "youtube" | "instagram" | "email" | "facebook";
+export type ContentCadenceKey = "youtube" | "youtube_shorts" | "instagram" | "email" | "facebook";
 
-export const CONTENT_CADENCE: { key: ContentCadenceKey; label: string; icon: string; weeklyTarget: number; helper: string; platforms: string[] }[] = [
-  { key: "youtube", label: "YouTube", icon: "▶️", weeklyTarget: 1, helper: "1 video each week", platforms: ["youtube"] },
-  { key: "instagram", label: "Instagram", icon: "📱", weeklyTarget: 7, helper: "1 Reel or carousel daily", platforms: ["instagram", "carousel"] },
-  { key: "email", label: "Email", icon: "✉️", weeklyTarget: 3, helper: "3 broadcasts each week", platforms: ["email"] },
-  { key: "facebook", label: "Facebook", icon: "📘", weeklyTarget: 1, helper: "1 methodology post weekly", platforms: ["facebook"] },
+/**
+ * `kinds` narrows a lane to one format. YouTube runs two rhythms at once, a
+ * long-form video weekly and shorts daily, and posted_content already tags
+ * every video long or short. `countBy` is how the week is scored: "days" for a
+ * daily habit, where a second post on Tuesday does not buy back a silent
+ * Wednesday, and "posts" for a weekly quota.
+ */
+export const CONTENT_CADENCE: {
+  key: ContentCadenceKey; label: string; icon: string; weeklyTarget: number;
+  helper: string; platforms: string[]; kinds?: string[]; countBy: "days" | "posts";
+}[] = [
+  { key: "youtube", label: "YouTube", icon: "▶️", weeklyTarget: 1, helper: "1 long-form video each week", platforms: ["youtube"], kinds: ["long"], countBy: "posts" },
+  { key: "youtube_shorts", label: "YT Shorts", icon: "⚡", weeklyTarget: 7, helper: "7 short-form videos each week", platforms: ["youtube"], kinds: ["short"], countBy: "posts" },
+  { key: "instagram", label: "Instagram", icon: "📱", weeklyTarget: 7, helper: "1 Reel or carousel daily", platforms: ["instagram", "carousel"], countBy: "days" },
+  { key: "email", label: "Email", icon: "✉️", weeklyTarget: 3, helper: "3 broadcasts each week", platforms: ["email"], countBy: "posts" },
+  { key: "facebook", label: "Facebook", icon: "📘", weeklyTarget: 7, helper: "7 posts each week", platforms: ["facebook"], countBy: "posts" },
 ];
 
 export const CONTENT_FOCUS_AREAS = [
@@ -78,7 +89,7 @@ export function groupContentBySchedule<T extends SpreadsheetContentItem>(items: 
 }
 
 /** A real post that went out: platform plus the day it landed. */
-export type ContentActual = { platform: string; date: string };
+export type ContentActual = { platform: string; date: string; kind?: string | null };
 
 export function weekBoundsFor(today: string) {
   const value = new Date(`${today}T12:00:00`);
@@ -111,19 +122,20 @@ export function contentCadenceProgress<T extends SpreadsheetContentItem>(
     const planned = items.filter((item) => {
       if (!item.scheduled_date || !inWeek(item.scheduled_date)) return false;
       if (!(item.platforms ?? []).some((platform) => cadence.platforms.includes(platform))) return false;
-      // Planned Facebook posts are targeted at the methodology slot; a post that
-      // actually went out counts whatever it was about.
-      return cadence.key !== "facebook" || item.meta?.content_focus === "methodology";
+      // Planned rows carry no long/short distinction, so a planned YouTube video
+      // counts as the weekly long-form one. Shorts are counted once they exist.
+      return cadence.key !== "youtube_shorts";
     });
 
-    const posted = actuals.filter((a) => inWeek(a.date) && cadence.platforms.includes(a.platform));
+    const posted = actuals.filter((a) => {
+      if (!inWeek(a.date) || !cadence.platforms.includes(a.platform)) return false;
+      return !cadence.kinds || (a.kind != null && cadence.kinds.includes(a.kind));
+    });
     const postedDates = [...new Set(posted.map((a) => a.date))].sort();
     const plannedDates = [...new Set(planned.map((item) => item.scheduled_date as string))].sort();
 
-    // Instagram is a daily habit, so a second reel on Tuesday does not buy back
-    // a silent Wednesday. Everything else counts each piece.
-    const count = cadence.key === "instagram" ? postedDates.length : posted.length;
-    const plannedCount = cadence.key === "instagram" ? plannedDates.length : planned.length;
+    const count = cadence.countBy === "days" ? postedDates.length : posted.length;
+    const plannedCount = cadence.countBy === "days" ? plannedDates.length : planned.length;
 
     return [cadence.key, {
       count,

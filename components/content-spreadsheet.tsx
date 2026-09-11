@@ -193,9 +193,9 @@ export default function ContentSpreadsheet({
   const actuals = useMemo(() => {
     const rows = posted
       .filter((p) => p.posted_at && p.platform !== "youtube_owner_analytics")
-      .map((p) => ({ platform: p.platform, date: p.posted_at!.slice(0, 10) }));
+      .map((p) => ({ platform: p.platform, date: p.posted_at!.slice(0, 10), kind: p.media_type }));
     // Email has no posted_content rows; GoHighLevel is the record of a send.
-    for (const e of emails) rows.push({ platform: "email", date: e.created_at.slice(0, 10) });
+    for (const e of emails) rows.push({ platform: "email", date: e.created_at.slice(0, 10), kind: "email" });
     return rows;
   }, [posted, emails]);
 
@@ -253,7 +253,7 @@ export default function ContentSpreadsheet({
           </div>
           <span className="text-[11px] font-medium text-zinc-600">Monday–Sunday</span>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {CONTENT_CADENCE.map((cadence) => {
             const progress = cadenceProgress[cadence.key];
             const percent = Math.min(100, Math.round((progress.count / progress.target) * 100));
@@ -270,7 +270,7 @@ export default function ContentSpreadsheet({
                   <div className={`h-full rounded-full ${progress.met ? "bg-emerald-500" : "bg-gradient-to-r from-blue-500 to-violet-500"}`} style={{ width: `${percent}%` }} />
                 </div>
                 <p className="mt-1.5 text-[10px] text-zinc-600">
-                  {cadence.key === "instagram" ? `${progress.count} of 7 days posted` : `${progress.count} of ${progress.target} posted`}
+                  {cadence.countBy === "days" ? `${progress.count} of ${progress.target} days posted` : `${progress.count} of ${progress.target} posted`}
                   {progress.planned > progress.count && ` · ${progress.planned} planned`}
                 </p>
               </div>

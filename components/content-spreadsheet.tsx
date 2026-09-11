@@ -37,20 +37,20 @@ export interface ContentSpreadsheetItem {
 
 type ItemPatch = Partial<ContentSpreadsheetItem>;
 
+const POSTED_EMOJI: Record<string, string> = { instagram: "📸", youtube: "▶️", facebook: "👥" };
+const POSTED_CHIP: Record<string, string> = {
+  instagram: "bg-pink-500/15 text-pink-300 ring-pink-500/25",
+  youtube: "bg-red-500/15 text-red-300 ring-red-500/25",
+  facebook: "bg-blue-500/15 text-blue-300 ring-blue-500/25",
+};
+
 const GROUP_META: Record<ContentScheduleGroup, { label: string; helper: string; icon: string; accent: string; empty: string }> = {
-  overdue: {
-    label: "Overdue",
-    helper: "Needs a new date or to be posted",
-    icon: "⚠️",
-    accent: "border-rose-500/40 bg-rose-500/[0.05]",
-    empty: "Nothing overdue",
-  },
-  today: {
-    label: "Due today",
-    helper: "Your publishing queue for today",
+  due: {
+    label: "Due now",
+    helper: "Dated today or earlier, still to go out",
     icon: "🎯",
     accent: "border-amber-500/40 bg-amber-500/[0.05]",
-    empty: "Nothing due today",
+    empty: "Nothing due",
   },
   upcoming: {
     label: "Upcoming",
@@ -90,13 +90,21 @@ function formatLabel(item: ContentSpreadsheetItem) {
   return metaFormat || item.creative_type || item.platforms.map(platformLabel).join(" + ") || "Not set";
 }
 
+export interface PostedRow {
+  id: string; platform: string; post_url: string | null; text: string | null;
+  posted_at: string | null; likes: number | null; comments: number | null;
+  shares: number | null; reactions: number | null; views: number | null; media_type: string | null;
+}
+
 export default function ContentSpreadsheet({
   items,
+  posted = [],
   onOpen,
   onPatch,
   onDelete,
 }: {
   items: ContentSpreadsheetItem[];
+  posted?: PostedRow[];
   onOpen: (item: ContentSpreadsheetItem) => void;
   onPatch: (id: string, patch: ItemPatch) => Promise<ContentSpreadsheetItem | null>;
   onDelete: (id: string) => Promise<boolean>;
@@ -113,6 +121,23 @@ export default function ContentSpreadsheet({
   const [confirmItem, setConfirmItem] = useState<ContentSpreadsheetItem | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState(false);
+  const [showPosted, setShowPosted] = useState(true);
+
+  // What actually went out, newest first, honouring the same filters as the
+  // rest of the list so one platform choice governs the whole view.
+  const published = useMemo(() => {
+    const search = query.trim().toLowerCase();
+    return posted
+      .filter((p) => {
+        // A stats aggregate, not a post. It backs the YouTube subscriber number.
+        if (p.platform === "youtube_owner_analytics") return false;
+        if (platform !== "all" && p.platform !== platform) return false;
+        if (search && !`${p.text ?? ""} ${p.platform}`.toLowerCase().includes(search)) return false;
+        return true;
+      })
+      .sort((a, b) => (b.posted_at ?? "").localeCompare(a.posted_at ?? ""))
+      .slice(0, 60);
+  }, [posted, platform, query]);
 
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -244,7 +269,7 @@ export default function ContentSpreadsheet({
         </div>
       </div>
 
-      <p className="text-xs text-zinc-500 px-1">Edit any cell directly. Drag a row onto another section to move it to yesterday, today, tomorrow, or unscheduled.</p>
+      <p className="text-xs text-zinc-500 px-1">Edit any cell directly. Drag a row onto another section to make it due now, push it to tomorrow, or take its date off.</p>
 
       {CONTENT_SCHEDULE_GROUPS.map((group) => {
         const meta = GROUP_META[group];
@@ -347,6 +372,64 @@ export default function ContentSpreadsheet({
           </section>
         );
       })}
+
+      {published.length > 0 && (
+        <section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.03] p-4">
+          <button onClick={() => setShowPosted((v) => !v)} className="flex w-full items-center justify-between gap-3 text-left">
+            <div>
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+                <span>✅</span> Already posted
+                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">{published.length}</span>
+              </h3>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Pulled from Instagram, YouTube and Facebook themselves, newest first.
+              </p>
+            </div>
+            <span className="text-zinc-500">{showPosted ? "▾" : "▸"}</span>
+          </button>
+
+          {showPosted && (
+            <div className="mt-3 overflow-x-auto rounded-xl border border-zinc-800">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead className="bg-zinc-950/60 text-left text-[11px] uppercase tracking-wider text-zinc-500">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Posted</th>
+                    <th className="px-3 py-2 font-medium">Where</th>
+                    <th className="px-3 py-2 font-medium">What went out</th>
+                    <th className="px-3 py-2 text-right font-medium">Views</th>
+                    <th className="px-3 py-2 text-right font-medium">Likes</th>
+                    <th className="px-3 py-2 text-right font-medium">Comments</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/70">
+                  {published.map((p) => (
+                    <tr key={p.id} className="hover:bg-zinc-800/30">
+                      <td className="whitespace-nowrap px-3 py-2 text-zinc-400">
+                        {p.posted_at ? new Date(p.posted_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${POSTED_CHIP[p.platform] ?? "bg-zinc-800 text-zinc-300 ring-zinc-700"}`}>
+                          {POSTED_EMOJI[p.platform] ?? "•"} {p.platform}{p.media_type ? ` · ${p.media_type}` : ""}
+                        </span>
+                      </td>
+                      <td className="max-w-[380px] px-3 py-2">
+                        {p.post_url ? (
+                          <a href={p.post_url} target="_blank" rel="noreferrer" className="block truncate text-zinc-300 hover:text-blue-300" title={p.text ?? ""}>
+                            {(p.text ?? "").trim() || "View post"} ↗
+                          </a>
+                        ) : <span className="block truncate text-zinc-400">{(p.text ?? "").trim() || "—"}</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-zinc-300">{p.views?.toLocaleString() ?? "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-zinc-400">{(p.likes ?? p.reactions)?.toLocaleString() ?? "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-zinc-400">{p.comments?.toLocaleString() ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       {confirmItem && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="delete-content-title">

@@ -44,6 +44,7 @@ interface CEvent {
 const PAGE_TITLE: Record<string, { title: string; blurb: string }> = {
   dashboard: { title: "📊 Dashboard", blurb: "Audience, output, and what actually landed." },
   calendar: { title: "🗓️ Calendar", blurb: "One idea, every platform. Drop it on the calendar, draft it in your voice." },
+  list: { title: "📋 List", blurb: "Everything in flight, and what actually went out." },
   events: { title: "🎟️ Events", blurb: "Launch runways and the seats still to fill." },
   ideas: { title: "💡 Ideas", blurb: "Everything worth making, before it has a date." },
   proof: { title: "🏆 Proof", blurb: "Client wins, ready to turn into content." },
@@ -53,6 +54,7 @@ const PAGE_TITLE: Record<string, { title: string; blurb: string }> = {
 const TABS = [
   { key: "dashboard", label: "Dashboard", emoji: "📊" },
   { key: "calendar", label: "Calendar", emoji: "🗓️" },
+  { key: "list", label: "List", emoji: "📋" },
   { key: "events", label: "Events", emoji: "🎟️" },
   { key: "posted", label: "Posted", emoji: "☑️" },
   { key: "ideas", label: "Ideas", emoji: "💡" },
@@ -593,7 +595,14 @@ function QuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
 }
 
 // ─── CALENDAR tab ─────────────────────────────────────────────────────────────
-function CalendarTab({ items, events, onOpen, onQuickAdd, onCreateOn, onReschedule }: { items: ContentItem[]; events: CEvent[]; onOpen: (i: ContentItem) => void; onQuickAdd: (title: string) => void; onCreateOn: (dateStr: string) => void; onReschedule: (id: string, dateStr: string) => void }) {
+const POSTED_EMOJI: Record<string, string> = { instagram: "📸", youtube: "▶️", facebook: "👥" };
+const POSTED_CHIP: Record<string, string> = {
+  instagram: "bg-pink-500/15 text-pink-300 ring-pink-500/25",
+  youtube: "bg-red-500/15 text-red-300 ring-red-500/25",
+  facebook: "bg-blue-500/15 text-blue-300 ring-blue-500/25",
+};
+
+function CalendarTab({ items, events, posted, onOpen, onQuickAdd, onCreateOn, onReschedule }: { items: ContentItem[]; events: CEvent[]; posted: Posted[]; onOpen: (i: ContentItem) => void; onQuickAdd: (title: string) => void; onCreateOn: (dateStr: string) => void; onReschedule: (id: string, dateStr: string) => void }) {
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [platFilter, setPlatFilter] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -606,6 +615,17 @@ function CalendarTab({ items, events, onOpen, onQuickAdd, onCreateOn, onReschedu
   const byDay: Record<number, ContentItem[]> = {};
   for (const it of shown) { if (!it.scheduled_date) continue; const d = new Date(it.scheduled_date + "T12:00"); if (d.getFullYear() === year && d.getMonth() === mon) (byDay[d.getDate()] ??= []).push(it); }
   const unscheduled = shown.filter((i) => !i.scheduled_date);
+  // What actually went out, from the platforms themselves. Planned content and
+  // published content sat in two different views before this, which is why a
+  // month could look empty while five reels had gone out in it.
+  const postedByDay: Record<number, Posted[]> = {};
+  for (const p of posted) {
+    if (!p.posted_at) continue;
+    if (p.platform === "youtube_owner_analytics") continue;
+    if (platFilter && p.platform !== platFilter) continue;
+    const d = new Date(p.posted_at);
+    if (d.getFullYear() === year && d.getMonth() === mon) (postedByDay[d.getDate()] ??= []).push(p);
+  }
   const cells: (number | null)[] = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
@@ -646,6 +666,7 @@ function CalendarTab({ items, events, onOpen, onQuickAdd, onCreateOn, onReschedu
           {cells.map((day, i) => {
             if (!day) return <div key={`e${i}`} className="min-h-[92px] rounded-xl bg-zinc-950/40" />;
             const dayItems = byDay[day] ?? [];
+            const dayPosted = postedByDay[day] ?? [];
             const isToday = today.getFullYear() === year && today.getMonth() === mon && today.getDate() === day;
             const dateStr = `${year}-${String(mon + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
             const isDropTarget = dragOverDay === dateStr;
@@ -660,6 +681,17 @@ function CalendarTab({ items, events, onOpen, onQuickAdd, onCreateOn, onReschedu
                   <span className="text-zinc-600 text-sm leading-none opacity-0 group-hover/day:opacity-100 transition-opacity">＋</span>
                 </div>
                 <div className="space-y-1">
+                  {dayPosted.slice(0, 3).map((p) => (
+                    <a key={p.id} href={p.post_url ?? undefined} target="_blank" rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      title={`Posted to ${p.platform}${p.views ? ` · ${p.views.toLocaleString()} views` : ""}${p.likes ? ` · ${p.likes.toLocaleString()} likes` : ""}\n${(p.text ?? "").slice(0, 140)}`}
+                      className={`block truncate rounded px-1.5 py-0.5 text-[10px] ring-1 ${POSTED_CHIP[p.platform] ?? "bg-zinc-800 text-zinc-300 ring-zinc-700"}`}>
+                      {POSTED_EMOJI[p.platform] ?? "•"} {(p.text ?? p.platform).slice(0, 24) || p.platform}
+                    </a>
+                  ))}
+                  {dayPosted.length > 3 && (
+                    <div className="px-1.5 text-[10px] text-zinc-500">+{dayPosted.length - 3} more posted</div>
+                  )}
                   {dayItems.slice(0, 3).map((it) => {
                     const st = statusMeta(it.status);
                     const meta = (it.meta || {}) as Record<string, string>;
@@ -2367,12 +2399,10 @@ function ContentWorkspace() {
             />
           )}
           {tab === "calendar" && (
-            <div className="space-y-8">
-              <CalendarTab items={items} events={events} onOpen={(i) => setOpenId(i.id)} onQuickAdd={quickAdd} onCreateOn={createOn} onReschedule={(id, date) => void patchItem(id, { scheduled_date: date })} />
-              <div className="border-t border-zinc-800 pt-8">
-                <ContentSpreadsheet items={items} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} onDelete={delItem} />
-              </div>
-            </div>
+            <CalendarTab items={items} events={events} posted={posted} onOpen={(i) => setOpenId(i.id)} onQuickAdd={quickAdd} onCreateOn={createOn} onReschedule={(id, date) => void patchItem(id, { scheduled_date: date })} />
+          )}
+          {tab === "list" && (
+            <ContentSpreadsheet items={items} posted={posted} onOpen={(i) => setOpenId(i.id)} onPatch={patchItem} onDelete={delItem} />
           )}
           {tab === "ideas" && <IdeasTab ideas={ideas} onChanged={load} />}
           {tab === "proof" && <ProofTab proof={proof} onChanged={load} />}

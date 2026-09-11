@@ -1,4 +1,4 @@
-export type ContentScheduleGroup = "overdue" | "today" | "upcoming" | "unscheduled";
+export type ContentScheduleGroup = "due" | "upcoming" | "unscheduled";
 
 export interface SpreadsheetContentItem {
   id: string;
@@ -28,20 +28,24 @@ export const CONTENT_FOCUS_AREAS = [
 ] as const;
 
 export const CONTENT_SCHEDULE_GROUPS: ContentScheduleGroup[] = [
-  "overdue",
-  "today",
+  "due",
   "upcoming",
   "unscheduled",
 ];
 
+/**
+ * Anything dated today or earlier is simply due. There is no separate overdue
+ * bucket: a date that has slipped says nothing useful about the work, and a red
+ * banner counting your misses every time you open the page is the reason this
+ * view felt like a telling-off rather than a plan.
+ */
 export function scheduleGroupOf(
   item: SpreadsheetContentItem,
   today: string,
 ): ContentScheduleGroup | null {
   if (item.status === "posted") return null;
   if (!item.scheduled_date) return "unscheduled";
-  if (item.scheduled_date < today) return "overdue";
-  if (item.scheduled_date === today) return "today";
+  if (item.scheduled_date <= today) return "due";
   return "upcoming";
 }
 
@@ -57,8 +61,7 @@ export function sortContentSpreadsheetItems<T extends SpreadsheetContentItem>(it
 
 export function groupContentBySchedule<T extends SpreadsheetContentItem>(items: T[], today: string) {
   const groups: Record<ContentScheduleGroup, T[]> = {
-    overdue: [],
-    today: [],
+    due: [],
     upcoming: [],
     unscheduled: [],
   };
@@ -103,7 +106,8 @@ function datePlusDays(date: string, days: number): string {
 
 export function moveContentToScheduleGroup(group: ContentScheduleGroup, today: string): string | null {
   if (group === "unscheduled") return null;
-  if (group === "overdue") return datePlusDays(today, -1);
   if (group === "upcoming") return datePlusDays(today, 1);
+  // Dropping something into "due" means do it now, so it takes today's date
+  // rather than keeping whatever slipped date it had.
   return today;
 }

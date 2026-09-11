@@ -215,8 +215,14 @@ function validateSkill(raw: unknown, index: number, agentIds: Set<string>, mode:
   const sourceUrl = boundedString(normalized.source_url, `skills[${index}].source_url`, 500);
   let parsedUrl: URL;
   try { parsedUrl = new URL(sourceUrl); } catch { throw new Error(`skills[${index}].source_url must be a valid URL`); }
-  if (!["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) throw new Error(`skills[${index}].source_url must use http or https`);
-  if ((parsedUrl.hostname !== "github.com" && parsedUrl.hostname !== "www.github.com") || parsedUrl.port) throw new Error(`skills[${index}].source_url must use GitHub without a custom port`);
+  if (
+    parsedUrl.protocol !== "https:" ||
+    parsedUrl.hostname !== "github.com" ||
+    parsedUrl.username ||
+    parsedUrl.password ||
+    parsedUrl.port ||
+    !sourceUrl.startsWith("https://github.com/")
+  ) throw new Error(`skills[${index}].source_url must use canonical HTTPS GitHub`);
   if (normalized.quality_rating !== null && (typeof normalized.quality_rating !== "number" || !Number.isFinite(normalized.quality_rating) || normalized.quality_rating < 1 || normalized.quality_rating > 5)) throw new Error(`skills[${index}].quality_rating must be null or from 1 to 5`);
   if (!Number.isInteger(normalized.review_count) || Number(normalized.review_count) < 0 || Number(normalized.review_count) > 10_000) throw new Error(`skills[${index}].review_count must be an integer from 0 to 10000`);
   if ((normalized.quality_rating === null) !== (Number(normalized.review_count) === 0)) throw new Error(`skills[${index}] rating and review count are inconsistent`);

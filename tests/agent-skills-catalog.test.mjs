@@ -104,7 +104,10 @@ test("skill definitions fail closed on unknown fields, bounds, URLs, duplicates,
   assert.throws(() => createAgentWorkforceDocument(make(skill({ tags: Array.from({ length: 21 }, (_, i) => `tag-${i}`) }))), /tags/i);
   assert.throws(() => createAgentWorkforceDocument(make(skill({ quality_rating: 5.1 }))), /quality/i);
   assert.throws(() => createAgentWorkforceDocument(make(skill({ review_count: 10001 }))), /review/i);
-  assert.throws(() => createAgentWorkforceDocument(make(skill({ source_url: "javascript:alert(1)" }))), /http|url/i);
+  assert.throws(() => createAgentWorkforceDocument(make(skill({ source_url: "javascript:alert(1)" }))), /https|url/i);
+  assert.throws(() => createAgentWorkforceDocument(make(skill({ source_url: "http://github.com/NousResearch/hermes-agent" }))), /https|github/i);
+  assert.throws(() => createAgentWorkforceDocument(make(skill({ source_url: "https://www.github.com/NousResearch/hermes-agent" }))), /canonical|github/i);
+  assert.throws(() => createAgentWorkforceDocument(make(skill({ source_url: "https://user@github.com/NousResearch/hermes-agent" }))), /canonical|github/i);
   assert.throws(() => createAgentWorkforceDocument(make(skill({ source_url: "https://example.com/skill" }))), /github/i);
   assert.throws(() => createAgentWorkforceDocument(make(skill({ agent_ids: ["missing-agent"] }))), /unknown agent/i);
   assert.throws(() => createAgentWorkforceDocument(make(skill(), skill())), /duplicate skill/i);

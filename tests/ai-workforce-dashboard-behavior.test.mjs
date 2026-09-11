@@ -118,6 +118,8 @@ test("the top-level Skills catalog has no nested duplicates and exposes the comp
   const { container, getAllByRole } = render(React.createElement(AgentSkillsCatalog));
   await waitFor(() => assert.equal(container.querySelectorAll("article").length, DEFAULT_AGENT_WORKFORCE.skills.length));
   assert.equal(container.querySelectorAll('[role="tablist"]').length, 0, "the standalone catalog does not recreate nested tabs");
+  assert.match(container.textContent, /catalog is where workforce connections can be documented/i);
+  assert.doesNotMatch(container.textContent, /capabilities connected to Jarvis/i);
 
   fireEvent.click(getAllByRole("button", { name: "View skill details" })[0]);
   const drawer = container.querySelector("dialog");
@@ -132,6 +134,25 @@ test("the top-level Skills catalog has no nested duplicates and exposes the comp
   assert.match(text, /No workforce connections confirmed/);
   assert.match(text, /Not rated · 0 internal reviews/);
   assert.match(text, /Activity not connected/);
+});
+
+
+test("maximum-length skill categories wrap safely on cards and in the detail drawer", async () => {
+  const longCategory = "x".repeat(80);
+  currentDocument.skills[0].category = longCategory;
+  const { container, getAllByText } = render(React.createElement(AgentSkillsCatalog));
+  await waitFor(() => assert.equal(container.querySelectorAll("article").length, DEFAULT_AGENT_WORKFORCE.skills.length));
+
+  const cardCategory = getAllByText(longCategory).find((node) => node.closest("article"));
+  assert.ok(cardCategory);
+  assert.match(cardCategory.className, /break-words/);
+  assert.match(cardCategory.className, /overflow-wrap:anywhere/);
+
+  fireEvent.click(within(cardCategory.closest("article")).getByRole("button", { name: "View skill details" }));
+  const drawerCategory = Array.from(container.querySelectorAll("dialog p")).find((node) => node.textContent === longCategory);
+  assert.ok(drawerCategory);
+  assert.match(drawerCategory.className, /break-words/);
+  assert.match(drawerCategory.className, /overflow-wrap:anywhere/);
 });
 
 

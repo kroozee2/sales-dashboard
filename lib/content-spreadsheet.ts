@@ -77,22 +77,62 @@ export function groupContentBySchedule<T extends SpreadsheetContentItem>(items: 
   return groups;
 }
 
-export function contentCadenceProgress<T extends SpreadsheetContentItem>(items: T[], today: string) {
+/** A real post that went out: platform plus the day it landed. */
+export type ContentActual = { platform: string; date: string };
+
+export function weekBoundsFor(today: string) {
   const value = new Date(`${today}T12:00:00`);
   const day = value.getDay();
   const weekStart = datePlusDays(today, day === 0 ? -6 : 1 - day);
-  const weekEnd = datePlusDays(weekStart, 6);
+  return { weekStart, weekEnd: datePlusDays(weekStart, 6) };
+}
+
+/**
+ * How the week is actually going.
+ *
+ * This used to count planned content items, so a YouTube video that genuinely
+ * went out on Wednesday showed as 0 of 1 unless somebody had also created a
+ * scheduled row for it. A publishing tracker that ignores what you published is
+ * worse than no tracker, because it is confidently wrong.
+ *
+ * `posted` counts what the platforms themselves report. `planned` is kept
+ * alongside it so the card can still say what is lined up, but the bar and the
+ * met/not-met state follow reality.
+ */
+export function contentCadenceProgress<T extends SpreadsheetContentItem>(
+  items: T[],
+  today: string,
+  actuals: ContentActual[] = [],
+) {
+  const { weekStart, weekEnd } = weekBoundsFor(today);
+  const inWeek = (date: string) => date >= weekStart && date <= weekEnd;
 
   return Object.fromEntries(CONTENT_CADENCE.map((cadence) => {
-    const matching = items.filter((item) => {
-      if (!item.scheduled_date || item.scheduled_date < weekStart || item.scheduled_date > weekEnd) return false;
+    const planned = items.filter((item) => {
+      if (!item.scheduled_date || !inWeek(item.scheduled_date)) return false;
       if (!(item.platforms ?? []).some((platform) => cadence.platforms.includes(platform))) return false;
+      // Planned Facebook posts are targeted at the methodology slot; a post that
+      // actually went out counts whatever it was about.
       return cadence.key !== "facebook" || item.meta?.content_focus === "methodology";
     });
-    const dates = [...new Set(matching.map((item) => item.scheduled_date as string))].sort();
-    const count = cadence.key === "instagram" ? dates.length : matching.length;
-    return [cadence.key, { count, target: cadence.weeklyTarget, dates, met: count >= cadence.weeklyTarget }];
-  })) as Record<ContentCadenceKey, { count: number; target: number; dates: string[]; met: boolean }>;
+
+    const posted = actuals.filter((a) => inWeek(a.date) && cadence.platforms.includes(a.platform));
+    const postedDates = [...new Set(posted.map((a) => a.date))].sort();
+    const plannedDates = [...new Set(planned.map((item) => item.scheduled_date as string))].sort();
+
+    // Instagram is a daily habit, so a second reel on Tuesday does not buy back
+    // a silent Wednesday. Everything else counts each piece.
+    const count = cadence.key === "instagram" ? postedDates.length : posted.length;
+    const plannedCount = cadence.key === "instagram" ? plannedDates.length : planned.length;
+
+    return [cadence.key, {
+      count,
+      planned: plannedCount,
+      target: cadence.weeklyTarget,
+      dates: postedDates,
+      met: count >= cadence.weeklyTarget,
+    }];
+  })) as Record<ContentCadenceKey, { count: number; planned: number; target: number; dates: string[]; met: boolean }>;
 }
 
 function datePlusDays(date: string, days: number): string {

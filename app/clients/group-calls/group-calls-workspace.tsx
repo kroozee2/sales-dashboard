@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import type { Attendance } from "@/lib/group-calls";
+
 type Attendee = { name: string; email?: string | null; source?: string };
 type FollowUp = { text: string; owner?: string | null; done?: boolean };
 
@@ -24,10 +26,57 @@ type Call = {
   fam_sent_at: string | null;
   mastermind_draft: string | null;
   mastermind_sent_at: string | null;
+  /** Resolved server-side from Helm's record of the call. */
+  attendance?: Attendance;
 };
 
 function fmtDate(d: string) {
   return new Date(`${d}T12:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+/**
+ * Attendance, or an honest admission that nobody recorded it.
+ *
+ * This column used to print `attendees.length`, which was always 0: the ingest
+ * built that list from Fathom's matched speakers, and Fathom matches nobody on
+ * these calls. A zero that means "we never looked" reads exactly like a zero
+ * that means "nobody came", and only one of those is worth panicking about.
+ */
+function Showed({ call, fallback, onCount }: {
+  call: Call; fallback: Attendee[]; onCount: (n: number) => void;
+}) {
+  const a = call.attendance;
+  const names = a?.names.length ? a.names : fallback;
+
+  if (!a || a.source === "none") {
+    return (
+      <div>
+        <span className="text-zinc-500">Not recorded</span>
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <input type="number" min={0} placeholder="—" aria-label={`How many came to the ${fmtDate(call.call_date)} call`}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              const n = Number((e.target as HTMLInputElement).value);
+              if (Number.isFinite(n) && n >= 0) onCount(Math.floor(n));
+            }}
+            className="w-16 rounded border border-zinc-700 bg-zinc-950 px-1.5 py-0.5 text-xs text-white focus:border-blue-500 focus:outline-none" />
+          <span className="text-[11px] text-zinc-600">press enter</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <span className="font-medium">{a.count}</span>
+      <span className="text-zinc-500"> on the call</span>
+      {call.invited_count ? <span className="text-zinc-600"> · {call.invited_count} invited</span> : null}
+      <div className="mt-1 text-xs text-zinc-400">
+        {names.length ? names.map((n) => n.name).join(", ") : <span className="text-zinc-600">names not recorded</span>}
+      </div>
+      {a.source === "helm-count" && <div className="mt-0.5 text-[11px] text-zinc-600">headcount from Helm</div>}
+    </div>
+  );
 }
 
 export default function GroupCallsWorkspace() {
@@ -125,9 +174,7 @@ export default function GroupCallsWorkspace() {
                     </div>
                   </td>
                   <td className="px-3 py-3">
-                    <span className="font-medium">{att.length}</span>
-                    {c.invited_count ? <span className="text-zinc-500"> of {c.invited_count} invited</span> : null}
-                    <div className="mt-1 text-xs text-zinc-400">{att.map((a) => a.name).join(", ") || "—"}</div>
+                    <Showed call={c} fallback={att} onCount={(n) => void patch(c.id, { attendee_count: n })} />
                   </td>
                   <td className="px-3 py-3">
                     {fus.length === 0 ? <span className="text-zinc-500">—</span> : (

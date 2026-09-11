@@ -192,7 +192,11 @@ const SKILL_STORED_KEYS = [...SKILL_INPUT_KEYS, "usage", "created_at", "updated_
 
 function canonicalGithubSourceUrl(value: unknown, field: string): string {
   const sourceUrl = canonicalString(value, field, 500);
-  if (sourceUrl.includes("\\")) throw new Error(`${field} must use canonical HTTPS GitHub`);
+  if (
+    sourceUrl.includes("\\") ||
+    sourceUrl.includes("%") ||
+    !/^https:\/\/github\.com\/(?!-)[A-Za-z0-9-]{1,39}(?<!-)\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9._-]{1,100}\/(?:[A-Za-z0-9._~-]+\/)*[A-Za-z0-9._~-]+$/u.test(sourceUrl)
+  ) throw new Error(`${field} must use canonical HTTPS GitHub`);
 
   let parsedUrl: URL;
   try { parsedUrl = new URL(sourceUrl); } catch { throw new Error(`${field} must be a valid URL`); }

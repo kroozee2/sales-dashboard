@@ -134,6 +134,46 @@ test("the top-level Skills catalog has no nested duplicates and exposes the comp
   assert.match(text, /No workforce connections confirmed/);
   assert.match(text, /Not rated · 0 internal reviews/);
   assert.match(text, /Activity not connected/);
+  assert.match(text, /Definition history unavailable/i);
+  assert.doesNotMatch(text, /Created .*Last edited/i);
+  const panel = drawer.querySelector("aside");
+  assert.match(panel.className, /sm:pb-\[max\(1\.75rem,env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(panel.className, /sm:pl-\[max\(1\.75rem,env\(safe-area-inset-left\)\)\]/);
+  assert.match(panel.className, /sm:pr-\[max\(1\.75rem,env\(safe-area-inset-right\)\)\]/);
+  assert.match(panel.className, /sm:pt-\[max\(1\.75rem,env\(safe-area-inset-top\)\)\]/);
+});
+
+
+test("legacy-unverified skills do not present migration timestamps as authoritative history", async () => {
+  currentDocument.skills[0].name = "Legacy unverified skill";
+  currentDocument.skills[0].provenance = "legacy_unverified";
+  const { container } = render(React.createElement(AgentSkillsCatalog));
+  await waitFor(() => assert.match(container.textContent, /Legacy unverified skill/));
+  const legacyCard = Array.from(container.querySelectorAll("article")).find((node) => /Legacy unverified skill/.test(node.textContent));
+  assert.ok(legacyCard);
+  fireEvent.click(within(legacyCard).getByRole("button", { name: "View skill details" }));
+  const history = Array.from(container.querySelectorAll("dialog section")).find((node) => /Definition history/.test(node.textContent));
+  assert.ok(history);
+  assert.match(history.textContent, /Definition history unavailable/i);
+  assert.doesNotMatch(history.textContent, /Created .*Last edited/i);
+});
+
+
+test("persisted owner-configured skills retain authoritative definition history", async () => {
+  currentDocument.skills[0].name = "Persisted configured skill";
+  currentDocument.skills[0].provenance = "owner_configured";
+  currentDocument.skills[0].created_at = "2026-09-10T10:00:00.000Z";
+  currentDocument.skills[0].updated_at = "2026-09-11T11:00:00.000Z";
+  const { container } = render(React.createElement(AgentSkillsCatalog));
+  await waitFor(() => assert.match(container.textContent, /Persisted configured skill/));
+  const persistedCard = Array.from(container.querySelectorAll("article")).find((node) => /Persisted configured skill/.test(node.textContent));
+  assert.ok(persistedCard);
+  fireEvent.click(within(persistedCard).getByRole("button", { name: "View skill details" }));
+  const history = Array.from(container.querySelectorAll("dialog section")).find((node) => /Definition history/.test(node.textContent));
+  assert.ok(history);
+  assert.match(history.textContent, /Created Sep 10, 2026/);
+  assert.match(history.textContent, /Last edited Sep 11, 2026/);
+  assert.doesNotMatch(history.textContent, /unavailable/i);
 });
 
 

@@ -128,6 +128,11 @@ test("GitHub skill sources require an exact canonical file path and are never si
     "https://github.com/NousResearch//hermes-agent/blob/main/SKILL.md",
     `${canonical}?plain=1`,
     `${canonical}#readme`,
+    `${canonical}?`,
+    `${canonical}#`,
+    canonical.replace("NousResearch", "%4eousResearch"),
+    canonical.replace("hermes-agent", "hermes%2dagent"),
+    canonical.replace("SKILL.md", "%53KILL.md"),
     "https://github.com/",
     "https://github.com/NousResearch/hermes-agent",
     "https://user:password@github.com/NousResearch/hermes-agent/blob/main/SKILL.md",
@@ -290,4 +295,8 @@ test("the AI workforce exposes a first-class skills view with truthful evidence,
   assert.match(dashboard, /aria-labelledby="skill-detail-title"/);
   assert.match(dashboard, /skillConnectionLabels/);
   assert.match(dashboard, /filterAndSortSkills/);
+  assert.doesNotMatch(dashboard, /sm:p-7/);
+  for (const side of ["bottom", "left", "right", "top"]) {
+    assert.match(dashboard, new RegExp(`sm:p[blrt]-\\[max\\(1\\.75rem,env\\(safe-area-inset-${side}\\)\\)\\]`));
+  }
 });

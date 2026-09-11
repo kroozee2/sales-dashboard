@@ -36,3 +36,9 @@ test("AI Workforce sidebar routes directly to Skills and selects only Skills for
   assert.equal(skills?.tab, "skills");
   assert.deepEqual(activeItem(workforceItems, "/jarvis", "skills").map((item) => item.label), ["Skills"]);
 });
+
+
+test("shared sidebar destinations provide a 44px minimum touch target", () => {
+  const sharedLinkClasses = sidebar.match(/"relative flex [^"]+"/)?.[0] ?? "";
+  assert.match(sharedLinkClasses, /min-h-11/);
+});

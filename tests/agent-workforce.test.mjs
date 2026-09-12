@@ -425,7 +425,7 @@ test("Jarvis exposes only read-only and drafting tools until durable write idemp
   assert.match(route, /safeGeneratedContent/);
 });
 
-test("Jarvis becomes a four-tab AI workforce command center with interactive create and edit workflows", () => {
+test("Jarvis becomes a five-tab AI command center with interactive workforce and presentation workflows", () => {
   const pagePath = new URL("../app/jarvis/page.tsx", import.meta.url);
   const routePath = new URL("../app/api/agent-workforce/route.ts", import.meta.url);
   assert.equal(existsSync(pagePath), true);
@@ -571,7 +571,7 @@ test("Jarvis becomes a four-tab AI workforce command center with interactive cre
   assert.match(page, /Completed searches and drafting steps appear here after each command finishes/);
   assert.match(dashboard, /sticky top-0 z-10/);
   assert.match(page, /workforceEditorOpen/);
-  assert.match(page, /Close the agent editor before switching workspaces/);
+  assert.match(page, /Close the open editor before switching workspaces/);
   assert.match(dashboard, /onEditorOpenChange/);
   assert.match(dashboard, /recoveryOnlyDraft/);
   assert.match(dashboard, /Recovery-only draft/);

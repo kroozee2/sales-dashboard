@@ -10,5 +10,5 @@ export default async function JarvisPage({
 }) {
   const tab = (await searchParams).tab;
   const requested = typeof tab === "string" ? tab : null;
-  return <JarvisWorkspace initialTab={requested === "core" || requested === "subagent" || requested === "skills" ? requested : "jarvis"} />;
+  return <JarvisWorkspace initialTab={requested === "core" || requested === "subagent" || requested === "skills" || requested === "presentations" ? requested : "jarvis"} />;
 }

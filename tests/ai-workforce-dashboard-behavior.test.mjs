@@ -91,11 +91,11 @@ async function mount(view) {
   return utils;
 }
 
-test("AI Workforce exposes four semantic tabs with roving Arrow, Home, and End keyboard behavior", async () => {
+test("AI Command Center exposes five semantic tabs with roving Arrow, Home, and End keyboard behavior", async () => {
   const { getByRole } = render(React.createElement(JarvisWorkspace, { initialTab: "jarvis" }));
   const tablist = getByRole("tablist", { name: "AI workforce" });
   const tabs = within(tablist).getAllByRole("tab");
-  assert.deepEqual(tabs.map((tab) => tab.textContent.trim()), ["Jarvis", "Core Agents", "Sub-agents", "Skills"]);
+  assert.deepEqual(tabs.map((tab) => tab.textContent.trim()), ["Jarvis", "Core Agents", "Sub-agents", "Skills", "Presentations"]);
   for (const tab of tabs) {
     assert.ok(tab.id);
     const panelId = tab.getAttribute("aria-controls");
@@ -111,8 +111,8 @@ test("AI Workforce exposes four semantic tabs with roving Arrow, Home, and End k
   await act(async () => { fireEvent.keyDown(tabs[3], { key: "Home" }); await new Promise((resolve) => setTimeout(resolve, 10)); });
   assert.equal(document.activeElement, tabs[0]);
   await act(async () => { fireEvent.keyDown(tabs[0], { key: "End" }); await new Promise((resolve) => setTimeout(resolve, 10)); });
-  assert.equal(document.activeElement, tabs[3]);
-  assert.equal(document.querySelectorAll('[role="tabpanel"]').length, 4);
+  assert.equal(document.activeElement, tabs[4]);
+  assert.equal(document.querySelectorAll('[role="tabpanel"]').length, 5);
 });
 
 test("mobile AI Workforce sidebar destinations close the drawer while synchronizing URL and panel", async () => {
@@ -123,6 +123,7 @@ test("mobile AI Workforce sidebar destinations close the drawer while synchroniz
     "Core Agents": "/jarvis?tab=core",
     "Sub-agents": "/jarvis?tab=subagent",
     Skills: "/jarvis?tab=skills",
+    Presentations: "/jarvis?tab=presentations",
   };
 
   function MobileSidebarProbe() {
@@ -157,7 +158,7 @@ test("mobile AI Workforce sidebar destinations close the drawer while synchroniz
     React.createElement(MobileSidebarProbe),
   ));
   const tablist = getByRole("tablist", { name: "AI workforce" });
-  const panelId = { Jarvis: "jarvis", "Core Agents": "core", "Sub-agents": "subagent", Skills: "skills" };
+  const panelId = { Jarvis: "jarvis", "Core Agents": "core", "Sub-agents": "subagent", Skills: "skills", Presentations: "presentations" };
 
   for (const [label, route] of Object.entries(destinations)) {
     fireEvent.click(getByRole("button", { name: "Open mobile sidebar" }));
@@ -197,9 +198,9 @@ test("sidebar, in-page, Back, and Forward navigation keep all four tabs synchron
   window.history.replaceState({}, "", "/jarvis");
   const { getByRole } = render(React.createElement(JarvisWorkspace, { initialTab: "jarvis" }));
   const tablist = getByRole("tablist", { name: "AI workforce" });
-  const route = { Jarvis: "/jarvis", "Core Agents": "/jarvis?tab=core", "Sub-agents": "/jarvis?tab=subagent", Skills: "/jarvis?tab=skills" };
+  const route = { Jarvis: "/jarvis", "Core Agents": "/jarvis?tab=core", "Sub-agents": "/jarvis?tab=subagent", Skills: "/jarvis?tab=skills", Presentations: "/jarvis?tab=presentations" };
 
-  for (const label of ["Core Agents", "Sub-agents", "Skills", "Jarvis"]) {
+  for (const label of ["Core Agents", "Sub-agents", "Skills", "Presentations", "Jarvis"]) {
     fireEvent.click(within(tablist).getByRole("tab", { name: label }));
     assert.equal(window.location.pathname + window.location.search, route[label]);
     assert.equal(within(tablist).getByRole("tab", { name: label }).getAttribute("aria-selected"), "true");

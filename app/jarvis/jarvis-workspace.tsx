@@ -1,12 +1,13 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Bot, Library, Network, Sparkles } from 'lucide-react';
+import { Bot, Library, Network, Presentation, Sparkles } from 'lucide-react';
 import { AgentSkillsCatalog, AgentWorkforceDashboard } from '@/components/agent-workforce-dashboard';
+import { PresentationsWorkspace } from '@/components/presentations-workspace';
 import { JARVIS_INTERNAL_WORKERS, JARVIS_PROFILE } from '@/lib/agent-workforce-jarvis';
 
 type Phase = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
-type WorkspaceTab = 'jarvis' | 'core' | 'subagent' | 'skills';
+type WorkspaceTab = 'jarvis' | 'core' | 'subagent' | 'skills' | 'presentations';
 type Message = { role: 'user' | 'assistant'; content: string; alert?: boolean };
 type ActionLog = { tool: string; label: string; detail?: string; ok?: boolean };
 type JarvisResult = {
@@ -52,8 +53,8 @@ const PHASE_LABEL: Record<Phase, string> = {
 // Shown when the workforce cannot be loaded because this browser is not signed
 // in as an owner. It names the reason rather than quietly showing something
 // else, and points at the one action that resolves it.
-function WorkforceLocked({ checked, view }: { checked: boolean; view: 'core' | 'subagent' | 'skills' }) {
-  const label = view === 'core' ? 'Core Agents' : view === 'subagent' ? 'Sub-agents' : 'Skills';
+function WorkforceLocked({ checked, view }: { checked: boolean; view: 'core' | 'subagent' | 'skills' | 'presentations' }) {
+  const label = view === 'core' ? 'Core Agents' : view === 'subagent' ? 'Sub-agents' : view === 'skills' ? 'Skills' : 'Presentations';
   if (!checked) {
     return (
       <div role="status" className="rounded-3xl border border-white/[0.07] bg-[#090a0d] p-8 text-center text-sm text-zinc-400">
@@ -495,7 +496,7 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
       return false;
     }
     if (workforceEditorOpen) {
-      setWorkspaceNotice('Close the agent editor before switching workspaces. The editor will confirm before discarding unsaved changes.');
+      setWorkspaceNotice('Close the open editor before switching workspaces. The editor will confirm before discarding unsaved changes.');
       return false;
     }
     setWorkspaceNotice('');
@@ -515,7 +516,7 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
     const tabFromUrl = (): WorkspaceTab => {
       if (window.location.pathname !== '/jarvis') return initialTab;
       const requested = new URLSearchParams(window.location.search).get('tab');
-      return requested === 'core' || requested === 'subagent' || requested === 'skills' ? requested : 'jarvis';
+      return requested === 'core' || requested === 'subagent' || requested === 'skills' || requested === 'presentations' ? requested : 'jarvis';
     };
     const onPopState = () => {
       const nextTab = tabFromUrl();
@@ -531,7 +532,7 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
       const destination = new URL(anchor.href, window.location.href);
       if (destination.origin !== window.location.origin || destination.pathname !== '/jarvis') return;
       const requested = destination.searchParams.get('tab');
-      const nextTab: WorkspaceTab = requested === 'core' || requested === 'subagent' || requested === 'skills' ? requested : 'jarvis';
+      const nextTab: WorkspaceTab = requested === 'core' || requested === 'subagent' || requested === 'skills' || requested === 'presentations' ? requested : 'jarvis';
       if (!selectWorkspaceTab(nextTab)) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -585,6 +586,7 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
     { id: 'core', label: 'Core Agents', icon: Network },
     { id: 'subagent', label: 'Sub-agents', icon: Bot },
     { id: 'skills', label: 'Skills', icon: Library },
+    { id: 'presentations', label: 'Presentations', icon: Presentation },
   ];
 
   return (
@@ -809,6 +811,11 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
         {workspaceTab === 'skills' && (workforceOwnerId
           ? <AgentSkillsCatalog />
           : <WorkforceLocked checked={workforceChecked} view="skills" />)}
+      </section>
+      <section role="tabpanel" id="workforce-panel-presentations" aria-labelledby="workforce-tab-presentations" hidden={workspaceTab !== 'presentations'}>
+        {workspaceTab === 'presentations' && (workforceOwnerId
+          ? <PresentationsWorkspace ownerId={workforceOwnerId} onEditorOpenChange={setWorkforceEditorOpen} />
+          : <WorkforceLocked checked={workforceChecked} view="presentations" />)}
       </section>
     </div>
   );

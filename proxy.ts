@@ -24,6 +24,9 @@ const PUBLIC_PATHS = ["/login", "/api/auth/login"];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.includes(pathname)) return true;
+  // Public presentation pages can only read a pre-sanitized deployed snapshot.
+  // The owner library endpoint deliberately remains behind both proxy and owner auth.
+  if (pathname.startsWith("/present/") || pathname.startsWith("/api/presentations/deployed/")) return true;
   // Next internals, static assets, PWA manifest/icons.
   if (pathname.startsWith("/_next/")) return true;
   if (pathname === "/favicon.ico" || pathname === "/manifest.json") return true;

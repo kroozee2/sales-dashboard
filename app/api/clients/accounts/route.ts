@@ -3,7 +3,7 @@ import {
   CLIENT_STATUSES, OFF_BOARDED_STATUS, applyStep, isRunbookKey, type OnboardingState,
 } from "@/lib/client-accounts";
 import {
-  ROSTER_COLUMNS, ROSTER_FIELD_COLUMN, helmDb, toMergedClient, type HelmClientRow,
+  ROSTER_COLUMNS, ROSTER_FIELD_COLUMN, helmDb, normalizeHeadshotUrl, toMergedClient, type HelmClientRow,
 } from "@/lib/helm-clients";
 
 export const runtime = "nodejs";
@@ -56,6 +56,10 @@ function cleanField(key: string, value: unknown): unknown {
       throw new Error("last_contact_at must be a date");
     }
     return new Date(value).toISOString();
+  }
+  if (key === "headshot_url") {
+    if (typeof value !== "string") throw new Error("headshot_url must be text");
+    return normalizeHeadshotUrl(value);
   }
   if (typeof value !== "string") throw new Error(`${key} must be text`);
   if (value.length > MAX_TEXT) throw new Error(`${key} is too long`);

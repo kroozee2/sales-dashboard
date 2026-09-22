@@ -44,6 +44,18 @@ export type HelmClientRow = {
   updated_at: string | null;
 };
 
+/** Client portraits are rendered directly in the roster, so only web URLs are accepted. */
+export function normalizeHeadshotUrl(value: string): string {
+  const trimmed = value.trim();
+  let url: URL;
+  try { url = new URL(trimmed); }
+  catch { throw new Error("headshot_url must be a valid URL"); }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("headshot_url must use http or https");
+  }
+  return trimmed;
+}
+
 /**
  * Signed in as the owner, which is how Helm itself reaches this database.
  *
@@ -141,5 +153,6 @@ export const ROSTER_FIELD_COLUMN: Record<string, string> = {
   mrr: "mrr",
   start_date: "start_date",
   last_contact_at: "last_contact_at",
+  headshot_url: "headshot_url",
   archived: "is_active",
 };

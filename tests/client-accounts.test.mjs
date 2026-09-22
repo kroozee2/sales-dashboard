@@ -5,7 +5,8 @@ import {
   nextRunbookStep, onboardingProgress, recentClients, sortByNewest,
 } from "../lib/client-accounts.ts";
 import { statusToHealth } from "../lib/client-roster.ts";
-import { ROSTER_FIELD_COLUMN, normalizeHeadshotUrl, toMergedClient } from "../lib/helm-clients.ts";
+import { normalizeClientMediaUrl, safeClientMediaUrl } from "../lib/client-media.ts";
+import { ROSTER_FIELD_COLUMN, toMergedClient } from "../lib/helm-clients.ts";
 
 const NOW = new Date("2026-09-08T12:00:00Z");
 
@@ -86,6 +87,12 @@ test("a row with nothing filled in still renders", () => {
   assert.deepEqual(client.onboarding, {}, "a null runbook must not crash the roster");
 });
 
+test("unsafe out-of-band headshots never reach the roster client shape", () => {
+  assert.equal(toMergedClient(row({ headshot_url: "javascript:alert(1)" })).helm.headshotUrl, null);
+  assert.equal(toMergedClient(row({ headshot_url: "data:image/png;base64,abc" })).helm.headshotUrl, null);
+  assert.equal(toMergedClient(row({ headshot_url: "https://safe.example/headshot.jpg" })).helm.headshotUrl, "https://safe.example/headshot.jpg");
+});
+
 test("archiving is off-boarding, not deletion", () => {
   // Seventy-odd tables reference a client row. `archived` maps to is_active so
   // removing someone from the roster keeps their calls, notes and history.
@@ -99,13 +106,23 @@ test("the roster can only write columns it names", () => {
   }
   assert.equal(ROSTER_FIELD_COLUMN.program, "membership");
   assert.equal(ROSTER_FIELD_COLUMN.headshot_url, "headshot_url", "verified client portraits must be writable to Helm");
+  assert.equal(ROSTER_FIELD_COLUMN.welcome_square_url, "welcome_square_url");
+  assert.equal(ROSTER_FIELD_COLUMN.welcome_story_url, "welcome_story_url");
 });
 
-test("client headshots accept only trimmed HTTP(S) URLs", () => {
-  assert.equal(normalizeHeadshotUrl("  https://media.example.com/jason.jpg  "), "https://media.example.com/jason.jpg");
-  assert.equal(normalizeHeadshotUrl("http://media.example.com/jason.jpg"), "http://media.example.com/jason.jpg");
-  assert.throws(() => normalizeHeadshotUrl("javascript:alert(1)"), /http or https/);
-  assert.throws(() => normalizeHeadshotUrl("not a URL"), /valid URL/);
+test("client media accepts only bounded trimmed HTTP(S) URLs", () => {
+  assert.equal(normalizeClientMediaUrl("  https://media.example.com/jason.jpg  "), "https://media.example.com/jason.jpg");
+  assert.equal(normalizeClientMediaUrl("http://media.example.com/jason.jpg"), "http://media.example.com/jason.jpg");
+  assert.throws(() => normalizeClientMediaUrl("javascript:alert(1)"), /http or https/);
+  assert.throws(() => normalizeClientMediaUrl("not a URL"), /valid URL/);
+  assert.throws(() => normalizeClientMediaUrl(`https://x.test/${"a".repeat(4_000)}`), /too long/);
+  assert.throws(() => normalizeClientMediaUrl("https://x.test/a\nb.jpg"), /control characters/);
+  assert.throws(() => normalizeClientMediaUrl("\nhttps://x.test/a.jpg"), /control characters/);
+  assert.throws(() => normalizeClientMediaUrl("https://x.test/a.jpg\r"), /control characters/);
+  assert.throws(() => normalizeClientMediaUrl("https://x.test/a\u0085.jpg"), /control characters/);
+  assert.equal(safeClientMediaUrl("javascript:alert(1)"), null);
+  assert.equal(safeClientMediaUrl("data:image/png;base64,abc"), null);
+  assert.equal(safeClientMediaUrl("https://x.test/a.jpg"), "https://x.test/a.jpg");
 });
 
 test("sorting and the recent window still work on one source", () => {

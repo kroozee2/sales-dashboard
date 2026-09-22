@@ -81,6 +81,15 @@ test("portal state separates invited from actually logged in", () => {
   assert.equal(payload.members.find((m) => m.id === "c").portalStatus, "not_invited");
 });
 
+test("member projection drops unsafe out-of-band headshots", () => {
+  const unsafe = build([row({ id: "unsafe", headshot_url: "javascript:alert(1)" })]);
+  const controlled = build([row({ id: "control", headshot_url: "https://safe.example/headshot.jpg\n" })]);
+  const safe = build([row({ id: "safe", headshot_url: "https://safe.example/headshot.jpg" })]);
+  assert.equal(unsafe.members[0].headshotUrl, null);
+  assert.equal(controlled.members[0].headshotUrl, null);
+  assert.equal(safe.members[0].headshotUrl, "https://safe.example/headshot.jpg");
+});
+
 test("upcoming counts the next seven days, not everything on the calendar", () => {
   const at = (n) => new Date(NOW.getTime() + n * 86400000);
   const call = (id, offset) => ({

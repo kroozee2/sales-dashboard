@@ -3,8 +3,9 @@ import {
   CLIENT_STATUSES, OFF_BOARDED_STATUS, applyStep, isRunbookKey, type OnboardingState,
 } from "@/lib/client-accounts";
 import {
-  ROSTER_COLUMNS, ROSTER_FIELD_COLUMN, helmDb, normalizeHeadshotUrl, toMergedClient, type HelmClientRow,
+  ROSTER_COLUMNS, ROSTER_FIELD_COLUMN, helmDb, toMergedClient, type HelmClientRow,
 } from "@/lib/helm-clients";
+import { normalizeClientMediaUrl } from "@/lib/client-media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,9 +58,9 @@ function cleanField(key: string, value: unknown): unknown {
     }
     return new Date(value).toISOString();
   }
-  if (key === "headshot_url") {
-    if (typeof value !== "string") throw new Error("headshot_url must be text");
-    return normalizeHeadshotUrl(value);
+  if (key === "headshot_url" || key === "welcome_square_url" || key === "welcome_story_url") {
+    if (typeof value !== "string") throw new Error(`${key} must be text`);
+    return normalizeClientMediaUrl(value);
   }
   if (typeof value !== "string") throw new Error(`${key} must be text`);
   if (value.length > MAX_TEXT) throw new Error(`${key} is too long`);
@@ -118,6 +119,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  // The global proxy rejects anonymous callers before this privileged Helm write.
+  // Browser sessions require sos_session; machines require the SalesOS agent bearer token.
   const { db, fail } = await connect();
   if (!db) return fail;
 

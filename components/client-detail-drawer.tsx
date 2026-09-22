@@ -38,6 +38,7 @@ const day = (value: string | null) => {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+
 export default function ClientDetailDrawer({ client, onClose, onPatch, helmUrl }: {
   client: MergedClient;
   onClose: () => void;
@@ -329,10 +330,11 @@ function Section({ tab, client, detail, onPatch }: {
  */
 function Graphics({ graphics, name }: { graphics: ClientGraphics; name: string }) {
   const shots = [
-    graphics.headshotUrl ? { label: "Headshot", url: graphics.headshotUrl } : null,
-    graphics.welcomeSquareUrl ? { label: "Welcome square", url: graphics.welcomeSquareUrl } : null,
-    graphics.welcomeStoryUrl ? { label: "Welcome story", url: graphics.welcomeStoryUrl } : null,
-  ].filter((shot): shot is { label: string; url: string } => Boolean(shot));
+    graphics.headshotUrl ? { label: "Headshot", downloadLabel: "Download headshot", url: graphics.headshotUrl, ratio: "aspect-square" } : null,
+    graphics.welcomeSquareUrl ? { label: "Welcome square", downloadLabel: "Download square", url: graphics.welcomeSquareUrl, ratio: "aspect-square" } : null,
+    graphics.welcomeStoryUrl ? { label: "Welcome story", downloadLabel: "Download story", url: graphics.welcomeStoryUrl, ratio: "aspect-[9/16]" } : null,
+  ].filter((shot): shot is { label: string; downloadLabel: string; url: string; ratio: string } => Boolean(shot));
+
 
   if (!shots.length && !graphics.welcomeMessage && !graphics.skoolUrl && !graphics.socials) {
     return <Empty>No welcome kit generated for {name} yet.</Empty>;
@@ -341,14 +343,22 @@ function Graphics({ graphics, name }: { graphics: ClientGraphics; name: string }
   return (
     <div className="space-y-3">
       {shots.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-3">
           {shots.map((shot) => (
-            <a key={shot.label} href={shot.url} target="_blank" rel="noreferrer"
-              className="group overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 transition-colors hover:border-zinc-600">
-              <img src={shot.url} alt={`${name} — ${shot.label}`} loading="lazy"
-                className="aspect-square w-full object-cover transition-transform group-hover:scale-[1.03]" />
-              <p className="px-2.5 py-1.5 text-[11px] font-semibold text-zinc-400">{shot.label}</p>
-            </a>
+            <div key={shot.label} className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+              <a href={shot.url} target="_blank" rel="noreferrer" className="group block bg-black/30">
+                <img src={shot.url} alt={`${name} — ${shot.label}`} loading="lazy"
+                  className={`${shot.ratio} w-full object-contain transition-transform group-hover:scale-[1.02]`} />
+              </a>
+              <div className="flex items-center justify-between gap-2 border-t border-zinc-800 px-2.5 py-2">
+                <p className="text-[11px] font-semibold text-zinc-400">{shot.label}</p>
+                <a href={`/api/clients/media/download?url=${encodeURIComponent(shot.url)}&name=${encodeURIComponent(name)}&label=${encodeURIComponent(shot.label)}`}
+                  className="flex min-h-11 items-center rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 text-[11px] font-semibold text-blue-300 transition hover:bg-blue-500/20"
+                  aria-label={`${shot.downloadLabel} for ${name}`}>
+                  {shot.downloadLabel}
+                </a>
+              </div>
+            </div>
           ))}
         </div>
       )}

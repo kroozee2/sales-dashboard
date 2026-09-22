@@ -11,6 +11,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { MergedClient, OnboardingState } from "@/lib/client-accounts";
+import { safeClientMediaUrl } from "@/lib/client-media";
 
 /** Columns the roster reads. Named rather than `*`, so a schema change here is deliberate. */
 export const ROSTER_COLUMNS = [
@@ -43,18 +44,6 @@ export type HelmClientRow = {
   created_at: string | null;
   updated_at: string | null;
 };
-
-/** Client portraits are rendered directly in the roster, so only web URLs are accepted. */
-export function normalizeHeadshotUrl(value: string): string {
-  const trimmed = value.trim();
-  let url: URL;
-  try { url = new URL(trimmed); }
-  catch { throw new Error("headshot_url must be a valid URL"); }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("headshot_url must use http or https");
-  }
-  return trimmed;
-}
 
 /**
  * Signed in as the owner, which is how Helm itself reaches this database.
@@ -132,7 +121,7 @@ export function toMergedClient(row: HelmClientRow): MergedClient {
       lastContactAt: row.last_contact_at,
       portalStatus: null,
       callsAttended: null,
-      headshotUrl: row.headshot_url,
+      headshotUrl: safeClientMediaUrl(row.headshot_url),
     },
     editable: true,
   };
@@ -154,5 +143,7 @@ export const ROSTER_FIELD_COLUMN: Record<string, string> = {
   start_date: "start_date",
   last_contact_at: "last_contact_at",
   headshot_url: "headshot_url",
+  welcome_square_url: "welcome_square_url",
+  welcome_story_url: "welcome_story_url",
   archived: "is_active",
 };

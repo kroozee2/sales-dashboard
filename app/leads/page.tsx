@@ -14,6 +14,7 @@ import { LeadsDashboard } from '@/components/leads-dashboard';
 const STAGE_ORDER = [
   '🔗 Pay Link Sent',
   '🔥 Hot Prospect',
+  '💬 Two-Step Response',
   '📞 Call Booked',
   '📣 Reached Out',
   '👨 Prospect',
@@ -28,6 +29,7 @@ const QUALITY_OPTIONS = ['🔥 Very High', '⭐️ High', '👌 Medium', '🤏 L
 
 const STAGE_COLORS: Record<string, string> = {
   '🔥 Hot Prospect': 'bg-orange-500/20 text-orange-300 border border-orange-500/30',
+  '💬 Two-Step Response': 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30',
   '📞 Call Booked': 'bg-violet-500/20 text-violet-300 border border-violet-500/30',
   '🔗 Pay Link Sent': 'bg-pink-500/20 text-pink-300 border border-pink-500/30',
   '🏦 Payment Received': 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
@@ -38,6 +40,7 @@ const STAGE_COLORS: Record<string, string> = {
 // Left-accent bar colors per stage
 const STAGE_ACCENT: Record<string, string> = {
   '🔥 Hot Prospect': 'bg-orange-500',
+  '💬 Two-Step Response': 'bg-cyan-500',
   '📞 Call Booked': 'bg-violet-500',
   '🔗 Pay Link Sent': 'bg-pink-500',
   '🏦 Payment Received': 'bg-emerald-500',
@@ -48,6 +51,7 @@ const STAGE_ACCENT: Record<string, string> = {
 // Ring colors for KPI cards when active
 const STAGE_RING: Record<string, string> = {
   '🔥 Hot Prospect': 'ring-orange-500',
+  '💬 Two-Step Response': 'ring-cyan-500',
   '📞 Call Booked': 'ring-violet-500',
   '🔗 Pay Link Sent': 'ring-pink-500',
   '🏦 Payment Received': 'ring-emerald-500',
@@ -2180,13 +2184,12 @@ function LeadsPageInner() {
   // ── Chart data ───────────────────────────────────────────────────────────────
 
   const pipelineData = useMemo(() => {
-    const order = ['🔥 Hot Prospect', '📞 Call Booked', '🔗 Pay Link Sent', '📣 Reached Out', '👨 Prospect'];
     const counts: Record<string, number> = {};
     for (const l of leads) {
       const s = l.prospect_stage ?? 'Unknown';
       counts[s] = (counts[s] ?? 0) + 1;
     }
-    return order.map((s) => ({ stage: s, count: counts[s] ?? 0 })).filter((d) => d.count > 0);
+    return STAGE_ORDER.map((s) => ({ stage: s, count: counts[s] ?? 0 })).filter((d) => d.count > 0);
   }, [leads]);
 
   const monthlyData = useMemo(() => {

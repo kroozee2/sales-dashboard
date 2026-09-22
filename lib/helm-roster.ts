@@ -13,6 +13,7 @@ import {
   type Compliance, type MonthPoint, type RecencyBand,
 } from "./client-dashboard.ts";
 import { toMergedClient, type HelmClientRow } from "./helm-clients.ts";
+import { safeClientMediaUrl } from "./client-media.ts";
 import {
   EMPTY_CASH, buildMemberCash, memberStage,
   type CashGoalRow, type MemberStage,
@@ -194,7 +195,7 @@ export function buildClientsPayload(
         phase: row.phase,
         startDate: row.start_date,
         lastContactAt: row.last_contact_at,
-        headshotUrl: row.headshot_url,
+        headshotUrl: safeClientMediaUrl(row.headshot_url),
         portalStatus,
         stage,
         cash,

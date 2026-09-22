@@ -9,6 +9,8 @@
 // This gathers the sections that carry real data. Pure, so the shaping can be
 // checked without a database.
 
+import { safeClientMediaUrl } from "@/lib/client-media";
+
 /**
  * The sections, in Helm's order. Helm reads as one running page with a sticky
  * pill nav that jumps between sections and lights up as you scroll, rather than
@@ -89,6 +91,19 @@ export const EMPTY_DETAIL: ClientDetail = {
   graphics: EMPTY_GRAPHICS,
   calls: [], todos: [], checkIns: [], cashGoals: [], projects: [], proof: [], tickets: [], notes: [],
 };
+
+/** Stable filenames make downloaded graphics easy to identify before posting. */
+export function graphicDownloadName(name: string, label: string, mime: string): string {
+  const stem = `${name}-${label}`
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 100) || "client-graphic";
+  const extension = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
+  return `${stem}.${extension}`;
+}
 
 const num = (v: unknown): number | null =>
   v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null;
@@ -231,9 +246,9 @@ export function shapeGraphics(row: Row | null | undefined): ClientGraphics {
       )
     : null;
   return {
-    headshotUrl: text(row.headshot_url),
-    welcomeSquareUrl: text(row.welcome_square_url),
-    welcomeStoryUrl: text(row.welcome_story_url),
+    headshotUrl: safeClientMediaUrl(row.headshot_url),
+    welcomeSquareUrl: safeClientMediaUrl(row.welcome_square_url),
+    welcomeStoryUrl: safeClientMediaUrl(row.welcome_story_url),
     welcomeMessage: text(row.welcome_message),
     welcomeCaption: text(row.welcome_caption),
     skoolUrl: text(row.skool_url),

@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  DETAIL_TABS, EMPTY_DETAIL, EMPTY_GRAPHICS, latestMonth, shapeCalls, shapeCashGoals,
+  DETAIL_TABS, EMPTY_DETAIL, EMPTY_GRAPHICS, graphicDownloadName, latestMonth, shapeCalls, shapeCashGoals,
   shapeCheckIns, shapeGraphics, shapeNotes, shapeProjects, shapeProof, shapeTodos, tabCounts,
 } from "../lib/client-detail.ts";
+import {
+  normalizeClientMediaDownloadSource, readBoundedBody, verifiedImageMime,
+} from "../lib/client-media-download.ts";
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 
@@ -168,6 +171,17 @@ test("the welcome kit comes over", () => {
   assert.deepEqual(graphics.socials, { instagram: "https://ig.com/x" });
 });
 
+test("unsafe stored media is omitted before it reaches links, images, or downloads", () => {
+  const graphics = shapeGraphics({
+    headshot_url: "javascript:alert(1)",
+    welcome_square_url: "data:image/png;base64,abc",
+    welcome_story_url: "https://safe.example/story.jpg",
+  });
+  assert.equal(graphics.headshotUrl, null);
+  assert.equal(graphics.welcomeSquareUrl, null);
+  assert.equal(graphics.welcomeStoryUrl, "https://safe.example/story.jpg");
+});
+
 test("a client with no welcome kit yields nothing rather than blanks", () => {
   const graphics = shapeGraphics(null);
   assert.equal(graphics.headshotUrl, null);
@@ -180,4 +194,49 @@ test("the graphics tab counts the images it actually has", () => {
     graphics: { ...EMPTY_GRAPHICS, headshotUrl: "a", welcomeSquareUrl: "b" },
   });
   assert.equal(counts.graphics, 2);
+});
+
+test("graphics get clean platform-friendly download names", () => {
+  assert.equal(graphicDownloadName("Lucía Bunge Guerrico", "Welcome story", "image/jpeg"), "lucia-bunge-guerrico-welcome-story.jpg");
+  assert.equal(graphicDownloadName("TJ Fabis", "Welcome square", "image/png"), "tj-fabis-welcome-square.png");
+});
+
+test("the graphics section previews each format and exposes one-tap downloads", () => {
+  const drawer = read("../components/client-detail-drawer.tsx");
+  const downloadRoute = read("../app/api/clients/media/download/route.ts");
+  assert.match(drawer, /Download square/);
+  assert.match(drawer, /Download story/);
+  assert.match(drawer, /aspect-\[9\/16\]/, "the long Story graphic must not be cropped into a square");
+  assert.match(drawer, /\/api\/clients\/media\/download\?url=/, "downloads stay same-origin instead of depending on storage CORS");
+  assert.match(downloadRoute, /redirect: "error"/, "the bounded download proxy must never follow redirects");
+  assert.match(downloadRoute, /Content-Disposition/);
+});
+
+test("graphic downloads allow only public Supabase storage", () => {
+  assert.match(normalizeClientMediaDownloadSource("https://abc.supabase.co/storage/v1/object/public/media/a.jpg"), /^https:/);
+  assert.throws(() => normalizeClientMediaDownloadSource("https://example.com/a.jpg"), /approved public storage/);
+  assert.throws(() => normalizeClientMediaDownloadSource("http://abc.supabase.co/storage/v1/object/public/media/a.jpg"), /https/);
+  assert.throws(() => normalizeClientMediaDownloadSource("https://abc.supabase.co/auth/v1/a.jpg"), /approved public storage/);
+  assert.throws(() => normalizeClientMediaDownloadSource("https://abc.supabase.co:443/storage/v1/object/public/media/a.jpg"), /authority/);
+  assert.throws(() => normalizeClientMediaDownloadSource("https://@abc.supabase.co/storage/v1/object/public/media/a.jpg"), /authority/);
+  assert.throws(() => normalizeClientMediaDownloadSource("https://user@abc.supabase.co/storage/v1/object/public/media/a.jpg"), /authority/);
+  assert.throws(() => normalizeClientMediaDownloadSource("https://abc.supabase.co./storage/v1/object/public/media/a.jpg"), /approved public storage/);
+  assert.throws(() => normalizeClientMediaDownloadSource("https://abc。supabase.co/storage/v1/object/public/media/a.jpg"), /authority|approved public storage/);
+});
+
+test("graphic downloads stop streaming once the byte limit is exceeded", async () => {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2, 3]));
+      controller.enqueue(new Uint8Array([4, 5, 6]));
+      controller.close();
+    },
+  });
+  await assert.rejects(() => readBoundedBody(stream, 5), /exceeds download limit/);
+});
+
+test("graphic downloads verify file signatures as well as response MIME", () => {
+  assert.equal(verifiedImageMime("image/jpeg", new Uint8Array([0xff, 0xd8, 0xff, 0x01])), "image/jpeg");
+  assert.equal(verifiedImageMime("image/png", new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), "image/png");
+  assert.equal(verifiedImageMime("image/jpeg", new Uint8Array([0x89, 0x50, 0x4e, 0x47])), null);
 });

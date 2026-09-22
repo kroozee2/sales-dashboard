@@ -103,8 +103,8 @@ test("lead updates are forward-only and do not duplicate notes when an outcome P
 });
 
 
-test("Two-Step Response advances for stronger sales-call outcomes without regressing to Call Booked", () => {
-  const lead = { id: "lead-two-step", prospect_stage: "💬 Two-Step Response", notes: "Responded to the CTA" };
+test("Two-Step Engagement advances for stronger sales-call outcomes without regressing to Call Booked", () => {
+  const lead = { id: "lead-two-step", prospect_stage: "💬 Two-Step Engagement", notes: "Responded to the CTA" };
 
   const followUp = leadUpdatesForCall(
     call(),

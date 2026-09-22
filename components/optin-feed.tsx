@@ -21,7 +21,7 @@ type OptIn = {
 
 const STAGES = [
   "👨 Prospect", "📣 Reached Out", "🔥 Hot Prospect",
-  "💬 Two-Step Response", "📞 Call Booked", "🔗 Pay Link Sent", "🏦 Payment Received",
+  "💬 Two-Step Engagement", "📞 Call Booked", "🔗 Pay Link Sent", "🏦 Payment Received",
 ];
 
 type Feed = { optins: OptIn[]; scanned: number; skipped_instagram: number; error?: string };

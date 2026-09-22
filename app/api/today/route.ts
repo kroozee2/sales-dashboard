@@ -14,7 +14,7 @@ const CADENCE_HOURS = [0, 24, 48, 72, 168, 168];
 const STAGE_PRIORITY: Record<string, number> = {
   "🔗 Pay Link Sent": 0,
   "🔥 Hot Prospect": 1,
-  "💬 Two-Step Response": 2,
+  "💬 Two-Step Engagement": 2,
   "📞 Call Booked": 3,
   "📣 Reached Out": 4,
   "👨 Prospect": 5,
@@ -140,7 +140,7 @@ export async function GET() {
 
   // ── Leads to message: hot prospects + anyone we've sent a message or link to ──
   // Not cadence-gated — these are active conversations that should always surface.
-  const MESSAGE_STAGES = ["🔗 Pay Link Sent", "🔥 Hot Prospect", "💬 Two-Step Response", "📣 Reached Out"];
+  const MESSAGE_STAGES = ["🔗 Pay Link Sent", "🔥 Hot Prospect", "💬 Two-Step Engagement", "📣 Reached Out"];
   const messageList = leads
     .filter((l) => MESSAGE_STAGES.includes(l.prospect_stage ?? ""))
     .map((l) => {

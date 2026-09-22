@@ -18,7 +18,7 @@ import { ghlSend, ghlContactIdentity } from "@/lib/ghl-inbox";
 export const runtime = "nodejs";
 
 const STAGES = new Set([
-  "🔗 Pay Link Sent", "🔥 Hot Prospect", "💬 Two-Step Response", "📞 Call Booked",
+  "🔗 Pay Link Sent", "🔥 Hot Prospect", "💬 Two-Step Engagement", "📞 Call Booked",
   "📣 Reached Out", "👨 Prospect", "🏦 Payment Received",
 ]);
 const CHANNELS = new Set(["SMS", "Email"]);

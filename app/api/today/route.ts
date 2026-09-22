@@ -14,9 +14,10 @@ const CADENCE_HOURS = [0, 24, 48, 72, 168, 168];
 const STAGE_PRIORITY: Record<string, number> = {
   "🔗 Pay Link Sent": 0,
   "🔥 Hot Prospect": 1,
-  "📞 Call Booked": 2,
-  "📣 Reached Out": 3,
-  "👨 Prospect": 4,
+  "💬 Two-Step Response": 2,
+  "📞 Call Booked": 3,
+  "📣 Reached Out": 4,
+  "👨 Prospect": 5,
 };
 
 export async function GET() {
@@ -110,7 +111,7 @@ export async function GET() {
   const queue = leads
     .map((l) => {
       const touches = touchCounts[l.id] ?? 0;
-      const stageImpliesContact = (STAGE_PRIORITY[l.prospect_stage ?? ""] ?? 9) <= 3 && l.prospect_stage !== "👨 Prospect";
+      const stageImpliesContact = (STAGE_PRIORITY[l.prospect_stage ?? ""] ?? 9) <= 4 && l.prospect_stage !== "👨 Prospect";
       const hasHistory = !!(l.ongoing_message_feed || l.last_update);
       const reengage = touches > 0 || stageImpliesContact || hasHistory;
       const last = l.last_update ? new Date(l.last_update) : null;
@@ -139,7 +140,7 @@ export async function GET() {
 
   // ── Leads to message: hot prospects + anyone we've sent a message or link to ──
   // Not cadence-gated — these are active conversations that should always surface.
-  const MESSAGE_STAGES = ["🔗 Pay Link Sent", "🔥 Hot Prospect", "📣 Reached Out"];
+  const MESSAGE_STAGES = ["🔗 Pay Link Sent", "🔥 Hot Prospect", "💬 Two-Step Response", "📣 Reached Out"];
   const messageList = leads
     .filter((l) => MESSAGE_STAGES.includes(l.prospect_stage ?? ""))
     .map((l) => {
@@ -157,7 +158,7 @@ export async function GET() {
         priority: STAGE_PRIORITY[l.prospect_stage ?? ""] ?? 9,
       };
     })
-    // Hottest stage first (Pay Link → Hot → Reached Out), longest-quiet first within a stage
+    // Hottest stage first (Pay Link → Hot → Two-Step → Reached Out), longest-quiet first within a stage
     .sort((a, b) => a.priority - b.priority || b.hoursSince - a.hoursSince)
     .slice(0, 20);
 

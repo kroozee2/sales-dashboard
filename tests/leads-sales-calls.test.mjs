@@ -103,6 +103,34 @@ test("lead updates are forward-only and do not duplicate notes when an outcome P
 });
 
 
+test("Two-Step Response advances for stronger sales-call outcomes without regressing to Call Booked", () => {
+  const lead = { id: "lead-two-step", prospect_stage: "💬 Two-Step Response", notes: "Responded to the CTA" };
+
+  const followUp = leadUpdatesForCall(
+    call(),
+    call({ result: "📣 Follow Up", showed: true, call_date: "2026-09-06T11:00:00.000Z" }),
+    lead,
+    NOW,
+  );
+  assert.equal(followUp?.prospect_stage, "🔥 Hot Prospect");
+
+  const sale = leadUpdatesForCall(
+    call(),
+    call({ result: "✅ Sale", showed: true, call_date: "2026-09-06T11:00:00.000Z" }),
+    lead,
+    NOW,
+  );
+  assert.equal(sale?.prospect_stage, "🔗 Pay Link Sent");
+
+  const futureBooking = leadUpdatesForCall(
+    null,
+    call({ call_date: "2026-09-07T12:00:00.000Z" }),
+    lead,
+    NOW,
+  );
+  assert.equal(futureBooking, null);
+});
+
 test("a neutral move-off without attendance does not claim that the call happened", () => {
   const lead = { id: "lead-1", prospect_stage: "📞 Call Booked", notes: "Existing note" };
   const previous = call();

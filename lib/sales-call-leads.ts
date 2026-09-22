@@ -49,9 +49,10 @@ const STAGE_RANK: Record<string, number> = {
   "👨 Prospect": 0,
   "📣 Reached Out": 1,
   "📞 Call Booked": 2,
-  "🔥 Hot Prospect": 3,
-  "🔗 Pay Link Sent": 4,
-  "🏦 Payment Received": 5,
+  "💬 Two-Step Response": 3,
+  "🔥 Hot Prospect": 4,
+  "🔗 Pay Link Sent": 5,
+  "🏦 Payment Received": 6,
 };
 
 function normalizedEmail(value: string | null | undefined): string {

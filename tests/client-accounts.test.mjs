@@ -5,7 +5,7 @@ import {
   nextRunbookStep, onboardingProgress, recentClients, sortByNewest,
 } from "../lib/client-accounts.ts";
 import { statusToHealth } from "../lib/client-roster.ts";
-import { ROSTER_FIELD_COLUMN, toMergedClient } from "../lib/helm-clients.ts";
+import { ROSTER_FIELD_COLUMN, normalizeHeadshotUrl, toMergedClient } from "../lib/helm-clients.ts";
 
 const NOW = new Date("2026-09-08T12:00:00Z");
 
@@ -98,6 +98,14 @@ test("the roster can only write columns it names", () => {
     assert.ok(!columns.includes(forbidden), `${forbidden} must not be writable from the roster`);
   }
   assert.equal(ROSTER_FIELD_COLUMN.program, "membership");
+  assert.equal(ROSTER_FIELD_COLUMN.headshot_url, "headshot_url", "verified client portraits must be writable to Helm");
+});
+
+test("client headshots accept only trimmed HTTP(S) URLs", () => {
+  assert.equal(normalizeHeadshotUrl("  https://media.example.com/jason.jpg  "), "https://media.example.com/jason.jpg");
+  assert.equal(normalizeHeadshotUrl("http://media.example.com/jason.jpg"), "http://media.example.com/jason.jpg");
+  assert.throws(() => normalizeHeadshotUrl("javascript:alert(1)"), /http or https/);
+  assert.throws(() => normalizeHeadshotUrl("not a URL"), /valid URL/);
 });
 
 test("sorting and the recent window still work on one source", () => {

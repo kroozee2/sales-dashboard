@@ -312,7 +312,7 @@ function KpiWidget({ home }: { home: HomeData | null }) {
 const MSG_STAGE_DOT: Record<string, string> = {
   "🔗 Pay Link Sent": "bg-emerald-400",
   "🔥 Hot Prospect": "bg-orange-400",
-  "💬 Two-Step Response": "bg-cyan-400",
+  "💬 Two-Step Engagement": "bg-cyan-400",
   "📣 Reached Out": "bg-blue-400",
 };
 

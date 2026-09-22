@@ -49,7 +49,7 @@ const STAGE_RANK: Record<string, number> = {
   "👨 Prospect": 0,
   "📣 Reached Out": 1,
   "📞 Call Booked": 2,
-  "💬 Two-Step Response": 3,
+  "💬 Two-Step Engagement": 3,
   "🔥 Hot Prospect": 4,
   "🔗 Pay Link Sent": 5,
   "🏦 Payment Received": 6,

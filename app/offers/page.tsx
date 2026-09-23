@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, type KeyboardEvent } from 'react';
 import OfferOneSheets from '@/components/OfferOneSheets';
 import OfferPagesLibrary from '@/components/OfferPagesLibrary';
+import InfluenceWorkspace from '@/components/InfluenceWorkspace';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1272,8 +1273,24 @@ export default function OffersPage() {
   const [selected, setSelected] = useState<Offer | null>(null);
   const [showBrainDump, setShowBrainDump] = useState(false);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
-  const [view, setView] = useState<'one-sheets' | 'pages' | 'grid' | 'current' | 'data'>('one-sheets');
+  const [view, setView] = useState<'one-sheets' | 'pages' | 'influence' | 'grid' | 'current' | 'data'>('one-sheets');
   const [typeTab, setTypeTab] = useState<string>('all');
+  const viewTabs = ([['one-sheets', '📄 One-Sheets'], ['pages', '🌐 Pages'], ['influence', 'Influence'], ['grid', '🔲 Grid'], ['current', '📋 Current'], ['data', '📊 Data']] as const);
+  const viewTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function handleViewKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    const current = viewTabs.findIndex(([key]) => key === view);
+    let next = current;
+    if (event.key === 'ArrowRight') next = (current + 1) % viewTabs.length;
+    else if (event.key === 'ArrowLeft') next = (current - 1 + viewTabs.length) % viewTabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = viewTabs.length - 1;
+    else return;
+    event.preventDefault();
+    const nextView = viewTabs[next][0];
+    setView(nextView);
+    viewTabRefs.current[next]?.focus();
+  }
 
   const [liveStats, setLiveStats] = useState<Record<string, { revenue: number; count: number }>>({});
 
@@ -1369,14 +1386,15 @@ export default function OffersPage() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       {/* Top bar */}
       <div className="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm px-4 md:px-6 py-4 sticky top-0 z-20">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex min-w-0 items-center justify-between gap-3 flex-wrap">
           <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">Offers</h1>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex min-w-0 w-full items-center gap-2 flex-wrap sm:w-auto">
             {/* View switch */}
-            <div className="flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-zinc-700 bg-zinc-800 p-0.5 no-scrollbar">
-              {([['one-sheets', '📄 One-Sheets'], ['pages', '🌐 Pages'], ['grid', '🔲 Grid'], ['current', '📋 Current'], ['data', '📊 Data']] as const).map(([k, lbl]) => (
-                <button key={k} onClick={() => setView(k)}
-                  className={`flex-shrink-0 whitespace-nowrap px-3 py-1.5 text-xs rounded font-medium transition-colors ${view === k ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
+            <div role="tablist" aria-label="Offer workspaces" className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto rounded-lg border border-zinc-700 bg-zinc-800 p-0.5 no-scrollbar sm:flex-none">
+              {viewTabs.map(([k, lbl], index) => (
+                <button id={`offers-tab-${k}`} key={k} ref={(node) => { viewTabRefs.current[index] = node; }} onClick={() => setView(k)}
+                  onKeyDown={handleViewKeyDown} role="tab" aria-selected={view === k} aria-controls="offers-panel" tabIndex={view === k ? 0 : -1}
+                  className={`relative min-h-11 flex-shrink-0 whitespace-nowrap px-3 text-xs rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${view === k ? 'bg-violet-600 text-white after:absolute after:inset-x-2 after:bottom-1 after:h-0.5 after:rounded-full after:bg-white' : 'text-zinc-400 hover:text-zinc-200'}`}>
                   {lbl}
                 </button>
               ))}
@@ -1393,7 +1411,7 @@ export default function OffersPage() {
                 </button>
               </div>
             )}
-            {view !== 'pages' && view !== 'one-sheets' && (
+            {!['one-sheets', 'pages', 'influence'].includes(view) && (
               <>
                 <button onClick={() => setShowBrainDump(true)}
                   className="px-3 py-2 text-sm bg-white text-zinc-900 font-bold rounded-lg hover:bg-zinc-100 transition-colors flex items-center gap-1.5">
@@ -1414,7 +1432,7 @@ export default function OffersPage() {
         {syncMsg && <p className="text-xs text-emerald-400 mt-1">{syncMsg}</p>}
       </div>
 
-      <div className="p-4 md:p-6 space-y-6">
+      <div id="offers-panel" role="tabpanel" aria-labelledby={`offers-tab-${view}`} className="p-4 md:p-6 space-y-6">
         {/* KPIs */}
         {(view === 'grid' || view === 'current') && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1462,6 +1480,8 @@ export default function OffersPage() {
           <OfferOneSheets />
         ) : view === 'pages' ? (
           <OfferPagesLibrary />
+        ) : view === 'influence' ? (
+          <InfluenceWorkspace />
         ) : loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[...Array(6)].map((_, i) => (

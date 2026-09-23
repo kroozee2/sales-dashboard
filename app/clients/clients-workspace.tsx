@@ -26,6 +26,11 @@ import {
 const CALENDAR_FILTERS: CalendarFilter[] = ["All", "1:1", "Group"];
 const HELM_URL = process.env.NEXT_PUBLIC_HELM_URL || "https://helm-iota-five.vercel.app";
 
+function isBoundedRecord(value: unknown, maxKeys: number): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).length <= maxKeys;
+}
+
 function formatDate(value: string | null, options?: Intl.DateTimeFormatOptions) {
   if (!value) return "Not recorded";
   const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
@@ -323,6 +328,43 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
     } finally { setBusyKey(null); }
   }, []);
 
+  const removeFromNewClients = useCallback(async (client: MergedClient) => {
+    setBusyKey(client.key); setNotice(null);
+    try {
+      const response = await fetch("/api/clients/accounts", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: client.key, onboarding_list: { visible: false } }),
+      });
+      let payload: { client?: unknown; error?: unknown } = {};
+      try {
+        const parsed: unknown = await response.json();
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload = parsed;
+      } catch {
+        // Upstreams and proxies can fail with HTML or plain text. Keep that
+        // parser detail out of owner-facing feedback.
+      }
+      const responseClient = payload.client;
+      const onboarding = isBoundedRecord(responseClient, 32) ? responseClient.onboarding : null;
+      const marker = isBoundedRecord(onboarding, 16) ? onboarding._newClients : null;
+      const validAcknowledgement = response.ok
+        && isBoundedRecord(responseClient, 32)
+        && responseClient.key === client.key
+        && isBoundedRecord(marker, 2)
+        && marker.visible === false;
+      if (!validAcknowledgement) {
+        const message = !response.ok && typeof payload.error === "string" && payload.error.trim()
+          ? payload.error.trim().slice(0, 240)
+          : "Could not remove the client from New Clients";
+        throw new Error(message);
+      }
+      applyClient(responseClient as unknown as MergedClient);
+      setNotice(`${client.name} was removed from New Clients. Their client record and access were kept.`);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "Could not remove the client from New Clients");
+    } finally { setBusyKey(null); }
+  }, []);
+
   const createClient = useCallback(async (draft: Record<string, unknown>) => {
     setNotice(null);
     try {
@@ -369,7 +411,8 @@ export default function ClientsWorkspace({ view }: { view: ClientTab }) {
             </div>
           </div>
           <ClientOnboarding clients={newest} loading={loading && roster.length === 0} busyKey={busyKey}
-            onPatch={patchClient} onCreate={createClient} onStep={stepClient} autoSteps={autoSteps} />
+            onPatch={patchClient} onCreate={createClient} onStep={stepClient}
+            onRemove={removeFromNewClients} autoSteps={autoSteps} />
           {error && <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-200">Helm is unreachable, so only clients tracked in Sales OS are listed. {error}</p>}
         </div>
       ) : loading ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Loading client workspace">{Array.from({ length: 8 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/60" />)}</div> : error ? <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-10 text-center text-sm text-rose-200">{error}</div> : data ? <div className="transition">{view === "Dashboard" ? <Dashboard data={data} clients={merged} onOpen={setOpenClient} /> : view === "Members" ? <ClientMembers clients={merged} busyKey={busyKey} onPatch={patchClient} onOpen={setOpenClient} helmUrl={HELM_URL} extras={memberExtras} month={cashMonth} /> : <Calendar month={month} setMonth={changeMonth} events={data.calendar} />}</div> : <Empty>No client data returned.</Empty>}

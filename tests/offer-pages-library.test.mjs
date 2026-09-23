@@ -85,8 +85,8 @@ test("Offer Lab has one dedicated tab containing the three offer one-sheets", ()
 
   const offers = readFileSync(join(root, "app", "offers", "page.tsx"), "utf8");
   assert.match(offers, /\['one-sheets', '📄 One-Sheets'\]/);
-  assert.match(offers, /useState<'one-sheets' \| 'pages' \| 'grid' \| 'current' \| 'data'>\('one-sheets'\)/);
-  assert.match(offers, /view !== 'pages' && view !== 'one-sheets'/);
+  assert.match(offers, /useState<'one-sheets' \| 'pages' \| 'influence' \| 'grid' \| 'current' \| 'data'>\('one-sheets'\)/);
+  assert.match(offers, /!\['one-sheets', 'pages', 'influence'\]\.includes\(view\)/);
   assert.match(offers, /<OfferOneSheets\s*\/>/);
 
   const oneSheets = readFileSync(join(root, "components", "OfferOneSheets.tsx"), "utf8");

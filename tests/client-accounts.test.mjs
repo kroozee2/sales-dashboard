@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CLIENT_STATUSES, OFF_BOARDED_STATUS, RUNBOOK, applyStep, isRunbookKey,
-  nextRunbookStep, onboardingProgress, recentClients, sortByNewest,
+  nextRunbookStep, onboardingProgress, recentClients, setNewClientsVisibility, sortByNewest,
 } from "../lib/client-accounts.ts";
 import { statusToHealth } from "../lib/client-roster.ts";
 import { normalizeClientMediaUrl, safeClientMediaUrl } from "../lib/client-media.ts";
@@ -132,6 +132,63 @@ test("sorting and the recent window still work on one source", () => {
   ];
   assert.deepEqual(sortByNewest(clients).map((c) => c.name), ["New", "Old"]);
   assert.deepEqual(recentClients(clients, 60, NOW).map((c) => c.name), ["New"]);
+});
+
+test("New Clients excludes recent inactive Helm clients", () => {
+  const clients = [
+    toMergedClient(row({ id: "active", name: "Active", is_active: true })),
+    toMergedClient(row({ id: "inactive", name: "Inactive", is_active: false })),
+  ];
+
+  assert.deepEqual(recentClients(clients, 60, NOW).map((client) => client.name), ["Active"]);
+});
+
+test("New Clients keeps recent active SalesOS-only shapes without a Helm projection", () => {
+  const salesOsOnly = { ...toMergedClient(row({ id: "sales-os", name: "SalesOS only" })), helm: null };
+
+  assert.deepEqual(recentClients([salesOsOnly], 60, NOW).map((client) => client.name), ["SalesOS only"]);
+});
+
+test("New Clients excludes recent clients with the off-boarded status", () => {
+  const clients = [
+    toMergedClient(row({ id: "active", name: "Active", status: "🚀 On-Track", is_active: true })),
+    toMergedClient(row({
+      id: "off-boarded", name: "Off-boarded", status: OFF_BOARDED_STATUS, is_active: true,
+    })),
+  ];
+
+  assert.deepEqual(recentClients(clients, 60, NOW).map((client) => client.name), ["Active"]);
+});
+
+test("New Clients excludes active clients explicitly removed from onboarding", () => {
+  const clients = [
+    toMergedClient(row({ id: "keep", name: "Keep", onboarding: {} })),
+    toMergedClient(row({
+      id: "removed",
+      name: "Removed",
+      onboarding: { _newClients: { visible: false, changedAt: "2026-09-08T12:00:00.000Z" } },
+    })),
+  ];
+
+  assert.deepEqual(recentClients(clients, 60, NOW).map((client) => client.name), ["Keep"]);
+});
+
+test("New Clients visibility is reversible without changing runbook progress", () => {
+  const state = { payment: { done: true, at: "2026-09-01T12:00:00.000Z" } };
+  const removed = setNewClientsVisibility(state, false, NOW);
+  assert.equal(removed._newClients.visible, false);
+  assert.equal(removed._newClients.changedAt, NOW.toISOString());
+  assert.deepEqual(removed.payment, state.payment);
+  assert.deepEqual(onboardingProgress(removed), { done: 1, total: RUNBOOK.length, pct: 13 });
+
+  const stepped = applyStep(removed, "fam", { done: true }, NOW);
+  assert.deepEqual(stepped._newClients, removed._newClients, "checklist writes preserve New Clients visibility");
+  assert.deepEqual(stepped.payment, state.payment, "checklist writes preserve prior runbook keys");
+
+  const restored = setNewClientsVisibility(stepped, true, new Date("2026-09-09T12:00:00Z"));
+  assert.equal(restored._newClients.visible, true);
+  assert.deepEqual(restored.payment, state.payment);
+  assert.equal(restored.fam.done, true, "visibility writes preserve later checklist keys");
 });
 
 test("the status vocabulary is the one stored in the column", () => {

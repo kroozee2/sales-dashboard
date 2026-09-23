@@ -39,7 +39,29 @@ export const RUNBOOK: RunbookStep[] = [
 export const RUNBOOK_KEYS = RUNBOOK.map((step) => step.key);
 
 export type StepState = { done: boolean; at?: string | null; note?: string | null };
-export type OnboardingState = Partial<Record<OnboardingStepKey, StepState>>;
+export interface NewClientsVisibility {
+  visible: boolean;
+  changedAt: string;
+}
+export type OnboardingState = Partial<Record<OnboardingStepKey, StepState>> & {
+  /** View-only state. The client and all history remain active everywhere else. */
+  _newClients?: NewClientsVisibility;
+};
+
+export function setNewClientsVisibility(
+  state: OnboardingState,
+  visible: boolean,
+  now = new Date(),
+): OnboardingState {
+  return {
+    ...state,
+    _newClients: { visible, changedAt: now.toISOString() },
+  };
+}
+
+export function isVisibleInNewClients(state: OnboardingState | null | undefined): boolean {
+  return state?._newClients?.visible !== false;
+}
 
 /**
  * The status vocabulary, exactly as it is stored.
@@ -131,6 +153,16 @@ export interface MergedClient {
   editable: boolean;
 }
 
+export function nextIsoRevision(prior: string, nowMs = Date.now()): string | null {
+  const priorMs = Date.parse(prior);
+  if (!Number.isFinite(priorMs) || !Number.isFinite(nowMs)) return null;
+  try {
+    return new Date(Math.max(nowMs, priorMs + 1)).toISOString();
+  } catch {
+    return null;
+  }
+}
+
 /** Newest first, by when we started with them; unknown dates sink. */
 export function sortByNewest(clients: MergedClient[]): MergedClient[] {
   const when = (c: MergedClient) => c.startDate ?? (c.addedAt ? c.addedAt.slice(0, 10) : "");
@@ -149,6 +181,10 @@ export function recentClients(clients: MergedClient[], days = 60, now = new Date
   const cutoff = new Date(now.getTime() - days * 86400000).toISOString().slice(0, 10);
   return sortByNewest(clients).filter((client) => {
     const when = client.startDate ?? (client.addedAt ? client.addedAt.slice(0, 10) : "");
-    return Boolean(when) && when >= cutoff;
+    return client.helm?.isActive !== false
+      && client.status !== OFF_BOARDED_STATUS
+      && isVisibleInNewClients(client.onboarding)
+      && Boolean(when)
+      && when >= cutoff;
   });
 }

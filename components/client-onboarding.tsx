@@ -44,7 +44,7 @@ function daysAgo(date: string | null): string {
 export type Patch = Record<string, unknown>;
 
 export default function ClientOnboarding({
-  clients, loading, error, onPatch, onCreate, onStep, busyKey, autoSteps,
+  clients, loading, error, onPatch, onCreate, onStep, onRemove, busyKey, autoSteps,
 }: {
   clients: MergedClient[];
   /** Steps the app already satisfied, per client id. Ticked, not editable. */
@@ -55,6 +55,7 @@ export default function ClientOnboarding({
   onPatch: (client: MergedClient, patch: Patch) => void;
   onCreate: (draft: { name: string; email?: string; deal_value?: number; mrr?: number; start_date?: string }) => void;
   onStep: (client: MergedClient, key: OnboardingStepKey, done: boolean, note?: string) => void;
+  onRemove: (client: MergedClient) => void;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -152,7 +153,7 @@ export default function ClientOnboarding({
       ) : (
         <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900/60 to-zinc-950">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] border-collapse text-left">
+            <table className="w-full min-w-[1280px] border-collapse text-left">
               <thead className="bg-zinc-900/80">
                 <tr className="border-b border-zinc-800 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
                   <th className="min-w-[190px] px-3 py-2.5">Client</th>
@@ -170,13 +171,14 @@ export default function ClientOnboarding({
                     </th>
                   ))}
                   <th className="w-32 px-3 py-2.5">Progress</th>
+                  <th className="w-28 px-3 py-2.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/70">
                 {rows.map((client, index) => (
                   <Row key={client.key} client={client} zebra={index % 2 === 1} busy={busyKey === client.key}
                     onPatch={onPatch} onStep={onStep} onOpen={() => setOpenKey(client.key)}
-                    auto={autoSteps?.get(client.key)} />
+                    onRemove={() => onRemove(client)} auto={autoSteps?.get(client.key)} />
                 ))}
               </tbody>
             </table>
@@ -212,12 +214,13 @@ function Stat({ label, value, detail, tone, icon, ring }: {
   );
 }
 
-function Row({ client, zebra, busy, onPatch, onStep, onOpen, auto }: {
+function Row({ client, zebra, busy, onPatch, onStep, onOpen, onRemove, auto }: {
   client: MergedClient; zebra: boolean; busy: boolean;
   auto?: Record<string, { at: string; type: string }>;
   onPatch: (client: MergedClient, patch: Patch) => void;
   onStep: (client: MergedClient, key: OnboardingStepKey, done: boolean) => void;
   onOpen: () => void;
+  onRemove: () => void;
 }) {
   // The app already knows about some steps. Fold them in before anything is
   // drawn or counted, so the tick, the progress bar and "what's next" all agree.
@@ -239,7 +242,7 @@ function Row({ client, zebra, busy, onPatch, onStep, onOpen, auto }: {
           <p className="text-[11px] text-zinc-600">{client.email ?? "No email on file"}</p>
         </td>
         <td className="px-2 py-2 text-xs text-zinc-500">{daysAgo(client.startDate)}</td>
-        <td colSpan={11} className="px-3 py-2">
+        <td colSpan={12} className="px-3 py-2">
           <button type="button" onClick={() => onPatch(client, { __create: true })} disabled={busy}
             className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-[11px] font-semibold text-blue-300 transition-colors hover:bg-blue-500/20 disabled:opacity-50">
             {busy ? "Adding…" : "＋ Track in Sales OS to edit"}
@@ -336,6 +339,18 @@ function Row({ client, zebra, busy, onPatch, onStep, onOpen, auto }: {
           <p className={`mt-1 truncate text-[10px] ${next ? "text-zinc-500" : "font-bold text-emerald-400"}`}>
             {next ? `next: ${next.emoji} ${next.label}` : "✓ fully onboarded"}
           </p>
+        </button>
+      </td>
+      <td className="px-3 py-1.5 text-right">
+        <button type="button" onClick={() => {
+          const confirmed = window.confirm(
+            `Remove ${client.name} from New Clients? This keeps their client record, history, and access everywhere else.`,
+          );
+          if (confirmed) onRemove();
+        }} disabled={busy}
+          aria-label={`Remove ${client.name} from New Clients`}
+          className="min-h-11 rounded-lg border border-zinc-700 px-3 py-2 text-[11px] font-semibold text-zinc-400 transition-colors hover:border-rose-500/40 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50">
+          Remove
         </button>
       </td>
     </tr>

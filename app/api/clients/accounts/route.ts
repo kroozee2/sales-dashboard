@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  CLIENT_STATUSES, OFF_BOARDED_STATUS, applyStep, isRunbookKey, type OnboardingState,
+  CLIENT_STATUSES, OFF_BOARDED_STATUS, applyStep, isRunbookKey, nextIsoRevision, setNewClientsVisibility,
+  type OnboardingState,
 } from "@/lib/client-accounts";
 import {
   ROSTER_COLUMNS, ROSTER_FIELD_COLUMN, helmDb, toMergedClient, type HelmClientRow,
@@ -124,47 +125,103 @@ export async function PATCH(req: NextRequest) {
   const { db, fail } = await connect();
   if (!db) return fail;
 
-  let body: Record<string, unknown>;
-  try { body = (await req.json()) as Record<string, unknown>; }
+  let parsed: unknown;
+  try { parsed = await req.json(); }
   catch { return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 }); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return NextResponse.json({ error: "Request body must be a JSON object" }, { status: 400 });
+  }
+  const body = parsed as Record<string, unknown>;
 
   const id = typeof body.id === "string" ? body.id : null;
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+  const changesStep = Object.hasOwn(body, "step");
+  const changesNewClients = Object.hasOwn(body, "onboarding_list");
+  if (changesNewClients && Object.keys(body).some((key) => key !== "id" && key !== "onboarding_list")) {
+    return NextResponse.json(
+      { error: "New Clients visibility commands may include only id and onboarding_list" },
+      { status: 400 },
+    );
+  }
 
   let update: Record<string, unknown>;
   try { update = pickEditable(body); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid field" }, { status: 400 }); }
 
-  // A runbook step is patched by key, so two people ticking different steps
-  // don't overwrite each other's work.
-  if (Object.hasOwn(body, "step")) {
-    const step = body.step as { key?: unknown; done?: unknown; note?: unknown } | null;
-    if (!step || !isRunbookKey(step.key)) {
-      return NextResponse.json({ error: "step.key must be a runbook step" }, { status: 400 });
-    }
-    const { data: current, error: readError } = await db
-      .from("clients").select("onboarding").eq("id", id).maybeSingle();
-    if (readError || !current) return NextResponse.json({ error: "Client not found" }, { status: 404 });
+  if (changesStep && changesNewClients) {
+    return NextResponse.json({ error: "Change one onboarding action at a time" }, { status: 400 });
+  }
 
-    update.onboarding = applyStep(
-      (current.onboarding ?? {}) as OnboardingState,
-      step.key,
-      {
-        done: typeof step.done === "boolean" ? step.done : undefined,
-        note: typeof step.note === "string" ? step.note.slice(0, MAX_TEXT) : undefined,
-      },
-    );
+  let newClientsVisible: boolean | null = null;
+  if (changesNewClients) {
+    const command = body.onboarding_list;
+    if (
+      !command || typeof command !== "object" || Array.isArray(command)
+      || Object.keys(command).length !== 1
+      || typeof (command as { visible?: unknown }).visible !== "boolean"
+    ) {
+      return NextResponse.json({ error: "onboarding_list.visible must be true or false" }, { status: 400 });
+    }
+    newClientsVisible = (command as { visible: boolean }).visible;
+  }
+
+  let onboardingRevision: string | null = null;
+  // Both onboarding mutations preserve the rest of the JSON document. Removing
+  // a row from New Clients is view-only: the Helm client remains active.
+  if (changesStep || changesNewClients) {
+    const { data: current, error: readError } = await db
+      .from("clients").select("onboarding,updated_at").eq("id", id).maybeSingle();
+    if (readError || !current) return NextResponse.json({ error: "Client not found" }, { status: 404 });
+    if (typeof current.updated_at !== "string" || !current.updated_at) {
+      return NextResponse.json({ error: "Client changed. Reload and try again." }, { status: 409 });
+    }
+    onboardingRevision = current.updated_at;
+    const onboarding = (current.onboarding ?? {}) as OnboardingState;
+
+    if (changesStep) {
+      const step = body.step as { key?: unknown; done?: unknown; note?: unknown } | null;
+      if (!step || !isRunbookKey(step.key)) {
+        return NextResponse.json({ error: "step.key must be a runbook step" }, { status: 400 });
+      }
+      update.onboarding = applyStep(
+        onboarding,
+        step.key,
+        {
+          done: typeof step.done === "boolean" ? step.done : undefined,
+          note: typeof step.note === "string" ? step.note.slice(0, MAX_TEXT) : undefined,
+        },
+      );
+    } else {
+      if (newClientsVisible === null) {
+        return NextResponse.json({ error: "onboarding_list.visible must be true or false" }, { status: 400 });
+      }
+      update.onboarding = setNewClientsVisibility(onboarding, newClientsVisible);
+    }
   }
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
-  update.updated_at = new Date().toISOString();
+  if (onboardingRevision !== null) {
+    const nextRevision = nextIsoRevision(onboardingRevision);
+    if (!nextRevision) {
+      return NextResponse.json({ error: "Client changed. Reload and try again." }, { status: 409 });
+    }
+    update.updated_at = nextRevision;
+  } else {
+    update.updated_at = new Date().toISOString();
+  }
 
-  const { data, error } = await db
-    .from("clients").update(update).eq("id", id).select(ROSTER_COLUMNS).maybeSingle();
+  let mutation = db.from("clients").update(update).eq("id", id);
+  if (onboardingRevision !== null) mutation = mutation.eq("updated_at", onboardingRevision);
+  const { data, error } = await mutation.select(ROSTER_COLUMNS).maybeSingle();
   if (error) return NextResponse.json({ error: "Could not save the change" }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "Client not found" }, { status: 404 });
+  if (!data) {
+    return onboardingRevision !== null
+      ? NextResponse.json({ error: "Client changed. Reload and try again." }, { status: 409 })
+      : NextResponse.json({ error: "Client not found" }, { status: 404 });
+  }
   return NextResponse.json({ client: toMergedClient(data as unknown as HelmClientRow) });
 }
 

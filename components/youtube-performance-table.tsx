@@ -1,8 +1,9 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { sortYouTubeVideos, type YouTubeFormat, type YouTubeSort, type YouTubeVideo } from "@/lib/youtube";
+import { PromoPieces, type PromoBundle } from "@/components/youtube-promo";
 
 const number = (value: number | null) => value === null ? "Unavailable" : new Intl.NumberFormat("en-US").format(value);
 const percent = (value: number | null) => value === null ? "Unavailable" : `${value.toFixed(1)}%`;
@@ -14,12 +15,16 @@ const duration = (seconds: number | null) => {
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}` : `${minutes}:${String(rest).padStart(2, "0")}`;
 };
 
-export default function YouTubePerformanceTable({ videos, format, loading, error }: {
+export default function YouTubePerformanceTable({ videos, format, loading, error, promos }: {
   videos: YouTubeVideo[];
   format: YouTubeFormat;
   loading?: boolean;
   error?: string | null;
+  /** Promo copy for videos that came from a Create entry, keyed by video id. */
+  promos?: Record<string, { promo: PromoBundle; workingTitle: string }>;
 }) {
+  // Which video is opened to read its promo. One at a time: these are long.
+  const [openPromo, setOpenPromo] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<YouTubeSort>("recent");
   const [now] = useState(() => Date.now());
@@ -60,10 +65,16 @@ export default function YouTubePerformanceTable({ videos, format, loading, error
                   const age = Math.max(1, Math.floor((now - Date.parse(video.publishedAt)) / 86_400_000));
                   const interactions = video.likes === null && video.comments === null ? null : (video.likes ?? 0) + (video.comments ?? 0);
                   const engagement = video.views && interactions !== null ? interactions / video.views * 100 : null;
+                  const promoEntry = promos?.[video.id];
+                  const promoOpen = openPromo === video.id;
                   return (
-                    <tr key={video.id} className="hover:bg-red-500/[0.04]">
+                    <Fragment key={video.id}>
+                    <tr
+                      className={`hover:bg-red-500/[0.04] ${promoEntry ? "cursor-pointer" : ""} ${promoOpen ? "bg-red-500/[0.06]" : ""}`}
+                      onClick={promoEntry ? () => setOpenPromo(promoOpen ? null : video.id) : undefined}
+                    >
                       <td className="whitespace-nowrap px-3 py-3 text-[11px] text-zinc-500">{new Date(video.publishedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
-                      <td className="px-3 py-3"><div className="flex items-center gap-3">{video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" className="h-12 w-20 rounded-lg bg-black object-cover" /> : <div className="h-12 w-20 rounded-lg bg-zinc-800" />}<div><p className="line-clamp-2 text-xs font-bold text-white">{video.title}</p><p className="mt-1 text-[10px] text-zinc-600">{age} day{age === 1 ? "" : "s"} old</p></div></div></td>
+                      <td className="px-3 py-3"><div className="flex items-center gap-3">{video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" className="h-12 w-20 rounded-lg bg-black object-cover" /> : <div className="h-12 w-20 rounded-lg bg-zinc-800" />}<div><p className="line-clamp-2 text-xs font-bold text-white">{video.title}</p><p className="mt-1 text-[10px] text-zinc-600">{age} day{age === 1 ? "" : "s"} old{promoEntry ? ` · from “${promoEntry.workingTitle}”` : ""}</p>{promoEntry && <p className="mt-1 text-[10px] font-black text-red-300">{promoOpen ? "▾ Hide promo" : "▸ 📣 Promo ready"}</p>}</div></div></td>
                       <td className="px-3 py-3 text-xs text-zinc-400">{duration(video.durationSeconds)}</td>
                       <td className="px-3 py-3 text-right text-xs font-black text-white">{number(video.periodViews ?? video.views)}</td>
                       <td className="px-3 py-3 text-right text-xs text-red-300">{video.views === null ? "Unavailable" : (video.views / age).toFixed(1)}</td>
@@ -75,6 +86,18 @@ export default function YouTubePerformanceTable({ videos, format, loading, error
                       <td className="px-3 py-3 text-right text-[10px] text-zinc-600">{video.subscribersGained === null ? "Studio required" : number(video.subscribersGained)}</td>
                       <td className="px-3 py-3 text-right">{video.url ? <a href={video.url} target="_blank" rel="noreferrer" className="rounded-lg bg-red-600 px-3 py-2 text-[10px] font-black text-white hover:bg-red-500">Watch ↗</a> : <span className="text-[10px] text-zinc-700">Unavailable</span>}</td>
                     </tr>
+                    {promoEntry && promoOpen && (
+                      <tr>
+                        <td colSpan={12} className="bg-black/30 p-0">
+                          {/* The table scrolls sideways past 1500px. Pinned left, the
+                              promo stays readable wherever the columns happen to be. */}
+                          <div className="sticky left-0 max-w-[900px] px-3 pb-4">
+                            <PromoPieces promo={promoEntry.promo} url={video.url ?? ""} />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>

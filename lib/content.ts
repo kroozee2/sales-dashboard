@@ -354,3 +354,78 @@ Return JSON only, no prose around it:
     cta_kind: ctaKind,
   };
 }
+
+// ─── Promoting a video that just went live ────────────────────────────────
+//
+// Three pieces, because they go to three different rooms: the Skool community
+// who already know him, the email list who opted in, and a hot-list DM which
+// is one human messaging another. The DM in particular has to stay short and
+// unpolished, since a paragraph pasted into a DM reads as a broadcast.
+export interface VideoPromo {
+  skool: string;
+  email: { subject: string; body: string };
+  dm: string;
+}
+
+export async function generateVideoPromo(input: {
+  title: string;
+  url: string;
+  workingTitle?: string | null;
+  promise?: string | null;
+  hook?: string | null;
+  keyword?: string | null;
+}): Promise<VideoPromo> {
+  const system = `Andrew Kroeze just published a YouTube video. Write the three things he sends out.
+
+${ANDREW_CONTEXT}
+
+${VOICE}
+
+SKOOL POST — for the community, who already know him.
+- Open with what the video gets them, not "new video is up".
+- Three to five short lines, a blank line between them. One or two emoji at most.
+- Say who it is for and what they will be able to do after watching.
+- End with the link on its own line.
+
+EMAIL — to the list.
+- Subject: under 50 characters, curiosity or outcome, no clickbait and no colon-stuffing.
+- Body: 90 to 150 words. Open with the problem the viewer has, not with "I just posted".
+- One specific thing they will learn. One line of proof or a real number if the material supports it.
+- Close with the link and a single low-friction line.
+
+DM — one message to someone on the hot list.
+- Two or three sentences, maximum 45 words. It must read like a person typing, not a campaign.
+- Name what the video covers, then the link, then a genuine "hope it helps" style close.
+- No pitch, no call booking, no PS.
+- NEVER invent something the recipient said, did or asked about. This one message is sent to a
+  whole hot list, so "since you mentioned..." or "you were asking about..." is a lie to most of
+  them. Write it so it is true for anyone who receives it.
+
+Return JSON only:
+{"skool":"...","email":{"subject":"...","body":"..."},"dm":"..."}`;
+
+  const parts = [
+    `PUBLISHED TITLE: ${input.title}`,
+    `LINK: ${input.url}`,
+  ];
+  if (input.workingTitle && input.workingTitle !== input.title) {
+    parts.push(`WORKING TITLE WHILE MAKING IT: ${input.workingTitle}`);
+  }
+  if (input.promise) parts.push(`WHAT IT PROMISES THE VIEWER: ${input.promise}`);
+  if (input.hook) parts.push(`OPENING HOOK: ${input.hook}`);
+  if (input.keyword) parts.push(`PRIMARY KEYWORD: ${input.keyword}`);
+  parts.push("Write the three pieces. Use the published title's angle, not the working title's.");
+
+  const raw = await complete(system, parts.join("\n"), 1800);
+  const draft = parseJson<Partial<VideoPromo>>(raw);
+
+  const email = draft.email && typeof draft.email === "object" ? draft.email : { subject: "", body: "" };
+  return {
+    skool: String(draft.skool ?? "").trim(),
+    email: {
+      subject: String(email.subject ?? "").trim(),
+      body: String(email.body ?? "").trim(),
+    },
+    dm: String(draft.dm ?? "").trim(),
+  };
+}

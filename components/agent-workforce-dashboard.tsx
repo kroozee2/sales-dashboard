@@ -192,7 +192,7 @@ function useDialogLifecycle(containerRef: RefObject<HTMLElement | null>, request
   }, [containerRef, fallbackFocusRef, initialFocusRef, returnFocusRef]);
 }
 
-function AgentCard({ agent, childCount, parentName, onEdit, onOpen }: { agent: AgentDefinition; childCount?: number; parentName?: string; onEdit: (opener: HTMLButtonElement) => void; onOpen: (opener: HTMLButtonElement) => void }) {
+function AgentCard({ agent, childCount, parentName, onEdit, onOpen }: { agent: AgentDefinition; childCount?: number; parentName?: string; onEdit?: (opener: HTMLButtonElement) => void; onOpen: (opener: HTMLButtonElement) => void }) {
   return (
     <article className="group rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-blue-400/20 hover:bg-white/[0.04] sm:p-5">
       <div className="flex items-start gap-4">
@@ -208,9 +208,11 @@ function AgentCard({ agent, childCount, parentName, onEdit, onOpen }: { agent: A
               </div>
               <p className="mt-0.5 max-w-full break-words text-xs text-zinc-400 [overflow-wrap:anywhere]">{agent.role}</p>
             </button>
-            <button onClick={(event) => onEdit(event.currentTarget)} className={`${FOCUS_RING} grid min-h-11 min-w-11 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] p-2 text-zinc-400 transition hover:text-white`} aria-label={`Edit agent ${agent.name}`}>
-              <Pencil size={14} />
-            </button>
+            {onEdit && (
+              <button onClick={(event) => onEdit(event.currentTarget)} className={`${FOCUS_RING} grid min-h-11 min-w-11 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] p-2 text-zinc-400 transition hover:text-white`} aria-label={`Edit agent ${agent.name}`}>
+                <Pencil size={14} />
+              </button>
+            )}
           </div>
           <p className="mt-3 line-clamp-2 break-words text-sm leading-6 text-zinc-400 [overflow-wrap:anywhere]">{agent.mission}</p>
         </div>
@@ -543,7 +545,7 @@ function AgentEditor({ form, coreAgents, saving, cleanupPending, error, initiall
   );
 }
 
-export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: { view: WorkforceView; ownerId: string; onEditorOpenChange?: (open: boolean) => void }) {
+export function AgentWorkforceDashboard({ view, ownerId, canEdit = true, onEditorOpenChange }: { view: WorkforceView; ownerId: string; canEdit?: boolean; onEditorOpenChange?: (open: boolean) => void }) {
   const [document, setDocument] = useState<AgentWorkforceDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -655,6 +657,14 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
     [autonomy, document, parent, search, status, view],
   );
   const summary = useMemo(() => summarizeAgentWorkforce(document?.agents ?? []), [document]);
+  // The header used to describe all 23 agents while the list below showed one
+  // type, so the Sub-agents tab reported build stages that counted core agents.
+  // A summary has to describe the thing underneath it.
+  const inView = useMemo(
+    () => (document?.agents ?? []).filter((agent) => agent.type === (view === 'core' ? 'core' : 'subagent')),
+    [document, view],
+  );
+  const viewSummary = useMemo(() => summarizeAgentWorkforce(inView), [inView]);
 
   const openCreate = (opener: HTMLElement, parent?: AgentDefinition) => { pendingSavedDocumentRef.current = null; setCleanupPending(false); setSaveError(''); setRestoredDraft(false); setRecoveryOnlyDraft(false); setEditorMode('create'); editorReturnFocusRef.current = opener; editorBaselineRef.current = null; setForm(newAgent(view, parent)); };
   const openEdit = (agent: AgentDefinition, returnFocus: HTMLElement | null) => { pendingSavedDocumentRef.current = null; setCleanupPending(false); setSaveError(''); setRestoredDraft(false); setRecoveryOnlyDraft(false); setEditorMode('edit'); editorReturnFocusRef.current = returnFocus; setSelected(null); editorBaselineRef.current = toForm(agent); setForm(toForm(agent)); };
@@ -769,23 +779,51 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
       <div className="relative">
         <header className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div><div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.2em] text-blue-300/70"><Sparkles size={13} /> AI Workforce</div><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{view === 'core' ? 'Core Agents' : 'Sub-agents'}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">{view === 'core' ? 'Department leaders that own outcomes, coordinate specialist workers, and report to Jarvis.' : 'Focused workers that research, create, monitor, verify, and prepare work for their department leader.'}</p></div>
-          <button onClick={(event) => openCreate(event.currentTarget)} className={`${FOCUS_RING} flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500`}><Plus size={16} /> Create agent</button>
+          {canEdit
+            ? <button onClick={(event) => openCreate(event.currentTarget)} className={`${FOCUS_RING} flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500`}><Plus size={16} /> Create agent</button>
+            : <span className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-zinc-400">Read only. Sign in as the owner to change agents.</span>}
         </header>
 
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[
-            { label: 'Core agents', value: summary.core, icon: Users },
-            { label: 'Sub-agents', value: summary.subagents, icon: Bot },
-            { label: 'Approval gated', value: summary.approvalGated, icon: ShieldCheck },
-            { label: 'Overall build', value: `${summary.overallProgress}%`, icon: Activity },
-          ].map(({ label, value, icon: Icon }) => <div key={label} className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3.5 sm:p-4"><div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-zinc-400"><Icon size={13} />{label}</div><p className="mt-2 text-xl font-semibold text-zinc-100">{value}</p></div>)}
+            { label: view === 'core' ? 'Core agents' : 'Sub-agents', value: inView.length, icon: view === 'core' ? Users : Bot, bar: null },
+            { label: 'Released', value: viewSummary.live, icon: ShieldCheck, bar: null },
+            { label: 'Approval gated', value: viewSummary.approvalGated, icon: ShieldCheck, bar: null },
+            { label: 'Average build', value: `${viewSummary.overallProgress}%`, icon: Activity, bar: viewSummary.overallProgress },
+          ].map(({ label, value, icon: Icon, bar }) => (
+            <div key={label} className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3.5 sm:p-4">
+              <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.15em] text-zinc-400"><Icon size={13} />{label}</div>
+              <p className="mt-2 text-xl font-semibold text-zinc-100">{value}</p>
+              {bar !== null && (
+                <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-violet-400" style={{ width: `${bar}%` }} />
+                </div>
+              )}
+            </div>
+          ))}
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-zinc-400"><Clock3 size={12} /> Build stages</span>
-          {([['planned', summary.planned], ['designed', summary.designed], ['building', summary.building], ['testing', summary.testing], ['live', summary.live], ['paused', summary.paused]] as const).map(([stage, count]) => (
-            <span key={stage} className={`rounded-full border px-2.5 py-1 text-[10px] font-medium ${STATUS_STYLE[stage]}`}>{STATUS_LABEL[stage]} {count}</span>
-          ))}
+          {([['planned', viewSummary.planned], ['designed', viewSummary.designed], ['building', viewSummary.building], ['testing', viewSummary.testing], ['live', viewSummary.live], ['paused', viewSummary.paused]] as const).map(([stage, count]) => {
+            const active = status === stage;
+            return (
+              <button
+                key={stage}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setStatus(active ? 'all' : stage)}
+                className={`${FOCUS_RING} rounded-full border px-2.5 py-1 text-[10px] font-medium transition ${STATUS_STYLE[stage]} ${
+                  active ? 'ring-2 ring-white/50' : count === 0 ? 'opacity-40 hover:opacity-70' : 'hover:brightness-125'
+                }`}
+              >
+                {STATUS_LABEL[stage]} {count}
+              </button>
+            );
+          })}
+          {status !== 'all' && (
+            <button type="button" onClick={() => setStatus('all')} className={`${FOCUS_RING} rounded-full px-2 py-1 text-[10px] text-zinc-400 hover:text-zinc-200`}>clear</button>
+          )}
         </div>
 
         {summary.milestonesNeedingAttention.length > 0 && (
@@ -805,11 +843,11 @@ export function AgentWorkforceDashboard({ view, ownerId, onEditorOpenChange }: {
           {view === 'subagent' && <label><span className="sr-only">Filter by core agent</span><select value={parent} onChange={(e) => setParent(e.target.value)} className={SELECT_CLASS}><option value="all">All core agents</option>{coreAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
         </div>
 
-        <p aria-live="polite" className="mt-2 text-xs text-zinc-400">Showing {agents.length} of {view === 'core' ? summary.core : summary.subagents} {view === 'core' ? 'core agents' : 'sub-agents'}.</p>
+        <p aria-live="polite" className="mt-2 text-xs text-zinc-400">Showing {agents.length} of {inView.length} {view === 'core' ? 'core agents' : 'sub-agents'}.</p>
 
-        {agents.length === 0 ? <div className="mt-6 rounded-2xl border border-dashed border-white/10 py-16 text-center"><Bot className="mx-auto text-zinc-400" /><p className="mt-3 text-sm text-zinc-400">No agents match this view.</p><button onClick={(event) => openCreate(event.currentTarget)} className={`${FOCUS_RING} mt-4 min-h-11 rounded px-2 text-sm text-blue-400`}>Create the first one</button></div> : (
+        {agents.length === 0 ? <div className="mt-6 rounded-2xl border border-dashed border-white/10 py-16 text-center"><Bot className="mx-auto text-zinc-400" /><p className="mt-3 text-sm text-zinc-400">No agents match this view.</p>{canEdit && <button onClick={(event) => openCreate(event.currentTarget)} className={`${FOCUS_RING} mt-4 min-h-11 rounded px-2 text-sm text-blue-400`}>Create the first one</button>}</div> : (
           <div className="mt-6 grid gap-4 xl:grid-cols-2">
-            {agents.map((agent) => <AgentCard key={agent.id} agent={agent} childCount={agent.type === 'core' ? document.agents.filter((item) => item.parent_id === agent.id).length : undefined} parentName={agent.parent_id ? coreAgents.find((item) => item.id === agent.parent_id)?.name : undefined} onEdit={(opener) => openEdit(agent, opener)} onOpen={(opener) => { detailOpenerRef.current = opener; setSelected(agent); }} />)}
+            {agents.map((agent) => <AgentCard key={agent.id} agent={agent} childCount={agent.type === 'core' ? document.agents.filter((item) => item.parent_id === agent.id).length : undefined} parentName={agent.parent_id ? coreAgents.find((item) => item.id === agent.parent_id)?.name : undefined} onEdit={canEdit ? (opener) => openEdit(agent, opener) : undefined} onOpen={(opener) => { detailOpenerRef.current = opener; setSelected(agent); }} />)}
           </div>
         )}
 

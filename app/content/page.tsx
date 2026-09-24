@@ -12,7 +12,6 @@ import {
   platformLabel, platformEmoji, platformChip, platformDot, categoryMeta, statusMeta,
   type Platform, type Category,
 } from "@/lib/content-constants";
-import GraphicsStudio from "@/components/graphics-studio";
 import CompetitorResearch from "@/components/competitor-research";
 import ContentSpreadsheet from "@/components/content-spreadsheet";
 import { publishedSourcesOf } from "@/lib/content-published-sources";

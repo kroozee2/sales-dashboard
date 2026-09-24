@@ -166,8 +166,10 @@ async function downloadImage(url: string, filename: string) {
   }
 }
 
-export default function GraphicsStudio() {
-  const [format, setFormat] = useState("youtube_thumbnail");
+export default function GraphicsStudio({ lockFormat }: { lockFormat?: string } = {}) {
+  // Locked to one format when the screen exists for exactly that: the YouTube
+  // Thumbnails tab is not the place to be offered an Instagram Story.
+  const [format, setFormat] = useState(lockFormat ?? "youtube_thumbnail");
   const [description, setDescription] = useState("");
   const [reference, setReference] = useState<Upload | null>(null);
   const [faces, setFaces] = useState<(Upload | null)[]>([null, null, null]);
@@ -321,12 +323,17 @@ export default function GraphicsStudio() {
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-500/10 to-blue-500/5 p-5">
-        <p className="text-base font-bold text-white">🎨 Social Graphics Creator</p>
+        <p className="text-base font-bold text-white">
+          {lockFormat ? "🖼️ Thumbnail Creator" : "🎨 Social Graphics Creator"}
+        </p>
         <p className="mt-1 max-w-3xl text-sm leading-relaxed text-zinc-400">
-          The same one-click workflow as your Skool Monetization app, now built for YouTube and Instagram. Choose a size, add a style reference and your face if you want, then describe the finished graphic.
+          {lockFormat
+            ? "One-click 1280×720 thumbnails. Add a style reference and your face if you want, then describe the finished thumbnail."
+            : "The same one-click workflow as your Skool Monetization app, now built for YouTube and Instagram. Choose a size, add a style reference and your face if you want, then describe the finished graphic."}
         </p>
       </div>
 
+      {!lockFormat && (
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">1. Choose the format</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -349,9 +356,12 @@ export default function GraphicsStudio() {
           ))}
         </div>
       </section>
+      )}
 
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">2. Reference and photos</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+          {lockFormat ? "1. Reference and photos" : "2. Reference and photos"}
+        </p>
         <div className="mt-4 grid gap-5 lg:grid-cols-2">
           <UploadBox
             label="Reference graphic"
@@ -382,7 +392,9 @@ export default function GraphicsStudio() {
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">3. Describe the finished graphic</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+              {lockFormat ? "2. Describe the finished thumbnail" : "3. Describe the finished graphic"}
+            </p>
             <p className="mt-1 text-[11px] text-zinc-500">Include the exact words, colors, layout, mood, and where your face should appear.</p>
           </div>
           {voice.supported && (

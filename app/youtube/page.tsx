@@ -14,7 +14,7 @@ import { aggregateYouTubeDashboard, sortYouTubeVideos, type YouTubeVideo } from 
 
 import type { YouTubeFormat } from "@/lib/youtube";
 
-type Tab = "create" | "scripts" | "research" | "dashboard" | "long-form" | "shorts";
+type Tab = "create" | "thumbnails" | "scripts" | "research" | "dashboard" | "long-form" | "shorts";
 type AnalyticsResponse = {
   account: { id: string; name: string; handle: string; url: string };
   dateRange: { start: string; end: string; label: string };
@@ -31,6 +31,7 @@ type PlannerItem = Parameters<typeof YouTubeSheet>[0]["items"][number];
 
 const TABS: Array<{ key: Tab; label: string; icon: string }> = [
   { key: "create", label: "Create", icon: "✍️" },
+  { key: "thumbnails", label: "Thumbnails", icon: "🖼️" },
   { key: "scripts", label: "Scripts", icon: "📄" },
   { key: "research", label: "Research", icon: "🔍" },
   { key: "dashboard", label: "Dashboard", icon: "📊" },
@@ -255,15 +256,21 @@ export default function YouTubePage() {
               );
             })()}
 
-            <section className="border-t border-zinc-800 pt-8">
-              <div className="mb-5">
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-red-400">1280 × 720</p>
-                <h2 className="mt-1 text-xl font-black text-white">Thumbnail Studio</h2>
-                <p className="mt-1 text-xs text-zinc-500">Generate a phone-readable thumbnail, then paste its URL onto the card above to tick that step.</p>
-              </div>
-              <GraphicsStudio />
-            </section>
           </div>
+        )}
+
+        {/* Thumbnails get their own tab. They were the second half of Create,
+            which meant scrolling past the whole idea-to-camera pipeline to
+            reach the one tool you open on its own. */}
+        {tab === "thumbnails" && (
+          <section>
+            <div className="mb-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-red-400">1280 × 720</p>
+              <h2 className="mt-1 text-xl font-black text-white">Thumbnail Studio</h2>
+              <p className="mt-1 text-xs text-zinc-500">Generate a phone-readable thumbnail, then paste its URL onto the video&rsquo;s card in Create to tick that step.</p>
+            </div>
+            <GraphicsStudio lockFormat="youtube_thumbnail" />
+          </section>
         )}
 
         {tab === "research" && <YouTubeResearch onModelled={() => void loadContent()} />}

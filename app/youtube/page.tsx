@@ -5,6 +5,7 @@ import { PostedTab, type Posted } from "@/components/posted-table";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import GraphicsStudio from "@/components/graphics-studio";
+import { YouTubeLinkPanel, useYouTubeLinks, type PromoBundle } from "@/components/youtube-promo";
 import YouTubeSheet from "@/components/youtube-sheet";
 import YouTubePipeline, { type CreateItem, type PatchInput } from "@/components/youtube-pipeline";
 import YouTubeResearch from "@/components/youtube-research";
@@ -49,6 +50,24 @@ export default function YouTubePage() {
   useEffect(() => { void Promise.resolve().then(loadPosted); }, [loadPosted]);
 
   const [tab, setTab] = useState<Tab>("create");
+
+  // Which Create entries became which uploads, and the promo written for each.
+
+  const links = useYouTubeLinks();
+
+  const promos = useMemo(() => {
+
+    const map: Record<string, { promo: PromoBundle; workingTitle: string }> = {};
+
+    for (const entry of links.data?.linked ?? []) {
+
+      if (entry.promo) map[entry.link.video_id] = { promo: entry.promo, workingTitle: entry.item.title };
+
+    }
+
+    return map;
+
+  }, [links.data]);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -179,7 +198,12 @@ export default function YouTubePage() {
             </section>
           </div>
         )}
-        {tab === "long-form" && <YouTubePerformanceTable videos={videos} format="long_form" loading={analyticsLoading} error={analyticsError} />}
+        {tab === "long-form" && (
+          <div className="space-y-5">
+            <YouTubeLinkPanel data={links.data} loading={links.loading} error={links.error} onChanged={links.reload} />
+            <YouTubePerformanceTable videos={videos} format="long_form" loading={analyticsLoading} error={analyticsError} promos={promos} />
+          </div>
+        )}
         {tab === "scripts" && <YouTubeScripts items={items} loading={contentLoading} error={contentError} />}
         {tab === "shorts" && <YouTubePerformanceTable videos={videos} format="short" loading={analyticsLoading} error={analyticsError} />}
         {tab === "create" && (

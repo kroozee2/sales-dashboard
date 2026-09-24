@@ -20,15 +20,18 @@ function databaseError(context: string, error: { code?: unknown }) {
   return NextResponse.json({ error: "Agent workforce storage is temporarily unavailable" }, { status: 500 });
 }
 
-async function ownerError(req: NextRequest) {
+async function ownerError(req: NextRequest, mode: "read" | "write" = "write") {
+  // Reading needs no identity service: the session at the door is enough, and a
+  // signing outage should not blank the boards for everyone.
+  if (mode === "read") return null;
   if (!await identitySigningConfiguredWithSettings()) return NextResponse.json({ error: "Owner identity service unavailable." }, { status: 503 });
   const member = await currentMember(req.cookies.get("sos_user")?.value);
-  const denied = agentWorkforceAuthorization(member);
+  const denied = agentWorkforceAuthorization(member, mode);
   return denied ? NextResponse.json({ error: denied.error }, { status: denied.status }) : null;
 }
 
 export async function GET(req: NextRequest) {
-  const denied = await ownerError(req);
+  const denied = await ownerError(req, "read");
   if (denied) return denied;
   const db = createLeadsAdminClient();
   const { data, error } = await db

@@ -801,14 +801,15 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
         </section>
       </section>
       <section role="tabpanel" id="workforce-panel-core" aria-labelledby="workforce-tab-core" hidden={workspaceTab !== 'core'}>
-        {workspaceTab === 'core' && (workforceOwnerId
-          ? <AgentWorkforceDashboard view="core" ownerId={workforceOwnerId} onEditorOpenChange={setWorkforceEditorOpen} />
-          : <WorkforceLocked checked={workforceChecked} view="core" />)}
+        {/* Everyone signed in sees the workforce; only an owner can change it. */}
+        {workspaceTab === 'core' && (
+          <AgentWorkforceDashboard view="core" ownerId={workforceOwnerId ?? ''} canEdit={Boolean(workforceOwnerId)} onEditorOpenChange={setWorkforceEditorOpen} />
+        )}
       </section>
       <section role="tabpanel" id="workforce-panel-subagent" aria-labelledby="workforce-tab-subagent" hidden={workspaceTab !== 'subagent'}>
-        {workspaceTab === 'subagent' && (workforceOwnerId
-          ? <AgentWorkforceDashboard view="subagent" ownerId={workforceOwnerId} onEditorOpenChange={setWorkforceEditorOpen} />
-          : <WorkforceLocked checked={workforceChecked} view="subagent" />)}
+        {workspaceTab === 'subagent' && (
+          <AgentWorkforceDashboard view="subagent" ownerId={workforceOwnerId ?? ''} canEdit={Boolean(workforceOwnerId)} onEditorOpenChange={setWorkforceEditorOpen} />
+        )}
       </section>
       <section role="tabpanel" id="workforce-panel-skills" aria-labelledby="workforce-tab-skills" hidden={workspaceTab !== 'skills'}>
         {/* Not owner-gated. The agent definitions are private; this is a catalogue

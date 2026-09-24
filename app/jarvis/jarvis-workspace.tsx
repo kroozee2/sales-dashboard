@@ -2,7 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Bot, Library, Network, Presentation, Sparkles } from 'lucide-react';
-import { AgentSkillsCatalog, AgentWorkforceDashboard } from '@/components/agent-workforce-dashboard';
+import { AgentWorkforceDashboard } from '@/components/agent-workforce-dashboard';
+import SkillsLibrary from '@/components/skills-library';
 import { PresentationsWorkspace } from '@/components/presentations-workspace';
 import { JARVIS_INTERNAL_WORKERS, JARVIS_PROFILE } from '@/lib/agent-workforce-jarvis';
 
@@ -808,9 +809,10 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
           : <WorkforceLocked checked={workforceChecked} view="subagent" />)}
       </section>
       <section role="tabpanel" id="workforce-panel-skills" aria-labelledby="workforce-tab-skills" hidden={workspaceTab !== 'skills'}>
-        {workspaceTab === 'skills' && (workforceOwnerId
-          ? <AgentSkillsCatalog />
-          : <WorkforceLocked checked={workforceChecked} view="skills" />)}
+        {/* Not owner-gated. The agent definitions are private; this is a catalogue
+            of a public GitHub repo that Andrew shares with clients, so locking it
+            only stopped the team seeing what we have built. */}
+        {workspaceTab === 'skills' && <SkillsLibrary />}
       </section>
       <section role="tabpanel" id="workforce-panel-presentations" aria-labelledby="workforce-tab-presentations" hidden={workspaceTab !== 'presentations'}>
         {workspaceTab === 'presentations' && (workforceOwnerId

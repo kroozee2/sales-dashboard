@@ -72,9 +72,9 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/jarvis?tab=core", label: "Core Agents", emoji: "🧠", tab: "core", section: "AI Workforce" },
   { href: "/jarvis?tab=subagent", label: "Sub-agents", emoji: "🛠️", tab: "subagent", section: "AI Workforce" },
   { href: "/jarvis?tab=skills", label: "Skills", emoji: "🧰", tab: "skills", section: "AI Workforce" },
-  { href: "/jarvis?tab=presentations", label: "Presentations", emoji: "📽️", tab: "presentations", section: "AI Workforce" },
 
   { href: "/offer-lab", label: "Offer Lab", emoji: "📦", section: "Offers" },
+  { href: "/jarvis?tab=presentations", label: "Presentations", emoji: "📽️", tab: "presentations", section: "Offers" },
   { href: "/messaging", label: "Messaging", emoji: "🧠", section: "Offers" },
 
   { href: "/team", label: "Team", emoji: "👥", section: "Team" },

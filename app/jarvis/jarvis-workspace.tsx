@@ -2,7 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Bot, Library, Network, Presentation, Sparkles } from 'lucide-react';
-import { AgentSkillsCatalog, AgentWorkforceDashboard } from '@/components/agent-workforce-dashboard';
+import { AgentWorkforceDashboard } from '@/components/agent-workforce-dashboard';
+import SkillsLibrary from '@/components/skills-library';
+import JarvisApprovals from '@/components/jarvis-approvals';
 import { PresentationsWorkspace } from '@/components/presentations-workspace';
 import { JARVIS_INTERNAL_WORKERS, JARVIS_PROFILE } from '@/lib/agent-workforce-jarvis';
 
@@ -622,6 +624,7 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
       {workspaceNotice && <div role="alert" className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">{workspaceNotice}</div>}
 
       <section role="tabpanel" id="workforce-panel-jarvis" aria-labelledby="workforce-tab-jarvis" hidden={workspaceTab !== 'jarvis'}>
+        {workspaceTab === 'jarvis' && <div className="mb-3"><JarvisApprovals /></div>}
         <div className="relative min-h-[calc(100vh-12rem)] overflow-hidden rounded-3xl border border-cyan-500/15 bg-[#050b16] shadow-2xl shadow-cyan-950/30">
       <div className="pointer-events-none absolute inset-0 opacity-40" style={{ backgroundImage: 'linear-gradient(rgba(34,211,238,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,.06) 1px, transparent 1px)', backgroundSize: '36px 36px', maskImage: 'radial-gradient(circle at 50% 32%, black, transparent 78%)' }} />
       <div className="pointer-events-none absolute left-1/2 top-0 h-[420px] w-[620px] -translate-x-1/2 rounded-full bg-cyan-500/10 blur-[110px]" />
@@ -808,9 +811,10 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
           : <WorkforceLocked checked={workforceChecked} view="subagent" />)}
       </section>
       <section role="tabpanel" id="workforce-panel-skills" aria-labelledby="workforce-tab-skills" hidden={workspaceTab !== 'skills'}>
-        {workspaceTab === 'skills' && (workforceOwnerId
-          ? <AgentSkillsCatalog />
-          : <WorkforceLocked checked={workforceChecked} view="skills" />)}
+        {/* Not owner-gated. The agent definitions are private; this is a catalogue
+            of a public GitHub repo that Andrew shares with clients, so locking it
+            only stopped the team seeing what we have built. */}
+        {workspaceTab === 'skills' && <SkillsLibrary />}
       </section>
       <section role="tabpanel" id="workforce-panel-presentations" aria-labelledby="workforce-tab-presentations" hidden={workspaceTab !== 'presentations'}>
         {workspaceTab === 'presentations' && (workforceOwnerId

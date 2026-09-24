@@ -83,6 +83,63 @@ const TOOLS: Anthropic.Tool[] = [
       required: ['name', 'context'],
     },
   },
+  {
+    name: 'create_lead',
+    description: "Add a new lead to the dashboard. Proposes the change for Andrew's approval rather than saving immediately.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        full_name: { type: 'string' },
+        email: { type: 'string' },
+        phone: { type: 'string' },
+        source: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['full_name'],
+    },
+  },
+  {
+    name: 'update_lead',
+    description: "Change a lead's stage, quality or details. Proposes the change for Andrew's approval rather than saving immediately.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'The lead id from a search' },
+        prospect_stage: { type: 'string' },
+        quality: { type: 'string' },
+        notes: { type: 'string' },
+        follow_up_date: { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'add_lead_note',
+    description: "Append a note to a lead's record. Proposes the change for Andrew's approval rather than saving immediately.",
+    input_schema: {
+      type: 'object' as const,
+      properties: { lead_id: { type: 'string' }, text: { type: 'string' } },
+      required: ['lead_id', 'text'],
+    },
+  },
+  {
+    name: 'update_sales_call',
+    description: "Update a sales call's outcome, stage or notes. Proposes the change for Andrew's approval rather than saving immediately.",
+    input_schema: {
+      type: 'object' as const,
+      properties: { id: { type: 'string' }, outcome: { type: 'string' }, notes: { type: 'string' }, call_type: { type: 'string' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'sync_fathom_to_call',
+    description: "Attach a Fathom recording to a sales call. Proposes the change for Andrew's approval rather than saving immediately.",
+    input_schema: {
+      type: 'object' as const,
+      properties: { call_id: { type: 'string' }, recording_id: { type: 'string' } },
+      required: ['call_id', 'recording_id'],
+    },
+  },
 ];
 
 type ActionLog = { tool: string; label: string; detail?: string; ok?: boolean };
@@ -120,8 +177,39 @@ async function readBoundedJson(response: Response, maxBytes = 1_000_000): Promis
   return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
 }
 
+/** A one-line, human description of what a proposed change would do. */
+function describeProposal(tool: string, input: Record<string, unknown>): string {
+  const v = (k: string) => (typeof input[k] === 'string' ? (input[k] as string) : '');
+  switch (tool) {
+    case 'create_lead': return `Add ${v('full_name') || 'a lead'}${v('email') ? ` (${v('email')})` : ''} as a new lead`;
+    case 'update_lead': return `Update lead ${v('id').slice(0, 8)}${v('prospect_stage') ? ` to ${v('prospect_stage')}` : ''}`;
+    case 'add_lead_note': return `Add a note to lead ${v('lead_id').slice(0, 8)}`;
+    case 'update_sales_call': return `Update sales call ${v('id').slice(0, 8)}${v('outcome') ? ` with outcome ${v('outcome')}` : ''}`;
+    case 'sync_fathom_to_call': return `Attach recording ${v('recording_id').slice(0, 10)} to call ${v('call_id').slice(0, 8)}`;
+    default: return `Run ${tool}`;
+  }
+}
+
 async function executeTool(name: string, input: Record<string, unknown>, sameOriginHeaders: Record<string, string>, sameOriginBase: string): Promise<{ result: string; log: ActionLog }> {
-  if (WRITE_TOOLS.has(name)) return { result: 'Error: Jarvis data changes are disabled until durable idempotency and approval controls are available.', log: { tool: name, label: `Blocked write tool: ${name}`, detail: 'Read-only release' } };
+  // Jarvis can now change things, but it proposes rather than applies. The write
+  // is written down as a pending action and executed only once Andrew approves
+  // it, which is the approval control this block was originally waiting on.
+  // Status on the row is the idempotency key, so an approval cannot run twice.
+  if (WRITE_TOOLS.has(name)) {
+    const summary = describeProposal(name, input);
+    const { data, error } = await createLeadsAdminClient()
+      .from('jarvis_actions')
+      .insert({ tool: name, input, summary })
+      .select('id')
+      .single();
+    if (error) {
+      return { result: `Error: the change could not be queued (${error.message})`, log: { tool: name, label: 'Could not queue change', ok: false } };
+    }
+    return {
+      result: `Proposed and waiting for Andrew to approve: ${summary}. Do not claim it is done.`,
+      log: { tool: name, label: `Proposed: ${summary}`, detail: `id ${data.id.slice(0, 8)}`, ok: true },
+    };
+  }
   const supabaseLeads = createLeadsAdminClient();
 
   switch (name) {

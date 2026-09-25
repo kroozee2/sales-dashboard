@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLeadsAdminClient } from "@/lib/supabase-leads";
+import { extractChatLinks, isCallType, mergeLinks, seriesFor, type SharedLink } from "@/lib/group-call-recap";
 
 // Pulls the weekly group call in and writes a row.
 //
@@ -71,13 +72,16 @@ export async function GET(req: NextRequest) {
     owner: ((a.assignee as Record<string, unknown>)?.name as string) ?? null,
   }));
 
+  const callDate = String(meeting.scheduled_start_time ?? meeting.created_at ?? date).slice(0, 10);
   const row = {
-    call_date: String(meeting.scheduled_start_time ?? meeting.created_at ?? date).slice(0, 10),
+    call_date: callDate,
+    call_type: seriesFor(callDate, String(meeting.title ?? "")),
     title: String(meeting.title ?? "Claude AI + Systems for Founders Call"),
     source: "fathom",
     external_id: `fathom:${meeting.recording_id}`,
     recording_url: (meeting.url as string) ?? null,
     share_url: (meeting.share_url as string) ?? null,
+    recordings: meeting.share_url ? [{ source: "fathom", url: meeting.share_url as string }] : [],
     attendees, attendee_count: attendees.length, invited_count: invitees.length,
     follow_ups: followUps,
     summary: (meeting.default_summary as string) ?? null,
@@ -100,13 +104,24 @@ export async function POST(req: NextRequest) {
   const attendees = (b.attendees as Attendee[]) ?? [];
   const followUps = (b.follow_ups as FollowUp[]) ?? [];
   const title = String(b.title ?? "Claude AI + Systems for Founders Call");
+  const callType = isCallType(b.call_type) ? b.call_type : seriesFor(String(b.call_date), title);
+  // Links from the chat are found here by pattern, so an agent that passes the
+  // raw chat never has to be trusted to copy URLs correctly.
+  const links = mergeLinks(
+    Array.isArray(b.links) ? (b.links as SharedLink[]).filter((l) => typeof l?.url === "string") : [],
+    extractChatLinks(typeof b.chat === "string" ? b.chat : null),
+  );
+  const list = (v: unknown) => (Array.isArray(v) ? v : []);
   const draft = draftRecap({
     title, date: String(b.call_date), attendees, followUps,
     link: (b.share_url as string) ?? (b.recording_url as string) ?? null,
   });
 
   const { data, error } = await createLeadsAdminClient().from("client_calls").upsert({
-    call_date: b.call_date, title, source: b.source ?? "zoom",
+    call_date: b.call_date, title, source: b.source ?? "zoom", call_type: callType,
+    starts_at: b.starts_at ?? null,
+    highlights: list(b.highlights).filter((h) => typeof h === "string"),
+    chapters: list(b.chapters), spotlights: list(b.spotlights), recordings: list(b.recordings), links,
     external_id: b.external_id, recording_url: b.recording_url ?? null, share_url: b.share_url ?? null,
     duration_minutes: b.duration_minutes ?? null,
     attendees, attendee_count: attendees.length, invited_count: b.invited_count ?? null,

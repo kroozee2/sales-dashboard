@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createLeadsAdminClient } from "@/lib/supabase-leads";
 import { helmDb } from "@/lib/helm-clients";
 import { matchHelmCall, resolveAttendance, type Attendee, type HelmGroupCall } from "@/lib/group-calls";
+import { WINDOW_DAYS, windowStart } from "@/lib/group-call-recap";
 
 // The weekly group client calls: who showed up, what to follow up on, whether
 // the recording went out, and the messages drafted for the WhatsApp groups.
@@ -80,7 +81,10 @@ export async function GET() {
     ...row,
     attendance: resolveAttendance(row as Row, matchHelmCall(row as Row, helm)),
   }));
-  return NextResponse.json({ calls });
+  // The list shows the last 60 days. "Today" is Andrew's, not the server's, so a
+  // Sunday-evening call does not fall out of the window at 5pm Pacific.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
+  return NextResponse.json({ calls, today, windowStart: windowStart(today), windowDays: WINDOW_DAYS });
 }
 
 // PATCH — the things Andrew marks by hand: recording sent, a reworded draft,
@@ -89,7 +93,7 @@ export async function PATCH(req: NextRequest) {
   const b = (await req.json().catch(() => ({}))) as { id?: string } & Record<string, unknown>;
   if (!b.id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const allowed = ["recording_sent", "fam_draft", "mastermind_draft", "follow_ups", "summary", "title", "attendees", "attendee_count"];
+  const allowed = ["recording_sent", "fam_draft", "mastermind_draft", "follow_ups", "summary", "title", "attendees", "attendee_count", "highlights"];
   const clean: Record<string, unknown> = {};
   for (const k of allowed) if (k in b) clean[k] = b[k];
 
@@ -99,6 +103,18 @@ export async function PATCH(req: NextRequest) {
     const n = Number(clean.attendee_count);
     if (!Number.isFinite(n) || n < 0) return NextResponse.json({ error: "attendee_count must be a number that is not negative" }, { status: 400 });
     clean.attendee_count = Math.floor(n);
+  }
+  // Highlights are a list of short lines. Anything else would render as garbage
+  // on a page members read, so it is refused rather than stored.
+  if ("highlights" in clean) {
+    const list = clean.highlights;
+    if (!Array.isArray(list) || !list.every((h) => typeof h === "string")) {
+      return NextResponse.json({ error: "highlights must be a list of text lines" }, { status: 400 });
+    }
+    clean.highlights = list.map((h) => h.trim()).filter(Boolean).slice(0, 12);
+  }
+  if ("title" in clean && (typeof clean.title !== "string" || !clean.title.trim())) {
+    return NextResponse.json({ error: "A call needs a title" }, { status: 400 });
   }
   if (b.recording_sent === true) clean.recording_sent_at = new Date().toISOString();
   if (b.recording_sent === false) clean.recording_sent_at = null;

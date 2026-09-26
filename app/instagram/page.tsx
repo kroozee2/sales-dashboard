@@ -125,12 +125,14 @@ function ReelIdeaSheet({
   onDate,
   busyIds,
   errors,
+  onAdd,
 }: {
   items: InstagramContentItem[];
   onStage: (item: InstagramContentItem, stage: ReelStage) => void;
   onDate: (item: InstagramContentItem, date: string) => void;
   busyIds: Set<string>;
   errors: Record<string, string>;
+  onAdd: (opener: HTMLElement) => void;
 }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
@@ -176,9 +178,21 @@ function ReelIdeaSheet({
   return (
     <section className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/70">
       <div className="border-b border-zinc-800 p-3 sm:p-4">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-base font-black text-white">Reel ideas</h2>
-          <span className="text-xs font-bold text-zinc-400">{counts.idea} idea · {counts.shot} shot · {counts.posted} posted</span>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 className="text-base font-black text-white">Reel ideas</h2>
+            <span className="text-xs font-bold text-zinc-400">{counts.idea} idea · {counts.shot} shot · {counts.posted} posted</span>
+          </div>
+          <button
+            type="button"
+            onClick={(event) => onAdd(event.currentTarget)}
+            aria-haspopup="dialog"
+            title="Add a Reel idea (N)"
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 px-4 py-2 text-xs font-black text-white shadow-lg shadow-pink-600/20 hover:from-pink-500 hover:to-purple-500"
+          >
+            ＋ New Reel idea
+            <kbd className="ml-1 hidden rounded border border-white/25 px-1 font-mono text-[10px] font-bold text-white/70 sm:inline">N</kbd>
+          </button>
         </div>
         <input
           value={query}
@@ -318,6 +332,10 @@ export default function InstagramPage() {
   const updatingIdsRef = useRef<Set<string>>(new Set());
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const quickTitleRef = useRef<HTMLInputElement>(null);
+  // Adding an idea happens in a drawer, so the sheet is the first thing on the
+  // tab. It stays open after each add for getting several ideas down at once.
+  const [addOpen, setAddOpen] = useState(false);
+  const addOpenerRef = useRef<HTMLElement | null>(null);
   const contentLoadSeqRef = useRef(0);
 
   function notify(tone: "success" | "error", text: string) {
@@ -475,6 +493,7 @@ export default function InstagramPage() {
       if (!res.ok || !json.item) throw new Error(json.error || "Reel idea could not be added");
       setQuickTitle("");
       setQuickShootDate("");
+      quickTitleRef.current?.focus();
       try {
         await loadContent();
         notify("success", `${json.idempotent ? "Already saved" : "Added"} "${payload.title}" in ${REEL_IDEA_TYPES.find((type) => type.key === quickIdeaType)?.label}.`);
@@ -488,6 +507,52 @@ export default function InstagramPage() {
       setAddingIdea(false);
     }
   }
+
+  function openAddIdea(opener?: HTMLElement | null, shootDate?: string) {
+    addOpenerRef.current = opener ?? (document.activeElement as HTMLElement | null);
+    if (shootDate !== undefined) setQuickShootDate(shootDate);
+    setAddOpen(true);
+  }
+
+  function closeAddIdea() {
+    setAddOpen(false);
+    const opener = addOpenerRef.current;
+    addOpenerRef.current = null;
+    window.setTimeout(() => opener?.focus(), 0);
+  }
+
+  useEffect(() => {
+    if (!addOpen) return;
+    quickTitleRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setAddOpen(false);
+      const opener = addOpenerRef.current;
+      addOpenerRef.current = null;
+      window.setTimeout(() => opener?.focus(), 0);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [addOpen]);
+
+  // "N" anywhere on the Ideas tab opens the drawer, unless you are typing.
+  useEffect(() => {
+    if (tab !== "ideas" || addOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "n" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable='true']")) return;
+      event.preventDefault();
+      addOpenerRef.current = document.activeElement as HTMLElement | null;
+      // A date left over from a calendar click is not this idea's date, unless
+      // an idea is already half-typed.
+      if (!quickTitle.trim()) setQuickShootDate("");
+      setAddOpen(true);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [tab, addOpen, quickTitle]);
 
   async function patchItem(id: string, patch: Record<string, unknown>) {
     if (updatingIdsRef.current.has(id)) return;
@@ -665,7 +730,9 @@ export default function InstagramPage() {
         </div>
       </div>
 
-      {notice && (
+      {/* While the add drawer is open its confirmation shows inside it, not on
+          top of its Add button. */}
+      {notice && !addOpen && (
         <div
           role={notice.tone === "error" ? "alert" : "status"}
           aria-live={notice.tone === "error" ? "assertive" : "polite"}
@@ -812,70 +879,13 @@ export default function InstagramPage() {
       {/* 💡 TAB 1: REEL IDEAS — a single running sheet */}
       {tab === "ideas" && (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-pink-500/25 bg-gradient-to-br from-pink-950/35 to-zinc-900 p-4 sm:p-5">
-            <div className="mb-4">
-              <h2 className="text-base font-black text-white">Add a Reel idea</h2>
-              <p className="mt-1 text-xs text-zinc-400">Type it, choose the kind, and add a shoot date only when you are ready.</p>
-            </div>
-            <div className="flex flex-col gap-3">
-              <label htmlFor="reel-idea-title" className="text-sm font-bold text-zinc-200">Reel idea</label>
-              <input
-                ref={quickTitleRef}
-                id="reel-idea-title"
-                maxLength={500}
-                value={quickTitle}
-                onChange={(event) => setQuickTitle(event.target.value)}
-                onKeyDown={(event) => { if (event.key === "Enter") void addReelIdea(); }}
-                placeholder="What's the Reel idea?"
-                autoComplete="off"
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-base text-white placeholder-zinc-400 focus:border-pink-500 focus:outline-none"
-              />
-              <div className="flex flex-wrap gap-2" role="group" aria-label="Reel type">
-                {REEL_IDEA_TYPES.map((type) => (
-                  <button
-                    key={type.key}
-                    type="button"
-                    onClick={() => setQuickIdeaType(type.key)}
-                    aria-pressed={quickIdeaType === type.key}
-                    className={cn(
-                      "min-h-11 rounded-full border px-4 py-2 text-sm font-bold transition-colors sm:text-xs",
-                      quickIdeaType === type.key
-                        ? "border-pink-500 bg-pink-500/20 text-pink-100"
-                        : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-600 hover:text-white",
-                    )}
-                  >
-                    {type.emoji} {type.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <label className="flex-1 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
-                  Shoot date <span className="normal-case font-medium text-zinc-400">(optional)</span>
-                  <input
-                    type="date"
-                    value={quickShootDate}
-                    onChange={(event) => setQuickShootDate(event.target.value)}
-                    className="mt-1.5 min-h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-base text-zinc-300 [color-scheme:dark] sm:text-sm"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => void addReelIdea()}
-                  disabled={!quickTitle.trim() || addingIdea}
-                  className="rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 px-6 py-3 text-sm font-black text-white shadow-lg shadow-pink-600/20 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {addingIdea ? "Adding…" : "＋ Add idea"}
-                </button>
-              </div>
-            </div>
-          </div>
-
           <ReelIdeaSheet
             items={reelIdeaItems}
             onStage={updateReelStage}
             onDate={updateReelShootDate}
             busyIds={updatingIds}
             errors={rowErrors}
+            onAdd={(opener) => openAddIdea(opener, quickTitle.trim() ? undefined : "")}
           />
         </div>
       )}
@@ -978,10 +988,9 @@ export default function InstagramPage() {
                       <button
                         type="button"
                         aria-label={`Add a Reel idea for ${dateStr}`}
-                        onClick={() => {
+                        onClick={(event) => {
                           setQuickShootDate(dateStr);
-                          quickTitleRef.current?.focus();
-                          quickTitleRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          openAddIdea(event.currentTarget);
                         }}
                         className="flex h-11 w-11 items-center justify-center rounded-lg text-lg font-bold text-zinc-300 hover:bg-zinc-700 hover:text-white"
                       >
@@ -1031,6 +1040,113 @@ export default function InstagramPage() {
         <InstagramModel view={tab} />
       )}
 
+      {/* ＋ Add a Reel idea: a drawer, so the sheet stays at the top of the tab */}
+      {addOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex justify-end bg-black/60 backdrop-blur-[2px]"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) closeAddIdea(); }}
+        >
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-reel-idea-title"
+            className="flex h-full w-full max-w-md flex-col border-l border-pink-500/25 bg-zinc-950 shadow-2xl"
+          >
+            <header className="flex items-start justify-between gap-4 border-b border-zinc-800 bg-gradient-to-br from-pink-950/60 to-zinc-950 p-5">
+              <div>
+                <h2 id="add-reel-idea-title" className="text-base font-black text-white">Add a Reel idea</h2>
+                <p className="mt-1 text-xs text-zinc-400">Type it, choose the kind, and add a shoot date only when you are ready. Press Enter to add; the drawer stays open for the next one.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeAddIdea}
+                aria-label="Close"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-white"
+              >
+                ✕
+              </button>
+            </header>
+
+            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-5">
+              <label htmlFor="reel-idea-title" className="text-sm font-bold text-zinc-200">Reel idea</label>
+              <input
+                ref={quickTitleRef}
+                id="reel-idea-title"
+                maxLength={500}
+                value={quickTitle}
+                onChange={(event) => setQuickTitle(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") void addReelIdea(); }}
+                placeholder="What's the Reel idea?"
+                autoComplete="off"
+                className="-mt-2 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-base text-white placeholder-zinc-400 focus:border-pink-500 focus:outline-none"
+              />
+              <div>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-400">Kind of Reel</p>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Reel type">
+                  {REEL_IDEA_TYPES.map((type) => (
+                    <button
+                      key={type.key}
+                      type="button"
+                      onClick={() => setQuickIdeaType(type.key)}
+                      aria-pressed={quickIdeaType === type.key}
+                      className={cn(
+                        "min-h-11 rounded-full border px-4 py-2 text-sm font-bold transition-colors sm:text-xs",
+                        quickIdeaType === type.key
+                          ? "border-pink-500 bg-pink-500/20 text-pink-100"
+                          : "border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-600 hover:text-white",
+                      )}
+                    >
+                      {type.emoji} {type.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                Shoot date <span className="normal-case font-medium text-zinc-400">(optional)</span>
+                <input
+                  type="date"
+                  value={quickShootDate}
+                  onChange={(event) => setQuickShootDate(event.target.value)}
+                  className="mt-1.5 min-h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-base text-zinc-300 [color-scheme:dark] sm:text-sm"
+                />
+              </label>
+            </div>
+
+            {notice && (
+              <p
+                role={notice.tone === "error" ? "alert" : "status"}
+                aria-live={notice.tone === "error" ? "assertive" : "polite"}
+                className={cn(
+                  "mx-5 mb-3 rounded-xl border px-3 py-2 text-xs font-bold",
+                  notice.tone === "error"
+                    ? "border-rose-500/50 bg-rose-950/80 text-rose-100"
+                    : "border-emerald-500/40 bg-emerald-950/80 text-emerald-100",
+                )}
+              >
+                {notice.tone === "error" ? "" : "✓ "}{notice.text}
+              </p>
+            )}
+
+            <footer className="flex gap-2 border-t border-zinc-800 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+              <button
+                type="button"
+                onClick={closeAddIdea}
+                className="rounded-xl border border-zinc-700 px-4 py-3 text-sm font-bold text-zinc-300 hover:border-zinc-500 hover:text-white"
+              >
+                Done
+              </button>
+              <button
+                type="button"
+                onClick={() => void addReelIdea()}
+                disabled={!quickTitle.trim() || addingIdea}
+                className="flex-1 rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 px-6 py-3 text-sm font-black text-white shadow-lg shadow-pink-600/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {addingIdea ? "Adding…" : "＋ Add idea"}
+              </button>
+            </footer>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

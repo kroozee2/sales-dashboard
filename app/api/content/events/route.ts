@@ -13,9 +13,11 @@ export const runtime = "nodejs";
 const EDITABLE = new Set([
   "title", "event_type", "start_date", "end_date", "price",
   "spots_goal", "signups", "page_url", "location", "notes",
+  // What the event actually did, filled in once it has run.
+  "completed_at", "attended", "conversions", "revenue", "recap",
 ]);
 
-const NUMERIC = new Set(["price", "spots_goal", "signups"]);
+const NUMERIC = new Set(["price", "spots_goal", "signups", "attended", "conversions", "revenue"]);
 const DATES = new Set(["start_date", "end_date"]);
 const MAX_TEXT = 4_000;
 
@@ -24,7 +26,7 @@ function clean(key: string, value: unknown): unknown {
   if (NUMERIC.has(key)) {
     const n = typeof value === "string" ? Number(value.replace(/[^\d.-]/g, "")) : value;
     if (typeof n !== "number" || !Number.isFinite(n) || n < 0) throw new Error(`${key} must be a number that is not negative`);
-    return key === "price" ? n : Math.floor(n);
+    return key === "price" || key === "revenue" ? n : Math.floor(n);
   }
   if (DATES.has(key)) {
     if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`${key} must be a date`);

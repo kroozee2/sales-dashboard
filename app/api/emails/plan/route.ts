@@ -12,6 +12,8 @@ export const runtime = "nodejs";
 const FIELDS = [
   "title", "subject", "planned_date", "status", "kind",
   "audience", "notes", "link_url", "ghl_schedule_id", "opens", "clicks",
+  // The email itself, written here and pasted into GoHighLevel to send.
+  "body",
 ] as const;
 
 const STATUSES = ["idea", "drafted", "scheduled", "sent", "skipped"];

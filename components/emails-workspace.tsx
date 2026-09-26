@@ -13,6 +13,7 @@ type PlanRow = {
   status: string; kind: string; audience: string | null; notes: string | null;
   link_url: string | null; ghl_schedule_id: string | null;
   opens: number | null; clicks: number | null;
+  body: string | null;
 };
 
 type Audience = {
@@ -52,7 +53,7 @@ const dayLabel = (iso: string) =>
 
 // ── Shell ────────────────────────────────────────────────────────────────────
 export default function EmailsWorkspace() {
-  const [tab, setTab] = useState<"dashboard" | "planner">("dashboard");
+  const [tab, setTab] = useState<"content" | "dashboard">("content");
   const [ghl, setGhl] = useState<GhlPayload | null>(null);
   const [plan, setPlan] = useState<PlanRow[] | null>(null);
   const [audience, setAudience] = useState<Audience | null>(null);
@@ -110,11 +111,11 @@ export default function EmailsWorkspace() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white">Emails</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            How the last 90 days performed, and what goes out next.
+            What is written, what is scheduled, and what has already gone out.
           </p>
         </div>
         <div className="flex gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1">
-          {([["dashboard", "Dashboard"], ["planner", "Planner"]] as const).map(([k, l]) => (
+          {([["content", "Content"], ["dashboard", "Performance"]] as const).map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)}
               className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
                 tab === k ? "bg-blue-600 text-white shadow" : "text-zinc-400 hover:text-white"}`}>
@@ -131,9 +132,9 @@ export default function EmailsWorkspace() {
         </div>
       )}
 
-      {tab === "dashboard"
-        ? <Dashboard ghl={ghl} error={ghlError} plan={plan} audience={audience} />
-        : <Planner ghl={ghl} plan={plan} onAdd={addPlan} onSave={savePlan} onRemove={removePlan} />}
+      {tab === "content"
+        ? <Planner ghl={ghl} plan={plan} onAdd={addPlan} onSave={savePlan} onRemove={removePlan} />
+        : <Dashboard ghl={ghl} error={ghlError} plan={plan} audience={audience} />}
     </div>
   );
 }
@@ -378,8 +379,26 @@ function Planner({ ghl, plan, onAdd, onSave, onRemove }: {
   const upcoming = plan.filter((r) => r.status !== "sent" && r.status !== "skipped");
   const done = plan.filter((r) => r.status === "sent" || r.status === "skipped");
 
+  // The high-level read: what exists, what is booked, what has landed.
+  const written = plan.filter((r) => (r.body ?? "").trim().length > 0).length;
+  const scheduled = plan.filter((r) => r.status === "scheduled").length;
+  const delivered = (ghl?.sent ?? []).reduce((n, c) => n + c.delivered, 0);
+  const lastSend = ghl?.sent?.[0];
+
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <SummaryTile label="In the pipeline" value={String(upcoming.length)} hint="planned, not yet sent" />
+        <SummaryTile label="Written" value={String(written)} hint="have a draft body" accent="text-blue-400" />
+        <SummaryTile label="Scheduled" value={String(scheduled)} hint="booked in GoHighLevel" accent="text-violet-400" />
+        <SummaryTile
+          label="Delivered, 90 days"
+          value={delivered ? delivered.toLocaleString() : "—"}
+          hint={lastSend ? `last send ${new Date(lastSend.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "no sends yet"}
+          accent="text-emerald-400"
+        />
+      </div>
+
       <div className="flex flex-wrap items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1">
         {([["upcoming", `Going out${upcoming.length ? ` · ${upcoming.length}` : ""}`],
            ["calendar", "Calendar"],
@@ -439,6 +458,97 @@ function MatchHint({ plan, sent, onSave }: {
 }
 
 // ── Upcoming spreadsheet ─────────────────────────────────────────────────────
+
+/** Write the email here, then paste it into GoHighLevel to send. */
+function Composer({ row, onSave, onClose }: {
+  row: PlanRow; onSave: (id: string, f: Partial<PlanRow>) => Promise<void>; onClose: () => void;
+}) {
+  const [subject, setSubject] = useState(row.subject ?? "");
+  const [body, setBody] = useState(row.body ?? "");
+  const [copied, setCopied] = useState<string | null>(null);
+  const dirty = subject !== (row.subject ?? "") || body !== (row.body ?? "");
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const words = body.trim() ? body.trim().split(/\s+/).length : 0;
+
+  async function copy(text: string, note: string) {
+    try { await navigator.clipboard.writeText(text); setCopied(note); setTimeout(() => setCopied(null), 1800); }
+    catch { setCopied("could not copy"); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex justify-end" role="dialog" aria-modal="true" aria-label={`Write ${row.title}`}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
+      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl">
+        <header className="flex items-start gap-3 border-b border-zinc-800 p-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] uppercase tracking-wider text-zinc-500">
+              {row.planned_date ? new Date(`${row.planned_date}T12:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "no date yet"}
+              {" · "}{row.kind}
+            </p>
+            <h2 className="truncate text-lg font-bold text-white">{row.title}</h2>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="rounded-lg p-1.5 text-xl leading-none text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200">×</button>
+        </header>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
+          <label className="block">
+            <span className="mb-1 block text-[11px] uppercase tracking-wider text-zinc-500">Subject line</span>
+            <input value={subject} onChange={(e) => setSubject(e.target.value)}
+              placeholder="The line that decides whether it gets opened"
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-blue-500 focus:outline-none" />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 flex items-baseline justify-between text-[11px] uppercase tracking-wider text-zinc-500">
+              <span>The email</span>
+              <span className="text-zinc-600">{words} word{words === 1 ? "" : "s"}</span>
+            </span>
+            <textarea value={body} onChange={(e) => setBody(e.target.value)}
+              placeholder={"Write it the way you would say it.\n\nShort paragraphs. One idea. One ask at the end."}
+              className="h-[46vh] w-full resize-none rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm leading-relaxed text-zinc-100 placeholder:text-zinc-600 focus:border-blue-500 focus:outline-none" />
+          </label>
+        </div>
+
+        <footer className="flex flex-wrap items-center gap-2 border-t border-zinc-800 p-4">
+          <button onClick={() => void onSave(row.id, { subject: subject || null, body: body || null }).then(onClose)}
+            disabled={!dirty}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-40">
+            {dirty ? "Save" : "Saved"}
+          </button>
+          <button onClick={() => void copy(body, "Email copied")}
+            disabled={!body.trim()}
+            className="rounded-lg border border-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-40">
+            Copy the email
+          </button>
+          <button onClick={() => void copy(subject, "Subject copied")}
+            disabled={!subject.trim()}
+            className="rounded-lg border border-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-40">
+            Copy the subject
+          </button>
+          {copied && <span className="text-xs text-emerald-400">{copied}</span>}
+          <span className="ml-auto text-[11px] text-zinc-600">Paste into GoHighLevel to send. Nothing sends from here.</span>
+        </footer>
+      </aside>
+    </div>
+  );
+}
+
+function SummaryTile({ label, value, hint, accent = "text-white" }: { label: string; value: string; hint: string; accent?: string }) {
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+      <div className="text-[10px] uppercase tracking-[0.15em] text-zinc-500">{label}</div>
+      <p className={`mt-1.5 text-2xl font-bold tabular-nums ${accent}`}>{value}</p>
+      <p className="text-[11px] text-zinc-600">{hint}</p>
+    </div>
+  );
+}
+
 function UpcomingGrid({ rows, archived, onAdd, onSave, onRemove }: {
   rows: PlanRow[]; archived: PlanRow[];
   onAdd: (f: Partial<PlanRow>) => Promise<PlanRow | null>;
@@ -447,6 +557,7 @@ function UpcomingGrid({ rows, archived, onAdd, onSave, onRemove }: {
 }) {
   const [adding, setAdding] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [writing, setWriting] = useState<PlanRow | null>(null);
   const list = showArchived ? [...rows, ...archived] : rows;
 
   return (
@@ -455,7 +566,8 @@ function UpcomingGrid({ rows, archived, onAdd, onSave, onRemove }: {
         <div>
           <h3 className="text-sm font-semibold text-white">What is going out</h3>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Edit any cell. It saves as you go. You build and send in GoHighLevel; this is the plan around it.
+            Click a title to write the email. Every other cell edits in place and saves as you go.
+            GoHighLevel does the sending.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -471,6 +583,8 @@ function UpcomingGrid({ rows, archived, onAdd, onSave, onRemove }: {
       </div>
 
       {adding && <AddRow onCancel={() => setAdding(false)} onAdd={async (f) => { await onAdd(f); setAdding(false); }} />}
+
+      {writing && <Composer row={writing} onSave={onSave} onClose={() => setWriting(null)} />}
 
       <div className="overflow-x-auto rounded-xl border border-zinc-800">
         <table className="w-full min-w-[980px] text-sm">
@@ -494,7 +608,14 @@ function UpcomingGrid({ rows, archived, onAdd, onSave, onRemove }: {
                     onBlur={(e) => e.target.value !== (r.planned_date ?? "") && onSave(r.id, { planned_date: e.target.value || null })}
                     className="w-[130px] rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-zinc-300 hover:border-zinc-700 focus:border-blue-500 focus:outline-none" />
                 </td>
-                <Cell value={r.title} width={200} bold onCommit={(v) => v && onSave(r.id, { title: v })} />
+                <td className="px-2 py-1.5">
+                  <button onClick={() => setWriting(r)} title="Write this email"
+                    className="flex w-[200px] items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs font-medium text-white hover:bg-zinc-800">
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${(r.body ?? "").trim() ? "bg-emerald-400" : "bg-zinc-700"}`}
+                      title={(r.body ?? "").trim() ? "written" : "not written yet"} />
+                    <span className="truncate">{r.title}</span>
+                  </button>
+                </td>
                 <Cell value={r.subject ?? ""} width={230} placeholder="subject line" onCommit={(v) => onSave(r.id, { subject: v || null })} />
                 <td className="px-2 py-1.5">
                   <select value={r.kind} onChange={(e) => onSave(r.id, { kind: e.target.value })}

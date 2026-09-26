@@ -19,7 +19,30 @@ export type BoardEvent = {
   page_url: string | null;
   location: string | null;
   notes: string | null;
+  /** Set when Andrew marks the event done. Everything below is what it did. */
+  completed_at?: string | null;
+  attended?: number | null;
+  conversions?: number | null;
+  revenue?: number | null;
+  recap?: string | null;
 };
+
+export const isComplete = (e: BoardEvent) => Boolean(e.completed_at);
+
+/** An event that has been and gone but was never closed out. */
+export const awaitingResults = (e: BoardEvent, today = new Date()) =>
+  !isComplete(e) && Boolean(e.start_date) && new Date(`${e.start_date}T12:00`) < today;
+
+export type CompletedTotals = { events: number; attended: number; conversions: number; revenue: number; rate: number | null };
+
+/** Only counts what has actually been filled in, so a blank stays blank. */
+export function completedTotals(events: BoardEvent[]): CompletedTotals {
+  const done = events.filter(isComplete);
+  const attended = done.reduce((n, e) => n + (e.attended ?? 0), 0);
+  const conversions = done.reduce((n, e) => n + (e.conversions ?? 0), 0);
+  const revenue = done.reduce((n, e) => n + (e.revenue ?? 0), 0);
+  return { events: done.length, attended, conversions, revenue, rate: attended > 0 ? conversions / attended : null };
+}
 
 /**
  * The mechanisms that ask for money. A free webinar and a JV workshop build the

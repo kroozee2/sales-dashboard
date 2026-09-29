@@ -14,8 +14,9 @@ const EDITABLE = ["status", "notes", "booked_call"] as const;
 export async function GET() {
   const { data, error } = await db
     .from("paid_trials")
-    .select("*")
-    .order("created_at", { ascending: false });
+    .select("*, paid_trial_messages(*)")
+    .order("created_at", { ascending: false })
+    .order("created_at", { ascending: true, referencedTable: "paid_trial_messages" });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data ?? []);
 }

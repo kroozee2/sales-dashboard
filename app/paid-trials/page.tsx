@@ -13,6 +13,18 @@ interface Trial {
   phone: string | null;
   video_watched_at: string | null;
   chat_joined_at: string | null;
+  app_status: string;
+  app_error: string | null;
+  app_invited_at: string | null;
+  app_expires_at: string | null;
+  app_first_login_at: string | null;
+  app_last_login_at: string | null;
+  nudge1_sent_at: string | null;
+  nudge2_sent_at: string | null;
+  calendar_status: string;
+  calendar_detail: string | null;
+  calendar_updated_at: string | null;
+  paid_trial_messages?: TrialMessage[];
   business_type: string | null;
   monthly_revenue: string | null;
   qualifies_for_call: boolean;
@@ -31,6 +43,48 @@ interface Trial {
   ai_plan: string | null;
   ai_plan_generated_at: string | null;
 }
+
+interface TrialMessage {
+  id: string;
+  created_at: string;
+  kind: string;
+  channel: string;
+  status: string;
+  detail: string | null;
+}
+
+// One-line read of where their Mastermind app access stands.
+function appState(t: Trial): { label: string; badge: string } {
+  if (t.app_first_login_at) return { label: "📱 Logged in", badge: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" };
+  switch (t.app_status) {
+    case "invited":
+      return { label: "📱 Invited, not in yet", badge: "bg-amber-500/10 text-amber-300 border-amber-500/30" };
+    case "existing_account":
+      return { label: "📱 Has existing login", badge: "bg-sky-500/10 text-sky-300 border-sky-500/30" };
+    case "failed":
+      return { label: "📱 Invite failed", badge: "bg-red-500/10 text-red-300 border-red-500/30" };
+    case "pending":
+    case "provisioning":
+      return { label: "📱 Sending login…", badge: "bg-zinc-800 text-zinc-400 border-zinc-700" };
+    default:
+      return { label: "📱 No app invite", badge: "bg-zinc-800 text-zinc-500 border-zinc-700" };
+  }
+}
+
+const KIND_LABEL: Record<string, string> = {
+  invite: "Login invite",
+  invite_existing: "Login invite (existing account)",
+  nudge1: "Nudge 1 (24h)",
+  nudge2: "Nudge 2 (72h)",
+};
+
+const CAL_LABEL: Record<string, string> = {
+  queued: "⏳ Queued for the Mini worker",
+  sent: "✅ Invited to this week's calls",
+  partial: "⚠️ Some invites failed",
+  failed: "❌ Calendar invites failed",
+  skipped: "— Not sent",
+};
 
 const STATUSES = ["new", "onboarded", "converted", "not_fit"] as const;
 type Status = (typeof STATUSES)[number];
@@ -146,6 +200,8 @@ export default function PaidTrialsPage() {
       week: rows.filter((r) => r.created_at && now - new Date(r.created_at).getTime() < 7 * 86400000).length,
       qualified: rows.filter((r) => r.qualifies_for_call).length,
       booked: rows.filter((r) => r.booked_call).length,
+      invited: rows.filter((r) => r.app_status === "invited" || r.app_status === "existing_account").length,
+      inApp: rows.filter((r) => r.app_first_login_at).length,
     };
   }, [rows]);
 
@@ -172,11 +228,12 @@ export default function PaidTrialsPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
         <StatTile label="Total" value={stats.total} />
         <StatTile label="Last 7 days" value={stats.week} accent="text-blue-300" />
         <StatTile label="$10K+/mo" value={stats.qualified} accent="text-emerald-300" />
         <StatTile label="Calls booked" value={stats.booked} accent="text-violet-300" />
+        <StatTile label="In the app" value={stats.invited ? `${stats.inApp}/${stats.invited}` : "—"} accent="text-sky-300" />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-5">
@@ -260,6 +317,9 @@ export default function PaidTrialsPage() {
                     <span className="text-[11px] rounded-md px-2 py-1 bg-violet-500/15 text-violet-300 border border-violet-500/30">
                       📅 Booked
                     </span>
+                  )}
+                  {r.app_status !== "skipped" && (
+                    <span className={`text-[11px] rounded-md px-2 py-1 border ${appState(r).badge}`}>{appState(r).label}</span>
                   )}
                   {r.chat_joined_at ? (
                     <span className="text-[11px] rounded-md px-2 py-1 bg-green-500/10 text-green-300 border border-green-500/30">
@@ -388,6 +448,8 @@ function Detail({
             )}
           </div>
 
+          {t.app_status !== "skipped" && <AppAccess t={t} />}
+
           {/* status */}
           <div>
             <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-2">Status</p>
@@ -473,6 +535,56 @@ function Detail({
           </button>
         </div>
       </aside>
+    </div>
+  );
+}
+
+function AppAccess({ t }: { t: Trial }) {
+  const st = appState(t);
+  const msgs = t.paid_trial_messages ?? [];
+  const expired = t.app_expires_at && new Date(t.app_expires_at).getTime() < Date.now();
+  const rows: [string, React.ReactNode][] = [
+    ["Login sent", t.app_invited_at ? fmtFull(t.app_invited_at) : "—"],
+    ["First login", t.app_first_login_at ? fmtFull(t.app_first_login_at) : "Not yet"],
+    ["Last login", t.app_last_login_at ? fmtFull(t.app_last_login_at) : "—"],
+    [
+      "Access ends",
+      t.app_expires_at ? `${fmtFull(t.app_expires_at)}${expired ? " (ended)" : ""} · lifts when you set them active in Helm` : "—",
+    ],
+    ["Nudges", `24h: ${t.nudge1_sent_at ? fmtFull(t.nudge1_sent_at) : t.app_first_login_at ? "not needed" : "pending"} · 72h: ${t.nudge2_sent_at ? fmtFull(t.nudge2_sent_at) : t.app_first_login_at ? "not needed" : "pending"}`],
+    ["Calendar", <span key="cal">{CAL_LABEL[t.calendar_status] ?? t.calendar_status}{t.calendar_detail ? <span className="block text-zinc-500 text-xs mt-0.5">{t.calendar_detail}</span> : null}</span>],
+  ];
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mastermind app access</p>
+        <span className={`text-[11px] rounded-md px-2 py-1 border ${st.badge}`}>{st.label}</span>
+      </div>
+      {t.app_error && <p className="mt-2 text-xs text-red-300 break-words">{t.app_error}</p>}
+      <dl className="mt-3 space-y-1.5">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex gap-3 text-sm">
+            <dt className="w-24 shrink-0 text-zinc-500">{k}</dt>
+            <dd className="text-zinc-200 min-w-0">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      {msgs.length > 0 && (
+        <div className="mt-4 border-t border-zinc-800 pt-3 space-y-1.5">
+          <p className="text-[10px] uppercase tracking-wide text-zinc-500">Messages via GHL</p>
+          {msgs.map((m) => (
+            <div key={m.id} className="flex items-baseline gap-2 text-xs">
+              <span className={m.status === "sent" ? "text-emerald-400" : m.status === "failed" ? "text-red-400" : "text-zinc-500"}>
+                {m.status === "sent" ? "✓" : m.status === "failed" ? "✕" : "–"}
+              </span>
+              <span className="text-zinc-300">{KIND_LABEL[m.kind] ?? m.kind}</span>
+              <span className="text-zinc-500 uppercase">{m.channel}</span>
+              <span className="text-zinc-600">{fmtWhen(m.created_at)}</span>
+              {m.status !== "sent" && m.detail && <span className="text-zinc-500 truncate">{m.detail}</span>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

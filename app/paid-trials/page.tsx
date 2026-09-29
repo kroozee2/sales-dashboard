@@ -12,6 +12,7 @@ interface Trial {
   email: string | null;
   phone: string | null;
   video_watched_at: string | null;
+  chat_joined_at: string | null;
   business_type: string | null;
   monthly_revenue: string | null;
   qualifies_for_call: boolean;
@@ -260,6 +261,15 @@ export default function PaidTrialsPage() {
                       📅 Booked
                     </span>
                   )}
+                  {r.chat_joined_at ? (
+                    <span className="text-[11px] rounded-md px-2 py-1 bg-green-500/10 text-green-300 border border-green-500/30">
+                      💬 Trial Fam
+                    </span>
+                  ) : (
+                    <span className="text-[11px] rounded-md px-2 py-1 bg-zinc-800 text-zinc-500 border border-zinc-700">
+                      Not in chat
+                    </span>
+                  )}
                   {r.ai_plan && (
                     <span className="text-[11px] rounded-md px-2 py-1 bg-sky-500/10 text-sky-300 border border-sky-500/30">
                       ✨ AI plan
@@ -330,6 +340,7 @@ function Detail({
             <p className="text-zinc-500 text-xs">
               Onboarded {fmtFull(t.created_at)}
               {t.video_watched_at ? " · watched values video" : ""}
+              {t.chat_joined_at ? " · tapped Join Trial Fam" : " · hasn't joined Trial Fam"}
             </p>
           </div>
           <button onClick={onClose} className="text-zinc-500 hover:text-white text-xl leading-none px-2">

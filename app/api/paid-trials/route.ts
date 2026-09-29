@@ -8,7 +8,7 @@ const db = createClient(
 
 // Rows come from the $47 trial welcome page (github.com/kroozee2/trial-welcome).
 // Only the workflow columns are editable from here; the member's answers are not.
-const EDITABLE = ["status", "notes", "booked_call"] as const;
+const EDITABLE = ["status", "notes", "booked_call", "converted_amount", "converted_offer", "converted_at"] as const;
 
 // GET — every paid trial onboarding, newest first
 export async function GET() {

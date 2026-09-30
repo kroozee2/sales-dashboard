@@ -40,6 +40,34 @@ function nullableString(item: Record<string, unknown>, key: string, limit: numbe
   return boundedText(value, limit);
 }
 
+function nullableFormText(item: Record<string, unknown>, key: string, limit: number): string {
+  if (!Object.prototype.hasOwnProperty.call(item, key)) throw new Error(`Read-tool field ${key} is required.`);
+  const value = item[key];
+  if (value === null) return '';
+  if (typeof value !== 'string') throw new Error(`Read-tool field ${key} must be a string or null.`);
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value)) throw new Error(`Read-tool field ${key} contains invalid control characters.`);
+  return boundedText(value, limit);
+}
+
+function nullableTimestamp(item: Record<string, unknown>, key: string): string {
+  if (!Object.prototype.hasOwnProperty.call(item, key)) throw new Error(`Read-tool field ${key} is required.`);
+  const raw = item[key];
+  if (raw === null) return '';
+  if (typeof raw !== 'string' || raw.length > 80) throw new Error(`Read-tool field ${key} must be a valid timestamp or null.`);
+  const value = raw;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(Z|[+-](\d{2}):(\d{2}))$/.exec(value);
+  if (!match) throw new Error(`Read-tool field ${key} must be a valid timestamp or null.`);
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , offsetHourText, offsetMinuteText] = match;
+  const year = Number(yearText); const month = Number(monthText); const day = Number(dayText);
+  const hour = Number(hourText); const minute = Number(minuteText); const second = Number(secondText);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const offsetHour = offsetHourText === undefined ? 0 : Number(offsetHourText);
+  const offsetMinute = offsetMinuteText === undefined ? 0 : Number(offsetMinuteText);
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1] || hour > 23 || minute > 59 || second > 59 || offsetHour > 14 || (offsetHour === 14 && offsetMinute !== 0) || offsetMinute > 59 || !Number.isFinite(Date.parse(value))) throw new Error(`Read-tool field ${key} must be a valid timestamp or null.`);
+  return value;
+}
+
 function nullableHttpsUrl(item: Record<string, unknown>, keys: string[]): string {
   for (const key of keys) {
     const value = item[key];
@@ -61,7 +89,28 @@ function validatedRows(value: unknown): Record<string, unknown>[] {
   return value.map(record);
 }
 
-export function serializeValidatedReadToolResult(tool: string, value: unknown): string {
+export function parsePaidTrialSearchInput(value: unknown): { query: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid paid-trial search input.');
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).join(',') !== 'query' || typeof input.query !== 'string') throw new Error('Invalid paid-trial search input.');
+  if (RAW_CONTROL_PATTERN.test(input.query)) throw new Error('Invalid paid-trial search input.');
+  const query = input.query.trim();
+  if (query.length < 2 || query.length > 120) throw new Error('Invalid paid-trial search input.');
+  return { query };
+}
+
+export function paidTrialMatchesQuery(value: unknown, query: string): boolean {
+  const item = record(value);
+  const needle = query.toLocaleLowerCase('en-US');
+  return ['first_name', 'last_name', 'email', 'phone'].some((key) => {
+    const field = item[key];
+    if (field === null || field === undefined) return false;
+    if (typeof field !== 'string') throw new Error(`Paid-trial search field ${key} must be a string or null.`);
+    return field.toLocaleLowerCase('en-US').includes(needle);
+  });
+}
+
+export function serializeValidatedReadToolResult(tool: string, value: unknown, context: { origin?: string } = {}): string {
   if (tool === 'search_leads' || tool === 'list_recent_leads') {
     const sourceRows = validatedRows(value); const limit = tool === 'search_leads' ? 5 : 8;
     if (sourceRows.length > limit) throw new Error(`Read-tool result exceeds the ${limit}-record limit.`);
@@ -118,6 +167,52 @@ export function serializeValidatedReadToolResult(tool: string, value: unknown): 
     }
     return boundedJson(output);
   }
+  if (tool === 'list_recent_paid_trials' || tool === 'search_paid_trials') {
+    const envelope = record(value);
+    if (Object.keys(envelope).sort().join(',') !== 'items,omitted') throw new Error('Invalid paid-trial result envelope.');
+    if (!Number.isSafeInteger(envelope.omitted) || Number(envelope.omitted) < 0) throw new Error('Invalid paid-trial omitted count.');
+    const sourceRows = validatedRows(envelope.items);
+    const limit = tool === 'search_paid_trials' ? 5 : 8;
+    if (sourceRows.length > limit) throw new Error(`Read-tool result exceeds the ${limit}-record limit.`);
+    if (typeof context.origin !== 'string') throw new Error('Paid-trial detail origin is required.');
+    const origin = new URL(context.origin);
+    if (!['http:', 'https:'].includes(origin.protocol) || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash || origin.origin !== context.origin) throw new Error('Paid-trial detail origin is invalid.');
+    const rows = sourceRows.map((item) => {
+      const id = nullableString(item, 'id', 36, true);
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new Error('Paid-trial id must be a UUID.');
+      const stripeSessionId = nullableString(item, 'stripe_session_id', 255, true);
+      if (!stripeSessionId.startsWith('cs_live')) throw new Error('Paid-trial result is not a live Stripe purchaser.');
+      if (!Object.prototype.hasOwnProperty.call(item, 'qualifies_for_call') || typeof item.qualifies_for_call !== 'boolean') throw new Error('Paid-trial field qualifies_for_call must be a boolean.');
+      const stringArray = (key: string) => {
+        if (!Object.prototype.hasOwnProperty.call(item, key)) throw new Error(`Read-tool field ${key} is required.`);
+        const raw = item[key];
+        if (raw === null) return [];
+        if (!Array.isArray(raw) || raw.length > 20 || raw.some((entry) => typeof entry !== 'string' || RAW_CONTROL_PATTERN.test(entry))) throw new Error(`Paid-trial field ${key} must be a bounded string array or null.`);
+        return raw.map((entry) => boundedText(entry, 240));
+      };
+      return {
+        id,
+        first_name: nullableString(item, 'first_name', 100, true),
+        last_name: nullableString(item, 'last_name', 100, true),
+        email: nullableString(item, 'email', 320, true),
+        phone: nullableString(item, 'phone', 80, true),
+        purchased_at: nullableTimestamp(item, 'created_at'),
+        onboarding_submitted_at: nullableTimestamp(item, 'onboarding_submitted_at'),
+        business_type: nullableFormText(item, 'business_type', 240),
+        monthly_revenue: nullableFormText(item, 'monthly_revenue', 120),
+        qualifies_for_call: item.qualifies_for_call,
+        who_and_result: nullableFormText(item, 'who_and_result', 1000),
+        offer_links: nullableFormText(item, 'offer_links', 1000),
+        lead_sources: stringArray('lead_sources'),
+        ai_tools: stringArray('ai_tools'),
+        time_leaks: stringArray('time_leaks'),
+        why_now: nullableFormText(item, 'why_now', 1000),
+        contribution: nullableFormText(item, 'contribution', 1000),
+        detail_url: new URL(`/paid-trials?id=${encodeURIComponent(id)}`, origin).href,
+      };
+    });
+    return boundedJson({ items: rows, omitted: envelope.omitted });
+  }
   if (tool === 'list_fathom_recordings') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Fathom result envelope is required.');
     const envelope = value as Record<string, unknown>;
@@ -151,6 +246,19 @@ export function summarizeReadResult(tool: string, result: string): string | null
 ${value.slice(0, 8).map((row) => { const item = row as Record<string, unknown>; return `• ${boundedText(item.full_name) || 'Unnamed'} | stage: ${boundedText(item.prospect_stage) || 'not set'} | quality: ${boundedText(item.quality) || 'not set'} | source: ${boundedText(item.source) || 'not set'}${item.notes ? ` | notes: ${boundedText(item.notes)}` : ''}`; }).join('\n')}` : 'No matching leads were found.';
     if ((tool === 'search_sales_calls' || tool === 'list_recent_sales_calls') && Array.isArray(value)) return value.length ? `Sales calls found:
 ${value.slice(0, 8).map((row) => { const item = row as Record<string, unknown>; const objections = Array.isArray(item.objections) ? item.objections.map((entry) => boundedText(entry, 120)).filter(Boolean).join(', ') : boundedText(item.objections); return `• ${boundedText(item.name) || 'Unnamed'} | date: ${boundedText(item.call_date) || 'not set'} | result: ${boundedText(item.result) || 'not set'} | offer: ${boundedText(item.offer) || 'not set'} | deal amount: ${boundedText(item.deal_amount) || 'not set'} | objections: ${objections || 'not recorded'} | objection notes: ${boundedText(item.objections_notes) || 'not recorded'} | recording: ${boundedText(item.recording_url, 500) || 'not available'}${item.call_notes ? ` | call notes: ${boundedText(item.call_notes)}` : ''}`; }).join('\n')}` : 'No matching sales calls were found.';
+    if ((tool === 'list_recent_paid_trials' || tool === 'search_paid_trials') && value && typeof value === 'object' && !Array.isArray(value)) {
+      const envelope = value as { items?: unknown; omitted?: unknown };
+      if (!Array.isArray(envelope.items) || !Number.isSafeInteger(envelope.omitted) || Number(envelope.omitted) < 0) return null;
+      const rows = envelope.items.map((row) => {
+        const item = row as Record<string, unknown>;
+        const name = `${boundedText(item.first_name)} ${boundedText(item.last_name)}`.trim() || 'Unnamed purchaser';
+        const list = (key: string) => Array.isArray(item[key]) ? (item[key] as unknown[]).map((entry) => boundedText(entry, 240)).filter(Boolean).join(', ') : '';
+        return `• ${name} | phone: ${boundedText(item.phone) || 'not provided'} | email: ${boundedText(item.email) || 'not provided'} | purchased: ${boundedText(item.purchased_at) || 'not available'} | onboarding submitted: ${boundedText(item.onboarding_submitted_at) || 'not submitted'} | business type: ${boundedText(item.business_type) || 'not provided'} | monthly revenue: ${boundedText(item.monthly_revenue) || 'not provided'} | qualifies for call: ${item.qualifies_for_call === true ? 'yes' : 'no'} | who and result: ${boundedText(item.who_and_result) || 'not provided'} | offer links: ${boundedText(item.offer_links) || 'not provided'} | lead sources: ${list('lead_sources') || 'not provided'} | AI tools: ${list('ai_tools') || 'not provided'} | time leaks: ${list('time_leaks') || 'not provided'} | why now: ${boundedText(item.why_now) || 'not provided'} | contribution: ${boundedText(item.contribution) || 'not provided'} | detail: ${boundedText(item.detail_url, 500)}`;
+      });
+      const notice = Number(envelope.omitted) > 0 ? `${String(envelope.omitted)} additional paid trial${Number(envelope.omitted) === 1 ? '' : 's'} omitted.` : '';
+      return rows.length ? `Paid trial purchasers found:${notice ? ` ${notice}` : ''}
+${rows.join('\n')}` : `No matching paid trial purchasers were found.${notice ? ` ${notice}` : ''}`;
+    }
     if (tool === 'search_ghl' && Array.isArray(value)) return value.length ? `GHL contacts found:
 ${value.slice(0, 8).map((row) => { const item = row as Record<string, unknown>; return `• ${boundedText(item.name) || 'Unnamed'} | email: ${boundedText(item.email) || 'not set'} | phone: ${boundedText(item.phone) || 'not set'}`; }).join('\n')}` : 'No matching GHL contacts were found.';
     if (tool === 'find_socials' && value && typeof value === 'object' && !Array.isArray(value)) { const entries = Object.entries(value as Record<string, unknown>).filter(([, item]) => boundedText(item)).slice(0, 8); return entries.length ? `Social profiles found:

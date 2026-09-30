@@ -25,6 +25,7 @@ type JarvisResult = {
 };
 
 const STARTERS = [
+  'Paid Trial Bot · List recent paid trial purchasers with contact details, timing, and all onboarding answers.',
   'List my newest leads with stage, quality, source, and note excerpts.',
   'List my recent sales calls with outcomes, bounded objection and note excerpts, deal amounts, and recording links.',
   'Find Doc’s call and show bounded excerpts of recorded objections and objection notes.',
@@ -700,7 +701,7 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
                   >
                     {phase === 'listening' ? '■' : '🎙️'}
                   </button>
-                  <textarea aria-label="Command for Jarvis" value={input} disabled={phase === 'listening'} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); void runCommand(input); } }} rows={1} placeholder="Ask Jarvis to look up leads, calls, contacts, or recordings…" className="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-3 text-base sm:text-sm text-white outline-none placeholder:text-slate-400" />
+                  <textarea aria-label="Command for Jarvis" value={input} disabled={phase === 'listening'} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); void runCommand(input); } }} rows={1} placeholder="Ask Jarvis about paid trials, leads, calls, contacts, or recordings…" className="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-2 py-3 text-base sm:text-sm text-white outline-none placeholder:text-slate-400" />
                   <button type="submit" disabled={!input.trim() || phase === 'thinking' || phase === 'listening' || phase === 'speaking'} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-cyan-400 text-lg font-bold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-30" aria-label="Send command">↑</button>
                 </form>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -756,6 +757,7 @@ export default function JarvisWorkspace({ initialTab }: { initialTab: WorkspaceT
           <div className="mt-7 rounded-2xl border border-cyan-400/10 bg-gradient-to-br from-cyan-400/[0.07] to-blue-500/[0.03] p-4">
             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-cyan-200">Current reach</div>
             <ul className="mt-3 space-y-2 text-xs text-slate-400">
+              <li>• Paid Trial Bot: list recent purchasers or search paid trials by name, email, or phone</li>
               <li>• Read leads and pipeline details</li>
               <li>• Inspect sales-call outcomes and objections</li>
               <li>• List recent Fathom recordings and links</li>

@@ -21,7 +21,27 @@ interface Application {
   notes: string | null;
   booked_call: boolean;
   source: string | null;
+  // Set when they submit the last question. Null = started (name, email and
+  // phone are in) but not finished yet, so they can be followed up.
+  completed_at: string | null;
+  last_step: number | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  referrer: string | null;
 }
+
+// The Mastermind form has 11 questions; last_step counts answered questions.
+const TOTAL_STEPS = 11;
+
+const PROGRESS = ["all", "completed", "started"] as const;
+type Progress = (typeof PROGRESS)[number];
+const PROGRESS_LABEL: Record<Progress, string> = {
+  all: "All",
+  completed: "Completed",
+  started: "Not finished",
+};
+const isDone = (a: Application) => Boolean(a.completed_at);
 
 const STATUSES = ["new", "reviewing", "approved", "declined"] as const;
 type Status = (typeof STATUSES)[number];
@@ -59,6 +79,10 @@ const SOURCE_META: Record<string, { label: string; badge: string }> = {
   "skool-launch": {
     label: "Skool Launch",
     badge: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  },
+  "profit-page": {
+    label: "Profit Page",
+    badge: "bg-yellow-500/15 text-yellow-200 border-yellow-500/30",
   },
 };
 
@@ -136,6 +160,7 @@ export default function ApplicationsPage() {
   const [open, setOpen] = useState<Application | null>(null);
   const [filter, setFilter] = useState<"all" | Status>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [progress, setProgress] = useState<Progress>("all");
   const [q, setQ] = useState("");
 
   const load = useCallback(async () => {
@@ -174,6 +199,8 @@ export default function ApplicationsPage() {
     const needle = q.trim().toLowerCase();
     return apps.filter((a) => {
       if (filter !== "all" && a.status !== filter) return false;
+      if (progress === "completed" && !isDone(a)) return false;
+      if (progress === "started" && isDone(a)) return false;
       if (sourceFilter !== "all" && (a.source ?? "unknown") !== sourceFilter)
         return false;
       if (!needle) return true;
@@ -189,7 +216,7 @@ export default function ApplicationsPage() {
         .filter(Boolean)
         .some((v) => String(v).toLowerCase().includes(needle));
     });
-  }, [apps, filter, sourceFilter, q]);
+  }, [apps, filter, sourceFilter, progress, q]);
 
   // Scoped to the selected source so the tiles match what you're looking at
   const scoped = useMemo(
@@ -202,8 +229,12 @@ export default function ApplicationsPage() {
 
   const stats = useMemo(() => {
     const now = Date.now();
+    const completed = scoped.filter(isDone).length;
     return {
       total: scoped.length,
+      completed,
+      rate: scoped.length ? Math.round((completed / scoped.length) * 100) : 0,
+      unfinished: scoped.length - completed,
       week: scoped.filter(
         (a) =>
           a.created_at && now - new Date(a.created_at).getTime() < 7 * 86400000,
@@ -220,7 +251,8 @@ export default function ApplicationsPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Applications</h1>
           <p className="text-zinc-500 text-sm mt-0.5">
-            Answers from every apply page · Mastermind + Skool Launch
+            Everyone who started an apply page · saved from the moment they
+            give name, email and phone
           </p>
         </div>
         <button
@@ -231,8 +263,18 @@ export default function ApplicationsPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-        <StatTile label="Total" value={stats.total} />
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-5">
+        <StatTile label="Started" value={stats.total} />
+        <StatTile
+          label={`Completed · ${stats.rate}%`}
+          value={stats.completed}
+          accent="text-emerald-300"
+        />
+        <StatTile
+          label="Not finished"
+          value={stats.unfinished}
+          accent="text-orange-300"
+        />
         <StatTile label="Last 7 days" value={stats.week} accent="text-blue-300" />
         <StatTile label="Unread" value={stats.newCount} accent="text-amber-300" />
         <StatTile
@@ -267,6 +309,30 @@ export default function ApplicationsPage() {
           })}
         </div>
       )}
+
+      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar mb-3">
+        {PROGRESS.map((p) => {
+          const active = progress === p;
+          const n =
+            p === "all"
+              ? scoped.length
+              : scoped.filter((a) => (p === "completed") === isDone(a)).length;
+          return (
+            <button
+              key={p}
+              onClick={() => setProgress(p)}
+              className={`shrink-0 text-xs font-medium rounded-lg px-3 py-2 border transition ${
+                active
+                  ? "bg-white text-black border-white"
+                  : "text-zinc-400 border-zinc-800 hover:text-white hover:border-zinc-700"
+              }`}
+            >
+              {PROGRESS_LABEL[p]}
+              <span className="ml-1.5 opacity-60">{n}</span>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-5">
         <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
@@ -365,6 +431,11 @@ export default function ApplicationsPage() {
                       {a.business_type}
                     </span>
                   )}
+                  {!isDone(a) && (
+                    <span className="text-[11px] rounded-md px-2 py-1 bg-orange-500/15 text-orange-300 border border-orange-500/30">
+                      ⏳ Not finished · {a.last_step ?? 3}/{TOTAL_STEPS}
+                    </span>
+                  )}
                   {a.booked_call && (
                     <span className="text-[11px] rounded-md px-2 py-1 bg-violet-500/15 text-violet-300 border border-violet-500/30">
                       📅 Booked
@@ -457,7 +528,12 @@ function Detail({
               {fullName(app)}
             </h2>
             <p className="text-zinc-500 text-xs">
-              Applied {fmtFull(app.created_at)} · {sourceLabel(app.source)}
+              {app.completed_at
+                ? `Applied ${fmtFull(app.completed_at)}`
+                : `Started ${fmtFull(app.created_at)}`}{" "}
+              · {sourceLabel(app.source)}
+              {app.utm_source && ` · via ${app.utm_source}`}
+              {app.utm_campaign && ` / ${app.utm_campaign}`}
             </p>
           </div>
           <button
@@ -469,6 +545,18 @@ function Detail({
         </div>
 
         <div className="p-5 space-y-5">
+          {!app.completed_at && (
+            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-3">
+              <p className="text-sm font-semibold text-orange-200">
+                Didn&apos;t finish: answered {app.last_step ?? 3} of{" "}
+                {TOTAL_STEPS} questions
+              </p>
+              <p className="text-xs text-orange-200/70 mt-0.5">
+                Their contact details are below, so this is a warm follow-up.
+              </p>
+            </div>
+          )}
+
           {/* contact */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {app.email && (

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createLeadsAdminClient } from "@/lib/supabase-leads";
 import { REFERRAL_PARTY_TITLE, nextParty } from "@/lib/referral-party";
 import {
+  ReferralInviteInputError,
   normalizeReferralInviteRegistrant,
   readBoundedReferralInviteJson,
   referralInviteId,
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await createLeadsAdminClient()
     .from("referral_party_invites")
     .select("status, invited_at")
-    .ilike("email", email).eq("event_date", party.date).maybeSingle();
+    .eq("email", email).eq("event_date", party.date).maybeSingle();
   if (error) return safeError();
   return NextResponse.json({ party, invite: data ?? null });
 }
@@ -36,15 +37,16 @@ export async function POST(req: NextRequest) {
   let body: { lead_id: string | null; name: string | null; email: string };
   try {
     body = normalizeReferralInviteRegistrant(await readBoundedReferralInviteJson(req));
-  } catch {
-    return NextResponse.json({ error: "Valid Referral Party invite details are required." }, { status: 400 });
+  } catch (error) {
+    const status = error instanceof ReferralInviteInputError ? error.status : 400;
+    return NextResponse.json({ error: "Valid Referral Party invite details are required." }, { status });
   }
 
   const email = body.email;
   const party = summarizeParty();
   const db = createLeadsAdminClient();
   const { data: existing, error: existingError } = await db.from("referral_party_invites")
-    .select("id, status").ilike("email", email).eq("event_date", party.date).maybeSingle();
+    .select("id, status").eq("email", email).eq("event_date", party.date).maybeSingle();
   if (existingError) return safeError();
 
   if (existing?.status === "failed") {

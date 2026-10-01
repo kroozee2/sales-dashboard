@@ -26,22 +26,40 @@ function json(data: unknown, status = 200) {
 export async function GET(req: NextRequest) {
   if (!authorized(req)) return json({ error: "Unauthorized" }, 401);
   try {
-    const { data, error } = await createLeadsAdminClient()
-      .from("referral_party_invites")
-      .select(INVITE_FIELDS)
-      .eq("status", "queued")
-      .order("event_date", { ascending: true })
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true })
-      .limit(MAX_QUEUED_REFERRAL_INVITES);
-    if (error) throw error;
-    const invites = [];
-    let omittedInvalid = 0;
-    for (const row of data ?? []) {
-      try { invites.push(projectQueuedInvite(row)); }
-      catch { omittedInvalid += 1; }
+    const db = createLeadsAdminClient();
+    const invites: ReturnType<typeof projectQueuedInvite>[] = [];
+    const seen = new Set<string>();
+    let quarantinedInvalid = 0;
+    for (let batch = 0; batch < 20 && invites.length < MAX_QUEUED_REFERRAL_INVITES; batch += 1) {
+      const { data, error } = await db.from("referral_party_invites")
+        .select(INVITE_FIELDS)
+        .eq("status", "queued")
+        .order("event_date", { ascending: true })
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .limit(MAX_QUEUED_REFERRAL_INVITES);
+      if (error) throw error;
+      if (!data?.length) break;
+
+      const invalidIds: string[] = [];
+      for (const row of data) {
+        try {
+          const invite = projectQueuedInvite(row);
+          if (!seen.has(invite.id)) { seen.add(invite.id); invites.push(invite); }
+        } catch {
+          if (typeof row.id !== "string") throw new Error("Queued invite has no usable id");
+          invalidIds.push(row.id);
+        }
+      }
+      if (invalidIds.length === 0) break;
+      const { error: quarantineError } = await db.from("referral_party_invites")
+        .update({ status: "failed" })
+        .in("id", invalidIds)
+        .eq("status", "queued");
+      if (quarantineError) throw quarantineError;
+      quarantinedInvalid += invalidIds.length;
     }
-    return json({ invites, limit: MAX_QUEUED_REFERRAL_INVITES, omitted_invalid: omittedInvalid });
+    return json({ invites, limit: MAX_QUEUED_REFERRAL_INVITES, quarantined_invalid: quarantinedInvalid });
   } catch (error) {
     console.error("Referral Party invite worker GET failed", error);
     return json({ error: "Unable to load queued Referral Party invites" }, 500);

@@ -9,6 +9,7 @@ import {
   parseInviteCompletion,
   projectQueuedInvite,
   readInviteCompletionBody,
+  referralInviteId,
 } from "../lib/referral-party-invites.ts";
 import { nextParty, partyFor } from "../lib/referral-party.ts";
 
@@ -25,16 +26,12 @@ test("new queue rows use the verified current series occurrence", () => {
   assert.equal(nextParty(new Date("2026-10-01T12:00:00Z")).eventId, EVENT);
 });
 
-test("an in-progress party remains the current signup target until its verified end", () => {
+test("a party stops accepting new signups when it starts", () => {
   const occurrence = partyFor(2026, 10);
-  const beforeStart = new Date(occurrence.start.getTime() - 1);
-  const atStart = occurrence.start;
-  const beforeEnd = new Date(occurrence.end.getTime() - 1);
-  const atEnd = occurrence.end;
-  assert.equal(nextParty(beforeStart).eventId, occurrence.eventId);
-  assert.equal(nextParty(atStart).eventId, occurrence.eventId);
-  assert.equal(nextParty(beforeEnd).eventId, occurrence.eventId);
-  assert.equal(nextParty(atEnd).eventId, partyFor(2026, 11).eventId);
+  const next = partyFor(2026, 11);
+  assert.equal(nextParty(new Date(occurrence.start.getTime() - 1)).eventId, occurrence.eventId);
+  assert.equal(nextParty(occurrence.start).eventId, next.eventId);
+  assert.equal(nextParty(new Date(occurrence.end.getTime() - 1)).eventId, next.eventId);
 });
 
 test("agent bearer authentication is exact and fails closed", () => {
@@ -62,6 +59,21 @@ test("producer normalization matches the worker row contract", () => {
   assert.throws(() => normalizeReferralInviteRegistrant({ email: "mark@example.com", name: "x".repeat(201) }), /name/i);
 });
 
+test("producer rejects raw control characters and uses a deterministic UUID", () => {
+  assert.throws(() => normalizeReferralInviteRegistrant({ email: "mark@example.com", name: "\tMark" }), /name/i);
+  const first = referralInviteId("mark@example.com", "2026-10-08");
+  assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(first, referralInviteId("mark@example.com", "2026-10-08"));
+  assert.notEqual(first, referralInviteId("other@example.com", "2026-10-08"));
+});
+
+test("next-party selection rolls at event start, including year rollover", () => {
+  const october = partyFor(2026, 10);
+  assert.equal(nextParty(new Date(october.start.getTime() - 1)).date, october.date);
+  assert.equal(nextParty(october.start).date, partyFor(2026, 11).date);
+  assert.equal(nextParty(partyFor(2026, 12).start).date, partyFor(2027, 1).date);
+});
+
 test("event id bounds are identical before and after persistence", () => {
   const max = "a".repeat(1024);
   assert.equal(parseInviteCompletion({ id: ID, status: "invited", actual_event_id: max }).actual_event_id.length, 1024);
@@ -72,7 +84,10 @@ test("event id bounds are identical before and after persistence", () => {
 test("body reader is bounded and rejects duplicate JSON members", async () => {
   assert.deepEqual(await readInviteCompletionBody(bodyRequest(JSON.stringify({ id: ID, status: "invited", actual_event_id: EVENT }))), { id: ID, status: "invited", actual_event_id: EVENT });
   await assert.rejects(() => readInviteCompletionBody(bodyRequest(`{"id":"${ID}","status":"failed","status":"invited"}`)), /duplicate JSON member/i);
-  await assert.rejects(() => readInviteCompletionBody(bodyRequest(" ".repeat(MAX_REFERRAL_INVITE_BODY_BYTES + 1))), /too large/i);
+  await assert.rejects(
+    () => readInviteCompletionBody(bodyRequest(" ".repeat(MAX_REFERRAL_INVITE_BODY_BYTES + 1))),
+    (error) => error?.status === 413 && /too large/i.test(error.message),
+  );
 });
 
 test("queued projection is strict, normalized, and excludes private fields", () => {
@@ -100,4 +115,22 @@ test("agent route is deterministic, bounded, safe, and compare-and-set protected
   assert.match(source, /const invitedAt = completion\.status === "invited" \? new Date\(\)\.toISOString\(\) : null/);
   assert.doesNotMatch(source, /projectQueuedInvite\(\{ \.{3}data/);
   assert.doesNotMatch(source, /select\("\*"\)/);
+  assert.match(source, /quarantined_invalid/);
+  assert.match(source, /\.in\("id", invalidIds\)[\s\S]*\.eq\("status", "queued"\)/);
+});
+
+test("producer is bounded, retryable, atomic, and keeps database errors private", () => {
+  const route = readFileSync(new URL("../app/api/leads/referral-party/route.ts", import.meta.url), "utf8");
+  const page = readFileSync(new URL("../app/leads/page.tsx", import.meta.url), "utf8");
+  assert.match(route, /readBoundedReferralInviteJson/);
+  assert.match(route, /\.eq\("email", email\)/);
+  assert.doesNotMatch(route, /\.ilike\("email"/);
+  assert.match(route, /error instanceof ReferralInviteInputError \? error\.status/);
+  assert.match(route, /ignoreDuplicates:\s*true/);
+  assert.match(route, /referralInviteId/);
+  assert.match(route, /existing\?\.status === "failed"/);
+  assert.match(route, /\.eq\("status", "failed"\)/);
+  assert.doesNotMatch(route, /error\.message/);
+  assert.match(page, /partyInvite\.status !== 'failed'/);
+  assert.match(page, /Retry Referral Party Invite/);
 });

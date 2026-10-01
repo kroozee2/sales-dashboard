@@ -85,6 +85,6 @@ export function partyFor(year: number, month: number): ReferralPartyOccurrence {
 export function nextParty(now: Date = new Date()): ReferralPartyOccurrence {
   const current = partsIn(now, REFERRAL_PARTY_TIME_ZONE);
   const thisMonth = partyFor(current.year, current.month);
-  if (now < thisMonth.end) return thisMonth;
+  if (now < thisMonth.start) return thisMonth;
   return current.month === 12 ? partyFor(current.year + 1, 1) : partyFor(current.year, current.month + 1);
 }

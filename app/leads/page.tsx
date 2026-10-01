@@ -2524,7 +2524,7 @@ function LeadsPageInner() {
 
               {/* Referral Party — puts their email on the NEXT party invite only */}
               <div>
-                {partyInvite ? (
+                {partyInvite && partyInvite.status !== 'failed' ? (
                   <div className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
                     🎉 On the {party?.label ?? 'next'} Referral Party invite
                   </div>
@@ -2535,7 +2535,7 @@ function LeadsPageInner() {
                     title={selectedLead.email ? 'Add them to the next Referral Party calendar invite' : 'This lead has no email address'}
                     className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:brightness-110 disabled:opacity-40 text-white text-xs font-bold transition-all"
                   >
-                    {partyBusy ? 'Adding…' : '🎉 Invite to Referral Party'}
+                    {partyBusy ? 'Adding…' : partyInvite?.status === 'failed' ? '↻ Retry Referral Party Invite' : '🎉 Invite to Referral Party'}
                   </button>
                 )}
                 <p className="text-[10px] text-zinc-600 text-center mt-1">

@@ -1,75 +1,84 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createLeadsAdminClient } from "@/lib/supabase-leads";
+import { REFERRAL_PARTY_TITLE, nextParty } from "@/lib/referral-party";
+import {
+  normalizeReferralInviteRegistrant,
+  readBoundedReferralInviteJson,
+  referralInviteId,
+} from "@/lib/referral-party-invites";
 
 export const runtime = "nodejs";
 
-// The 🎉 7-Figure CEO Referral Party runs on the 2nd Thursday of each month at
-// 3:00 PM ET (Google series r0mjc229cjidri36bbkbhmfaj0). We only ever target the
-// NEXT occurrence — never the whole series — so an invited lead gets exactly one
-// party on their calendar.
-const SERIES_ID = "r0mjc229cjidri36bbkbhmfaj0";
-const EVENT_TITLE = "🎉 7-Figure CEO Referral Party";
-
-/** The 2nd Thursday of a given UTC year/month, as YYYY-MM-DD. */
-function secondThursday(year: number, month: number): string {
-  const first = new Date(Date.UTC(year, month, 1));
-  // 4 = Thursday. Walk forward to the first Thursday, then add a week.
-  const offset = (4 - first.getUTCDay() + 7) % 7;
-  const d = new Date(Date.UTC(year, month, 1 + offset + 7));
-  return d.toISOString().slice(0, 10);
+function summarizeParty() {
+  const party = nextParty();
+  return { date: party.date, label: party.label, eventId: party.eventId };
 }
 
-/** The next party that hasn't happened yet (today counts until it starts). */
-function nextParty(now = new Date()): { date: string; label: string } {
-  const y = now.getUTCFullYear(), m = now.getUTCMonth();
-  let date = secondThursday(y, m);
-  // 19:00Z is 3pm ET during daylight time; once it's past, roll to next month.
-  if (new Date(`${date}T19:00:00Z`).getTime() < now.getTime()) {
-    date = secondThursday(m === 11 ? y + 1 : y, (m + 1) % 12);
-  }
-  const label = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
-    timeZone: "UTC", weekday: "long", month: "long", day: "numeric",
-  });
-  return { date, label: `${label} · 3:00 PM ET` };
+function safeError(status = 500) {
+  return NextResponse.json({ error: "Unable to update the Referral Party invite right now." }, { status });
 }
 
 // GET ?email= — the next party, plus whether this lead is already on it.
 export async function GET(req: NextRequest) {
   const email = (req.nextUrl.searchParams.get("email") || "").trim().toLowerCase();
-  const party = nextParty();
+  const party = summarizeParty();
   if (!email) return NextResponse.json({ party, invite: null });
-  const { data } = await createLeadsAdminClient()
+  const { data, error } = await createLeadsAdminClient()
     .from("referral_party_invites")
     .select("status, invited_at")
     .ilike("email", email).eq("event_date", party.date).maybeSingle();
+  if (error) return safeError();
   return NextResponse.json({ party, invite: data ?? null });
 }
 
-// POST { lead_id, name, email } — queue this lead for the next party.
+// POST { lead_id, name, email } — atomically queue this lead for the next party.
 export async function POST(req: NextRequest) {
-  const b = (await req.json().catch(() => ({}))) as { lead_id?: string; name?: string; email?: string };
-  const email = (b.email || "").trim().toLowerCase();
-  if (!email || !email.includes("@")) {
-    return NextResponse.json({ error: "This lead has no email address, so they can't be added to the invite." }, { status: 400 });
+  let body: { lead_id: string | null; name: string | null; email: string };
+  try {
+    body = normalizeReferralInviteRegistrant(await readBoundedReferralInviteJson(req));
+  } catch {
+    return NextResponse.json({ error: "Valid Referral Party invite details are required." }, { status: 400 });
   }
-  const party = nextParty();
+
+  const email = body.email;
+  const party = summarizeParty();
   const db = createLeadsAdminClient();
-
-  const { data: existing } = await db.from("referral_party_invites")
+  const { data: existing, error: existingError } = await db.from("referral_party_invites")
     .select("id, status").ilike("email", email).eq("event_date", party.date).maybeSingle();
-  if (existing) {
-    return NextResponse.json({ party, invite: existing, alreadyQueued: true });
-  }
+  if (existingError) return safeError();
 
-  const { data, error } = await db.from("referral_party_invites").insert({
-    lead_id: b.lead_id ?? null,
-    name: b.name ?? null,
+  if (existing?.status === "failed") {
+    const { data: retried, error } = await db.from("referral_party_invites")
+      .update({ status: "queued", event_id: party.eventId, invited_at: null })
+      .eq("id", existing.id).eq("status", "failed")
+      .select("id, status").maybeSingle();
+    if (error) return safeError();
+    if (retried) return NextResponse.json({ party, invite: retried, retried: true });
+    const { data: raced, error: racedError } = await db.from("referral_party_invites")
+      .select("id, status").eq("id", existing.id).single();
+    if (racedError) return safeError();
+    return NextResponse.json({ party, invite: raced, alreadyQueued: true });
+  }
+  if (existing) return NextResponse.json({ party, invite: existing, alreadyQueued: true });
+
+  const id = referralInviteId(email, party.date);
+  const row = {
+    id,
+    lead_id: body.lead_id,
+    name: body.name,
     email,
     event_date: party.date,
-    event_id: `${SERIES_ID}_${party.date.replace(/-/g, "")}T190000Z`,
+    event_id: party.eventId,
     status: "queued",
-  }).select().single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  };
+  const { data, error } = await db.from("referral_party_invites")
+    .upsert(row, { onConflict: "id", ignoreDuplicates: true })
+    .select("id, status").maybeSingle();
+  if (error) return safeError();
+  if (data) return NextResponse.json({ party, invite: data, eventTitle: REFERRAL_PARTY_TITLE });
 
-  return NextResponse.json({ party, invite: data, eventTitle: EVENT_TITLE });
+  const { data: concurrent, error: concurrentError } = await db.from("referral_party_invites")
+    .select("id, status").eq("id", id).single();
+  if (concurrentError) return safeError();
+  return NextResponse.json({ party, invite: concurrent, alreadyQueued: true, eventTitle: REFERRAL_PARTY_TITLE });
 }
